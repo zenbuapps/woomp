@@ -41,6 +41,9 @@ final class TradeReqHashDTO {
     /** @var string 買方會員已綁定 Hash (條件性) - 交易時帶入買方 Hash 可完成買方驗證及交易綁定, 註: 買方 Hash 經由 UPP 交易使用 BuyerToken 綁定後取得 */
     public string $BuyerHash = '';
     
+    /** @var int 信用卡分期期數 (條件性) - 1=不分期, 3/6/9/12/18/24/30=分期期數 */
+    public int $CardInst = 1;
+    
     /** @var string 發票載具類別 (必填/條件性) - 如需開立發票此參數必帶, 無須開立則不用帶此參數, 3J0002=手機條碼, CQ0001=自然人憑證, amego=會員載具, Donate=捐贈碼, Company=公司發票 */
     public string $CarrierType = '';
     
@@ -66,23 +69,45 @@ final class TradeReqHashDTO {
     /** 取得 trade params */
     public static function of( \WC_Order $order ): self {
         $setting_dto = SettingDTO::instance();
-        [ $sdk_token, $card_hash ] = OrderUtils::get_tmp_data( $order );
+        [
+            $sdk_token,
+            $card_hash,
+            $save_card,
+            $installment,
+            $use_saved_token,
+            $saved_token_id
+        ] = OrderUtils::get_tmp_data( $order );
+        
+        // 如果使用已儲存的卡片，從 WC_Payment_Tokens 取得 CardHash
+        if( $use_saved_token && $saved_token_id ) {
+            $token = \WC_Payment_Tokens::get( (int) $saved_token_id );
+            if( $token && $token->get_user_id() === $order->get_customer_id() ) {
+                $card_hash = $token->get_token();
+            }
+        }
+        
         $args = [
-            'MerID'      => $setting_dto->merchant_id,
+            'MerID' => $setting_dto->merchant_id,
             'MerTradeNo' => $order->get_order_number(),
-            'Token'      => $sdk_token,
-            'TradeAmt'   => (int) $order->get_total(),
-            'Timestamp'  => \time(),
-            'ReturnURL'  => $order->get_checkout_order_received_url(),
-            'NotifyURL'  => \home_url( '/wc-api/payuni_notify' ), // WooCommerce API 回調網址
-            'UsrMail'    => $order->get_billing_email(),
-            'ProdDesc'   => self::get_product_desc( $order ),
+            'Token' => $sdk_token,
+            'TradeAmt' => (int) $order->get_total(),
+            'Timestamp' => \time(),
+            'ReturnURL' => $order->get_checkout_order_received_url(),
+            'NotifyURL' => \home_url( '/wc-api/payuni_notify' ), // WooCommerce API 回調網址
+            'UsrMail' => $order->get_billing_email(),
+            'ProdDesc' => self::get_product_desc( $order ),
         ];
         
         if( $setting_dto->enable_3d_auth ) {
             $args['API3D'] = 1;
         }
         
+        // 設定分期期數（若大於 1 則表示有分期）
+        if( $installment > 1 ) {
+            $args['CardInst'] = $installment;
+        }
+        
+        // 設定 BuyerHash（已儲存卡片或新卡片的 CardHash）
         if( $card_hash ) {
             $args['BuyerHash'] = $card_hash;
         }

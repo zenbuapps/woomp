@@ -8,7 +8,7 @@
 
 import {$, params} from './env.module.js';
 import {isPayuni} from './utils.module.js';
-import {DEFAULT_IFRAME_STYLE, IFRAME_ELEMENTS, SDK_EVENTS, WC_SELECTORS} from './constants.module.js';
+import {DEFAULT_IFRAME_STYLE, IFRAME_ELEMENTS, SDK_EVENTS, TOKEN_TYPE, WC_SELECTORS} from './constants.module.js';
 import FormState from './FormState.module.js';
 import UIHelper from './UIHelper.module.js';
 import ApiService from './ApiService.module.js';
@@ -87,6 +87,12 @@ class PayUniService {
     /** @type {boolean} 是否已綁定事件 */
     #eventsBound = false;
 
+    /** @type {boolean} 是否使用已儲存的卡片 */
+    #useSavedCard = false;
+
+    /** @type {string|null} 已選擇的儲存卡片 Token ID */
+    #selectedTokenId = null;
+
     /**
      * 建構函式
      *
@@ -99,6 +105,7 @@ class PayUniService {
 
         this.#initSDK();
         this.#bindCheckoutEvents();
+        this.#bindSavedCardEvents();
     }
 
     /**
@@ -241,6 +248,49 @@ class PayUniService {
     }
 
     /**
+     * 綁定已儲存卡片選擇事件
+     *
+     * @private
+     * @description 監聽已儲存卡片的 radio 選擇變更
+     */
+    #bindSavedCardEvents() {
+        // 監聽已儲存卡片的選擇變更
+        $(document).on('change', '.payuni-saved-token-radio', (e) => {
+            const selectedValue = $(e.target).val();
+            this.#updateSavedCardState(selectedValue);
+        });
+
+        // 初始化時檢查是否有預選的卡片
+        const $checkedToken = $('.payuni-saved-token-radio:checked');
+        if ($checkedToken.length) {
+            this.#updateSavedCardState($checkedToken.val());
+        }
+    }
+
+    /**
+     * 更新已儲存卡片狀態
+     *
+     * @param {string} selectedValue - 選擇的值（token ID 或 'new'）
+     * @private
+     */
+    #updateSavedCardState(selectedValue) {
+        if (selectedValue === 'new' || !selectedValue) {
+            // 選擇使用新卡片
+            this.#useSavedCard = false;
+            this.#selectedTokenId = null;
+            $('.payuni-new-card-form').show();
+            $('#payuni_used_token_id').val('');
+        } else {
+            // 選擇使用已儲存的卡片
+            this.#useSavedCard = true;
+            this.#selectedTokenId = selectedValue;
+            $('.payuni-new-card-form').hide();
+            $('#payuni_used_token_id').val(selectedValue);
+        }
+        console.log('[PayUni] 卡片選擇狀態更新:', {useSavedCard: this.#useSavedCard, tokenId: this.#selectedTokenId});
+    }
+
+    /**
      * 處理結帳流程
      *
      * @private
@@ -255,6 +305,38 @@ class PayUniService {
 
         // 清除之前的錯誤訊息
         this.#uiHelper.clearErrors();
+
+        // 如果是使用已儲存的卡片，跳過 SDK 驗證
+        if (this.#useSavedCard && this.#selectedTokenId) {
+            this.#uiHelper.setLoading(true);
+            try {
+                // 使用已儲存的卡片付款
+                const additionalData = {
+                    sdk_token_tmp: params.SDK_TOKEN,
+                    card_hash_tmp: '', // 使用已儲存卡片時不需要 card_hash
+                    payuni_use_saved_token: '1',
+                    payuni_saved_token_id: this.#selectedTokenId,
+                    payuni_installment: this.#getInstallmentValue()
+                };
+
+                const checkoutResponse = await this.#apiService.submitCheckout(additionalData);
+                console.log('[PayUni] 使用已儲存卡片 - 取得後端交易參數:', checkoutResponse);
+
+                // 執行 PayUni 幕後交易授權
+                const tradeResponse = await this.#apiService.sendTradeRequest(checkoutResponse);
+                console.log('[PayUni] 使用已儲存卡片 - PayUni 交易回應:', tradeResponse);
+
+                // 導向感謝頁面
+                this.#handleTradeSuccess(checkoutResponse);
+
+            } catch (error) {
+                console.error('[PayUni] 已儲存卡片結帳流程錯誤:', error);
+                this.#uiHelper.showError(this.#getErrorMessage(error.message));
+            } finally {
+                this.#uiHelper.setLoading(false);
+            }
+            return;
+        }
 
         // 驗證 SDK 是否已準備好
         if (!this.#formState.isReady()) {
@@ -285,9 +367,12 @@ class PayUniService {
             console.log('[PayUni] Step 1 - 取得 SDK 交易結果:', tradeResult);
 
             // Step 2: 送出訂單到 WooCommerce 並取得 PayUni 交易參數
+            const shouldSaveCard = params.ENABLE_TOKENIZATION && $('#payuni_save_card.payuni-save-card-checkbox').is(':checked');
             const additionalData = {
                 sdk_token_tmp: params.SDK_TOKEN,
-                card_hash_tmp: tradeResult.CardHash || ''
+                card_hash_tmp: tradeResult.CardHash || '',
+                payuni_save_card: shouldSaveCard ? '1' : '0',
+                payuni_installment: this.#getInstallmentValue()
             };
 
             const checkoutResponse = await this.#apiService.submitCheckout(additionalData);
@@ -306,6 +391,20 @@ class PayUniService {
         } finally {
             this.#uiHelper.setLoading(false);
         }
+    }
+
+    /**
+     * 取得分期付款選擇的值
+     *
+     * @private
+     * @returns {number} 分期期數（1 表示不分期）
+     */
+    #getInstallmentValue() {
+        if (!params.USE_INST) {
+            return 1;
+        }
+        const selectedInst = $('#payuni_installment').val();
+        return parseInt(selectedInst, 10) || 1;
     }
 
     /**
@@ -335,21 +434,24 @@ class PayUniService {
      * @returns {TradeConfig} 交易設定
      */
     #prepareTradeConfig() {
-        // 取得分期期數（如果有啟用分期）
-        let cardInst = 1; // 預設不分期
+        // 取得分期期數
+        const cardInst = this.#getInstallmentValue();
 
-        if (params.USE_INST) {
-            // 從下拉選單取得選擇的分期數
-            const selectedInst = $('#payuni_installment')?.val();
-            if (selectedInst) {
-                cardInst = parseInt(selectedInst, 10) || 1;
-            }
+        // 檢查是否需要記憶卡號（需要啟用記憶卡號功能且勾選了儲存卡片）
+        const shouldSaveCard = params.ENABLE_TOKENIZATION && $('#payuni_save_card.payuni-save-card-checkbox').is(':checked');
+
+        const config = {
+            cardInst,
+            useDefault: false // 是否使用已儲存的卡號（這裡是新卡片，所以是 false）
+        };
+
+        // 如果要記憶卡號，設定 useTokenType
+        // SDK 會在回傳結果中包含 CardHash
+        if (shouldSaveCard) {
+            config.useTokenType = TOKEN_TYPE.REMEMBER_CARD;
         }
 
-        return {
-            cardInst,
-            useDefault: false // 是否使用記憶卡號
-        };
+        return config;
     }
 
     /**
@@ -362,12 +464,12 @@ class PayUniService {
         // 交易成功後，導向訂單完成頁面
         console.log('[PayUni] 交易成功，導向訂單完成頁面', checkoutResponse);
 
-        // if (checkoutResponse.redirect) {
-        //     window.location.href = checkoutResponse.redirect;
-        // } else {
-        //     // 如果沒有 redirect，重新載入頁面讓 WooCommerce 處理
-        //     window.location.reload();
-        // }
+        if (checkoutResponse.redirect) {
+            window.location.href = checkoutResponse.redirect;
+        } else {
+            // 如果沒有 redirect，重新載入頁面讓 WooCommerce 處理
+            window.location.reload();
+        }
     }
 
     /**

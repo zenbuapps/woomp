@@ -58,6 +58,20 @@ export const TRADE_STATUS = Object.freeze({
 });
 
 /**
+ * Token 類型（記憶卡號設定）
+ * @readonly
+ * @enum {number}
+ */
+export const TOKEN_TYPE = Object.freeze({
+    /** 不使用 Token（一次性付款） */
+    NONE: 0,
+    /** 記憶卡號 */
+    REMEMBER_CARD: 1,
+    /** 約定信用卡 */
+    SUBSCRIPTION_CARD: 2
+});
+
+/**
  * WooCommerce 結帳表單選擇器
  * @readonly
  * @type {Object}

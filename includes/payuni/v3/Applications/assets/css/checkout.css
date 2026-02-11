@@ -1,0 +1,138 @@
+/**
+ * PayUni Credit V3 結帳頁面樣式
+ */
+
+/* 信用卡表單容器 */
+.payuni-credit-v3-form {
+    padding: 15px 0;
+}
+
+.payuni-form-group {
+    margin-bottom: 15px;
+}
+
+.payuni-form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+    color: #333;
+}
+
+.payuni-form-group > div {
+    min-height: 44px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+}
+
+/* 已儲存卡片選項 */
+.payuni-saved-tokens {
+    padding: 10px 0;
+    margin-bottom: 15px;
+    border-bottom: 1px solid #eee;
+}
+
+.payuni-saved-tokens > p > label:first-of-type {
+    font-weight: 600;
+    margin-bottom: 10px;
+    display: block;
+}
+
+.payuni-saved-token-label {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    margin: 5px 0;
+    background: #f9f9f9;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.payuni-saved-token-label:hover {
+    background: #f0f0f0;
+    border-color: #ccc;
+}
+
+.payuni-saved-token-radio {
+    margin-right: 10px;
+}
+
+.payuni-saved-token-radio:checked + span,
+.payuni-saved-token-label:has(.payuni-saved-token-radio:checked) {
+    background: #e8f4fd;
+    border-color: #2271b1;
+}
+
+/* 記憶卡號勾選框 */
+.payuni-save-card-group {
+    margin-top: 15px;
+    padding: 12px;
+    background: #f7f7f7;
+    border-radius: 4px;
+}
+
+.payuni-save-card-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.payuni-save-card-checkbox {
+    margin-right: 8px;
+    width: 18px;
+    height: 18px;
+}
+
+/* 分期付款選項 */
+.payuni-installment-options {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+}
+
+.payuni-installment-options label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.payuni-installment-select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.payuni-installment-select:focus {
+    outline: none;
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+}
+
+/* 新卡片表單過渡動畫 */
+.payuni-new-card-form {
+    transition: all 0.3s ease;
+}
+
+.payuni-new-card-form[style*="display: none"] {
+    opacity: 0;
+    height: 0;
+    overflow: hidden;
+}
+
+/* 響應式調整 */
+@media (max-width: 768px) {
+    .payuni-saved-token-label {
+        padding: 10px;
+    }
+
+    .payuni-save-card-group {
+        padding: 10px;
+    }
+}

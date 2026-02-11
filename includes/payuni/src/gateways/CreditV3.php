@@ -44,20 +44,20 @@ class CreditV3 extends AbstractGateway {
     /** @return void 設定後台 form fields */
     public function init_form_fields(): void {
         $this->form_fields = [
-            'enabled'     => [
+            'enabled'             => [
                 'title'   => __( 'Enable/Disable', 'woocommerce' ),
                 'type'    => 'checkbox',
                 'label'   => \sprintf( __( 'Enable %s', 'woomp' ), $this->method_title ),
                 'default' => 'no',
             ],
-            'title'       => [
+            'title'               => [
                 'title'       => __( 'Title', 'woocommerce' ),
                 'type'        => 'text',
                 'default'     => $this->method_title,
                 'description' => __( 'This controls the title which the user sees during checkout.', 'woocommerce' ),
                 'desc_tip'    => true,
             ],
-            'description' => [
+            'description'         => [
                 'title'       => __( 'Description', 'woocommerce' ),
                 'type'        => 'textarea',
                 'css'         => 'width: 400px;',
@@ -66,6 +66,35 @@ class CreditV3 extends AbstractGateway {
                     'This controls the description which the user sees during checkout.', 'woocommerce'
                 ),
                 'desc_tip'    => true,
+            ],
+            'enable_tokenization' => [
+                'title'       => __( '記憶卡號', 'woomp' ),
+                'type'        => 'checkbox',
+                'label'       => __( '啟用記憶卡號功能，允許客戶儲存信用卡以便下次快速結帳', 'woomp' ),
+                'default'     => 'no',
+                'description' => __( '啟用後，登入的客戶可以選擇儲存信用卡以便未來使用。', 'woomp' ),
+                'desc_tip'    => true,
+            ],
+            'installment_options' => [
+                'title'             => __( '分期付款選項', 'woomp' ),
+                'type'              => 'multiselect',
+                'class'             => 'wc-enhanced-select',
+                'css'               => 'width: 400px;',
+                'default'           => [],
+                'description'       => __( '選擇要啟用的分期期數。留空則不啟用分期付款。', 'woomp' ),
+                'desc_tip'          => true,
+                'options'           => [
+                    3  => \sprintf( __( '%d 期', 'woomp' ), 3 ),
+                    6  => \sprintf( __( '%d 期', 'woomp' ), 6 ),
+                    9  => \sprintf( __( '%d 期', 'woomp' ), 9 ),
+                    12 => \sprintf( __( '%d 期', 'woomp' ), 12 ),
+                    18 => \sprintf( __( '%d 期', 'woomp' ), 18 ),
+                    24 => \sprintf( __( '%d 期', 'woomp' ), 24 ),
+                    30 => \sprintf( __( '%d 期', 'woomp' ), 30 ),
+                ],
+                'custom_attributes' => [
+                    'data-placeholder' => __( '選擇分期期數', 'woomp' ),
+                ],
             ],
         ];
     }
@@ -86,25 +115,92 @@ class CreditV3 extends AbstractGateway {
             echo \wpautop( \wptexturize( $this->description ) );
         }
         
-        // 輸出信用卡輸入框容器
-        $html = <<<HTML
-            <div class="payuni-credit-v3-form">
-                <div class="payuni-form-group">
-                    <label for="put_card_no">信用卡號碼</label>
-                    <div id="put_card_no"></div>
-                </div>
-                <div class="payuni-form-group">
-                    <label for="put_card_exp">有效期限</label>
-                    <div id="put_card_exp"></div>
-                </div>
-                <div class="payuni-form-group">
-                    <label for="put_card_cvc">安全碼</label>
-                    <div id="put_card_cvc"></div>
-                </div>
-            </div>
-        HTML;
+        $enable_tokenization = \wc_string_to_bool( $this->get_option( 'enable_tokenization', 'no' ) );
+        $installment_options = $this->get_option( 'installment_options', [] );
+        $saved_tokens = [];
         
-        echo $html;
+        // 取得已儲存的卡片
+        if( $enable_tokenization && \is_user_logged_in() ) {
+            $saved_tokens = \WC_Payment_Tokens::get_customer_tokens( \get_current_user_id(), $this->id );
+        }
+        
+        // 輸出已儲存卡片選項
+        if( !empty( $saved_tokens ) ) {
+            echo '<div class="payuni-saved-tokens">';
+            echo '<p class="form-row form-row-wide">';
+            echo '<label>' . \esc_html__( '選擇已儲存的卡片', 'woomp' ) . '</label>';
+            
+            foreach ( $saved_tokens as $token ) {
+                $token_id = $token->get_id();
+                $last4 = $token->get_last4();
+                $expiry = $token->get_expiry_month() . '/' . $token->get_expiry_year();
+                $is_default = $token->is_default() ? ' checked="checked"' : '';
+                
+                echo '<label class="payuni-saved-token-label">';
+                echo '<input type="radio" name="payuni_saved_token" value="' . \esc_attr(
+                        $token_id
+                    ) . '" class="payuni-saved-token-radio"' . $is_default . ' />';
+                echo \sprintf( ' **** **** **** %s (到期: %s)', \esc_html( $last4 ), \esc_html( $expiry ) );
+                echo '</label><br/>';
+            }
+            
+            echo '<label class="payuni-saved-token-label">';
+            echo '<input type="radio" name="payuni_saved_token" value="new" class="payuni-saved-token-radio payuni-new-card-radio" />';
+            echo ' ' . \esc_html__( '使用新卡片', 'woomp' );
+            echo '</label>';
+            echo '</p>';
+            echo '</div>';
+        }
+        
+        // 輸出信用卡輸入框容器
+        $new_card_style = !empty( $saved_tokens ) ? ' style="display:none;"' : '';
+        echo '<div class="payuni-credit-v3-form payuni-new-card-form"' . $new_card_style . '>';
+        echo '<div class="payuni-form-group">';
+        echo '<label for="put_card_no">' . \esc_html__( '信用卡號碼', 'woomp' ) . '</label>';
+        echo '<div id="put_card_no"></div>';
+        echo '</div>';
+        echo '<div class="payuni-form-group">';
+        echo '<label for="put_card_exp">' . \esc_html__( '有效期限', 'woomp' ) . '</label>';
+        echo '<div id="put_card_exp"></div>';
+        echo '</div>';
+        echo '<div class="payuni-form-group">';
+        echo '<label for="put_card_cvc">' . \esc_html__( '安全碼', 'woomp' ) . '</label>';
+        echo '<div id="put_card_cvc"></div>';
+        echo '</div>';
+        
+        // 記憶卡號勾選框
+        if( $enable_tokenization && \is_user_logged_in() ) {
+            echo '<div class="payuni-form-group payuni-save-card-group">';
+            echo '<label class="payuni-save-card-label">';
+            echo '<input type="checkbox" name="payuni_save_card" id="payuni_save_card" value="1" class="payuni-save-card-checkbox" />';
+            echo ' ' . \esc_html__( '記住此卡片以便下次使用', 'woomp' );
+            echo '</label>';
+            echo '</div>';
+        }
+        
+        echo '</div>'; // .payuni-credit-v3-form
+        
+        // 分期付款選項
+        if( !empty( $installment_options ) && \is_array( $installment_options ) ) {
+            echo '<div class="payuni-installment-options">';
+            echo '<p class="form-row form-row-wide">';
+            echo '<label for="payuni_installment">' . \esc_html__( '分期付款', 'woomp' ) . '</label>';
+            echo '<select name="payuni_installment" id="payuni_installment" class="payuni-installment-select">';
+            echo '<option value="1">' . \esc_html__( '不分期', 'woomp' ) . '</option>';
+            
+            foreach ( $installment_options as $period ) {
+                echo '<option value="' . \esc_attr( $period ) . '">';
+                echo \sprintf( \esc_html__( '%d 期', 'woomp' ), (int) $period );
+                echo '</option>';
+            }
+            
+            echo '</select>';
+            echo '</p>';
+            echo '</div>';
+        }
+        
+        // 隱藏欄位：儲存使用的 Token ID
+        echo '<input type="hidden" name="payuni_used_token_id" id="payuni_used_token_id" value="" />';
     }
     
     

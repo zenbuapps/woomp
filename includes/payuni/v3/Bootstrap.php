@@ -82,6 +82,12 @@ final class Bootstrap {
         
         $setting = SettingDTO::instance();
         
+        // 載入 CSS 樣式
+        \wp_enqueue_style(
+            'payuni-checkout-v3', WOOMP_PLUGIN_URL . 'includes/payuni/v3/Applications/assets/css/checkout.css', [],
+            WOOMP_VERSION
+        );
+        
         // 根據環境載入對應的 SDK
         $sdk_url = $setting->mode === EMode::PROD ? 'https://vendor.payuni.com.tw/sdk/uni-payment.js' : 'https://sandbox-vendor.payuni.com.tw/sdk/uni-payment.js';
         
@@ -106,12 +112,13 @@ final class Bootstrap {
         
         \wp_localize_script(
             'uni-payment-checkout', 'payuni_payment_v3_checkout_params', [
-                                      'ENV'            => $setting->mode === EMode::PROD ? 'P' : 'S',
-                                      'SDK_TOKEN'      => $sdk_token,
-                                      'USE_INST'       => false, // TODO: 從設定取得分期選項
-                                      'ENABLE_3D_AUTH' => $setting->enable_3d_auth,
-                                      'INST_OPTIONS'   => [], // TODO: 從設定取得可用分期選項
-                                      'ERROR_MAPPER'   => HttpClient::$error_mapper
+                                      'ENV'                 => $setting->mode === EMode::PROD ? 'P' : 'S',
+                                      'SDK_TOKEN'           => $sdk_token,
+                                      'USE_INST'            => $setting->enable_installment,
+                                      'ENABLE_3D_AUTH'      => $setting->enable_3d_auth,
+                                      'INST_OPTIONS'        => $setting->installment_options,
+                                      'ENABLE_TOKENIZATION' => $setting->enable_tokenization,
+                                      'ERROR_MAPPER'        => HttpClient::$error_mapper
                                   ]
         );
     }
@@ -161,11 +168,9 @@ final class Bootstrap {
      * @return void
      */
     public static function handle_notify(): void {
-        \do_action( 'woomp_payuni_log', 'info', '收到 PayUni 回調通知', $_POST );
-        
         try {
             $handler = new TradeHandler();
-            $trade_result = $handler->processNotify( $_POST );
+            $trade_result = $handler->process_notify( $_POST );
             
             // 取得訂單
             $mer_trade_no = $trade_result['MerTradeNo'] ?? '';
@@ -176,7 +181,7 @@ final class Bootstrap {
             }
             
             // 更新訂單狀態
-            $handler->updateOrderStatus( $order, $trade_result );
+            $handler->update_order_status( $order, $trade_result );
             
             // 回應成功
             \wp_send_json_success();

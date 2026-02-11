@@ -12,6 +12,7 @@
  * @property {string} SDK_TOKEN - SDK Token（由後端 API 取得）
  * @property {boolean} USE_INST - 是否啟用分期付款功能
  * @property {boolean} ENABLE_3D_AUTH - 是否啟用 3D 驗證
+ * @property {boolean} ENABLE_TOKENIZATION - 是否啟用記憶卡號功能
  * @property {string} API_URL - PayUni API 端點網址
  * @property {Object<string, string>} ERROR_MAPPER - 錯誤代碼對應訊息
  * @property {number[]} INST_OPTIONS - 可用的分期選項
@@ -24,6 +25,7 @@ const params = window.payuni_payment_v3_checkout_params || {
     ERROR_MAPPER: {},
     USE_INST: false,
     ENABLE_3D_AUTH: false,
+    ENABLE_TOKENIZATION: false,
     API_URL: '',
     INST_OPTIONS: []
 };

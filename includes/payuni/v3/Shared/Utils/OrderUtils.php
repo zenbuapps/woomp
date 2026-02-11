@@ -16,13 +16,22 @@ final class OrderUtils {
      * @return void
      */
     public static function update_tmp_data( \WC_Order $order, array $posted_data ): void {
-        $card_hash_tmp = $posted_data['card_hash_tmp'] ?? '';
-        $sdk_token_tmp = $posted_data['sdk_token_tmp'] ?? '';
-        if( !$card_hash_tmp && !$sdk_token_tmp ) {
-            return;
+        $keys = [
+            'card_hash_tmp',
+            'sdk_token_tmp',
+            'payuni_save_card',
+            'payuni_installment',
+            'payuni_use_saved_token',
+            'payuni_saved_token_id'
+        ];
+        
+        foreach ( $keys as $key ) {
+            $value = $posted_data[$key] ?? '';
+            if( !$value ) {
+                continue;
+            }
+            $order->update_meta_data( $key, $posted_data[$key] );
         }
-        $order->update_meta_data( 'card_hash_tmp', $card_hash_tmp );
-        $order->update_meta_data( 'sdk_token_tmp', $sdk_token_tmp );
         $order->save_meta_data();
     }
     
@@ -31,12 +40,17 @@ final class OrderUtils {
      *
      * @param \WC_Order $order
      *
-     * @return array{0:string, 1:string} [sdk_token, card_hash]
+     * @return array{0:string, 1:string, 2:bool, 3:int, 4:bool, 5:string} [sdk_token, card_hash, save_card, installment, use_saved_token, saved_token_id]
      */
     public static function get_tmp_data( \WC_Order $order ): array {
         $card_hash_tmp = $order->get_meta( 'card_hash_tmp', true );
         $sdk_token_tmp = $order->get_meta( 'sdk_token_tmp', true );
-        return [ $sdk_token_tmp, $card_hash_tmp ];
+        $save_card = \wc_string_to_bool( $order->get_meta( 'payuni_save_card', true ) );
+        $installment = (int) ( $order->get_meta( 'payuni_installment', true ) ?: 1 );
+        $use_saved_token = \wc_string_to_bool( $order->get_meta( 'payuni_use_saved_token', true ) );
+        $saved_token_id = $order->get_meta( 'payuni_saved_token_id', true );
+        
+        return [ $sdk_token_tmp, $card_hash_tmp, $save_card, $installment, $use_saved_token, $saved_token_id ];
     }
     
     
@@ -50,16 +64,32 @@ final class OrderUtils {
     public static function delete_tmp_data( \WC_Order $order ): void {
         $order->delete_meta_data( 'card_hash_tmp' );
         $order->delete_meta_data( 'sdk_token_tmp' );
+        $order->delete_meta_data( 'payuni_save_card' );
+        $order->delete_meta_data( 'payuni_installment' );
+        $order->delete_meta_data( 'payuni_use_saved_token' );
+        $order->delete_meta_data( 'payuni_saved_token_id' );
         $order->save_meta_data();
     }
     
     /** 擴展暫存資料欄位 */
     public static function extend_checkout_field( array $fields ): array {
         $fields['billing']['card_hash_tmp'] = [
-            'type' => 'hidden', // 欄位類型設定為 hidden
+            'type' => 'hidden',
         ];
         $fields['billing']['sdk_token_tmp'] = [
-            'type' => 'hidden', // 欄位類型設定為 hidden
+            'type' => 'hidden',
+        ];
+        $fields['billing']['payuni_save_card'] = [
+            'type' => 'hidden',
+        ];
+        $fields['billing']['payuni_installment'] = [
+            'type' => 'hidden',
+        ];
+        $fields['billing']['payuni_use_saved_token'] = [
+            'type' => 'hidden',
+        ];
+        $fields['billing']['payuni_saved_token_id'] = [
+            'type' => 'hidden',
         ];
         return $fields;
     }

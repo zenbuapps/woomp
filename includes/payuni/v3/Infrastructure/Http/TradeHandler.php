@@ -26,7 +26,7 @@ final class TradeHandler {
      * @return array 交易回應結果
      * @throws \Exception 當交易失敗時
      */
-    public function executeTrade( array $request_body ): array {
+    public function execute_trade( array $request_body ): array {
         $setting = SettingDTO::instance();
         $api_url = "{$setting->mode->base_api_url()}/iframe/merchant_trade";
         
@@ -66,12 +66,36 @@ final class TradeHandler {
     /**
      * 處理交易回調通知
      *
-     * @param array $encrypted_data 加密的回調資料
+     * @param array{
+     *     Status: string,
+     *     Message: string,
+     *     MerID: string,
+     *     MerTradeNo: string,
+     *     Gateway: string,
+     *     TradeNo: string,
+     *     TradeAmt: string,
+     *     TradeStatus: string,
+     *     PaymentType: string,
+     *     CardBank: string,
+     *     Card6No: string,
+     *     Card4No: string,
+     *     CardInst: string,
+     *     FirstAmt: string,
+     *     EachAmt: string,
+     *     ResCode: string,
+     *     ResCodeMsg: string,
+     *     AuthCode: string,
+     *     AuthBank: string,
+     *     AuthBankName: string,
+     *     AuthType: string,
+     *     AuthDay: string,
+     *     AuthTime: string,
+     * } $encrypted_data 加密的回調資料
      *
      * @return array 解密後的交易結果
      * @throws \Exception 當解密或驗證失敗時
      */
-    public function processNotify( array $encrypted_data ): array {
+    public function process_notify( array $encrypted_data ): array {
         $encrypt_info = $encrypted_data['EncryptInfo'] ?? '';
         $hash_info = $encrypted_data['HashInfo'] ?? '';
         
@@ -97,15 +121,41 @@ final class TradeHandler {
      * 更新訂單狀態
      *
      * @param \WC_Order $order        訂單物件
-     * @param array     $trade_result 交易結果
+     * @param array{
+     *      Status: string,
+     *      Message: string,
+     *      MerID: string,
+     *      MerTradeNo: string,
+     *      Gateway: string,
+     *      TradeNo: string,
+     *      TradeAmt: string,
+     *      TradeStatus: string,
+     *      PaymentType: string,
+     *      CardBank: string,
+     *      Card6No: string,
+     *      Card4No: string,
+     *      CardInst: string,
+     *      FirstAmt: string,
+     *      EachAmt: string,
+     *      ResCode: string,
+     *      ResCodeMsg: string,
+     *      AuthCode: string,
+     *      AuthBank: string,
+     *      AuthBankName: string,
+     *      AuthType: string,
+     *      AuthDay: string,
+     *      AuthTime: string,
+     *  }               $trade_result 交易結果
      *
      * @return void
      */
-    public function updateOrderStatus( \WC_Order $order, array $trade_result ): void {
+    public function update_order_status( \WC_Order $order, array $trade_result ): void {
         $status = $trade_result['Status'] ?? '';
         $message = $trade_result['Message'] ?? '';
         $trade_no = $trade_result['TradeNo'] ?? '';
         $card_4no = $trade_result['Card4No'] ?? '';
+        $card_hash = $trade_result['CardHash'] ?? '';
+        $card_exp = $trade_result['CardExpired'] ?? ''; // 格式: MMYY
         
         // 儲存交易資訊到訂單
         $order->update_meta_data( '_payuni_resp_status', $status );
@@ -119,6 +169,15 @@ final class TradeHandler {
             $order->add_order_note(
                 \sprintf( '統一金流 PAYUNi 信用卡付款成功。交易編號: %s', $trade_no )
             );
+            
+            // 檢查是否需要儲存卡片
+            $should_save_card = \wc_string_to_bool( $order->get_meta( 'payuni_save_card', true ) );
+            $customer_id = $order->get_customer_id();
+            
+            if( $should_save_card && $card_hash && $customer_id ) {
+                $this->save_payment_token( $customer_id, $card_hash, $card_4no, $card_exp );
+                $order->add_order_note( '已儲存信用卡以供未來使用。' );
+            }
         }
         else {
             // 交易失敗
@@ -128,5 +187,65 @@ final class TradeHandler {
         }
         
         $order->save();
+//        OrderUtils::delete_tmp_data( $order );
+    }
+    
+    /**
+     * 儲存 Payment Token 到 WooCommerce
+     *
+     * @param int    $customer_id 客戶 ID
+     * @param string $card_hash   信用卡 Hash
+     * @param string $card_4no    信用卡末四碼
+     * @param string $card_exp    有效期限 (MMYY)
+     *
+     * @return void
+     */
+    private function save_payment_token( int $customer_id, string $card_hash, string $card_4no, string $card_exp
+    ): void {
+        // 檢查是否已存在相同的 Token
+        $existing_tokens = \WC_Payment_Tokens::get_customer_tokens( $customer_id, \PAYUNI\Gateways\CreditV3::ID );
+        
+        foreach ( $existing_tokens as $existing_token ) {
+            if( $existing_token->get_token() === $card_hash ) {
+                // 已存在相同的卡片，不需要重複儲存
+                \do_action( 'woomp_payuni_log', 'info', '信用卡 Token 已存在，跳過儲存', [
+                    'customer_id' => $customer_id,
+                    'card_4no'    => $card_4no
+                ] );
+                return;
+            }
+        }
+        
+        // 解析有效期限
+        $expiry_month = '';
+        $expiry_year = '';
+        
+        if( \strlen( $card_exp ) === 4 ) {
+            $expiry_month = \substr( $card_exp, 0, 2 );
+            $expiry_year = '20' . \substr( $card_exp, 2, 2 ); // 假設為 2000 年後
+        }
+        
+        // 建立新的 Payment Token
+        $token = new \WC_Payment_Token_CC();
+        $token->set_token( $card_hash );
+        $token->set_gateway_id( \PAYUNI\Gateways\CreditV3::ID );
+        $token->set_card_type( 'visa' ); // 可以根據卡號前幾碼判斷，這裡先預設
+        $token->set_last4( $card_4no );
+        $token->set_expiry_month( $expiry_month );
+        $token->set_expiry_year( $expiry_year );
+        $token->set_user_id( $customer_id );
+        
+        // 如果是第一張卡，設為預設
+        if( empty( $existing_tokens ) ) {
+            $token->set_default( true );
+        }
+        
+        $token->save();
+        
+        \do_action( 'woomp_payuni_log', 'info', '信用卡 Token 儲存成功', [
+            'customer_id' => $customer_id,
+            'card_4no'    => $card_4no,
+            'token_id'    => $token->get_id()
+        ] );
     }
 }
