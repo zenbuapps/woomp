@@ -67,29 +67,10 @@ final class TradeHandler {
      * 處理交易回調通知
      *
      * @param array{
-     *     Status: string,
-     *     Message: string,
-     *     MerID: string,
-     *     MerTradeNo: string,
-     *     Gateway: string,
-     *     TradeNo: string,
-     *     TradeAmt: string,
-     *     TradeStatus: string,
-     *     PaymentType: string,
-     *     CardBank: string,
-     *     Card6No: string,
-     *     Card4No: string,
-     *     CardInst: string,
-     *     FirstAmt: string,
-     *     EachAmt: string,
-     *     ResCode: string,
-     *     ResCodeMsg: string,
-     *     AuthCode: string,
-     *     AuthBank: string,
-     *     AuthBankName: string,
-     *     AuthType: string,
-     *     AuthDay: string,
-     *     AuthTime: string,
+     *     MerID:string,
+     *     Version: string,
+     *     EncryptInfo: string,
+     *     HashInfo:string
      * } $encrypted_data 加密的回調資料
      *
      * @return array 解密後的交易結果
@@ -145,6 +126,9 @@ final class TradeHandler {
      *      AuthType: string,
      *      AuthDay: string,
      *      AuthTime: string,
+     *      CreditHash?: string,
+     *      CreditLife?: string,
+     *      CoBrandCode?:string
      *  }               $trade_result 交易結果
      *
      * @return void
@@ -154,14 +138,11 @@ final class TradeHandler {
         $message = $trade_result['Message'] ?? '';
         $trade_no = $trade_result['TradeNo'] ?? '';
         $card_4no = $trade_result['Card4No'] ?? '';
-        $card_hash = $trade_result['CardHash'] ?? '';
-        $card_exp = $trade_result['CardExpired'] ?? ''; // 格式: MMYY
+        $card_hash = $trade_result['CreditHash'] ?? '';
+        
         
         // 儲存交易資訊到訂單
-        $order->update_meta_data( '_payuni_resp_status', $status );
-        $order->update_meta_data( '_payuni_resp_message', $message );
-        $order->update_meta_data( '_payuni_resp_trade_no', $trade_no );
-        $order->update_meta_data( '_payuni_card_number', $card_4no );
+        $order->update_meta_data( '_payuni_v3_resp', $trade_result );
         
         if( 'SUCCESS' === $status ) {
             // 交易成功
@@ -172,12 +153,13 @@ final class TradeHandler {
             
             // 檢查是否需要儲存卡片
             $should_save_card = \wc_string_to_bool( $order->get_meta( 'payuni_save_card', true ) );
-            $customer_id = $order->get_customer_id();
-            
-            if( $should_save_card && $card_hash && $customer_id ) {
-                $this->save_payment_token( $customer_id, $card_hash, $card_4no, $card_exp );
-                $order->add_order_note( '已儲存信用卡以供未來使用。' );
+            $user_id = $order->get_customer_id();
+            // 儲存卡號
+            if( $card_hash && $user_id && $should_save_card ) {
+                $credit_life = $trade_result['CreditLife'] ?? '';
+                $this->save_payment_token( $user_id, $card_hash, $card_4no, $credit_life );
             }
+            
         }
         else {
             // 交易失敗
@@ -229,7 +211,7 @@ final class TradeHandler {
         $token = new \WC_Payment_Token_CC();
         $token->set_token( $card_hash );
         $token->set_gateway_id( \PAYUNI\Gateways\CreditV3::ID );
-        $token->set_card_type( 'visa' ); // 可以根據卡號前幾碼判斷，這裡先預設
+//        $token->set_card_type( 'visa' ); // 可以根據卡號前幾碼判斷，這裡先預設
         $token->set_last4( $card_4no );
         $token->set_expiry_month( $expiry_month );
         $token->set_expiry_year( $expiry_year );

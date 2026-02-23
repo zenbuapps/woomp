@@ -168,14 +168,20 @@ class CreditV3 extends AbstractGateway {
         echo '<div id="put_card_cvc"></div>';
         echo '</div>';
         
-        // 記憶卡號勾選框
+        // 記憶卡號勾選框 - 根據 PayUni 文件格式設置
+        // SDK 會根據 useTokenType 事件決定是否在 put_token_type 容器產生 checkbox
         if( $enable_tokenization && \is_user_logged_in() ) {
-            echo '<div class="payuni-form-group payuni-save-card-group">';
-            echo '<label class="payuni-save-card-label">';
-            echo '<input type="checkbox" name="payuni_save_card" id="payuni_save_card" value="1" class="payuni-save-card-checkbox" />';
-            echo ' ' . \esc_html__( '記住此卡片以便下次使用', 'woomp' );
-            echo '</label>';
-            echo '</div>';
+            echo <<<HTML
+                <div id="token_type_checkbox_area" style="display: flex; align-items: center; display: none;">
+                <div id="put_token_type" style="display: flex; align-items: center;">
+                  <!-- 按照 useTokenType 值決定是否在此容器產生 checkbox 選項-->
+                </div>
+                <label id="token_type_text" for="type-checkbox" style="margin-left: 8px;">
+                  <!-- 此區域您可放置 token_type_text 預設文字或是其他  -->
+                </label>
+                </div>
+            HTML;
+            
         }
         
         echo '</div>'; // .payuni-credit-v3-form

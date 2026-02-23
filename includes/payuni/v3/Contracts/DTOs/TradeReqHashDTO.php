@@ -39,7 +39,7 @@ final class TradeReqHashDTO {
     public int $API3D = 1;
     
     /** @var string 買方會員已綁定 Hash (條件性) - 交易時帶入買方 Hash 可完成買方驗證及交易綁定, 註: 買方 Hash 經由 UPP 交易使用 BuyerToken 綁定後取得 */
-    public string $BuyerHash = '';
+    public string $BuyerHash;
     
     /** @var int 信用卡分期期數 (條件性) - 1=不分期, 3/6/9/12/18/24/30=分期期數 */
     public int $CardInst = 1;
@@ -79,6 +79,11 @@ final class TradeReqHashDTO {
         ] = OrderUtils::get_tmp_data( $order );
         
         // 如果使用已儲存的卡片，從 WC_Payment_Tokens 取得 CardHash
+        \do_action( 'woomp_payuni_log', 'info', '使用已記錄的卡片付款', [
+            'use_saved_token' => $use_saved_token,
+            'saved_token_id'  => $saved_token_id,
+        ] );
+        
         if( $use_saved_token && $saved_token_id ) {
             $token = \WC_Payment_Tokens::get( (int) $saved_token_id );
             if( $token && $token->get_user_id() === $order->get_customer_id() ) {
@@ -87,15 +92,15 @@ final class TradeReqHashDTO {
         }
         
         $args = [
-            'MerID' => $setting_dto->merchant_id,
+            'MerID'      => $setting_dto->merchant_id,
             'MerTradeNo' => $order->get_order_number(),
-            'Token' => $sdk_token,
-            'TradeAmt' => (int) $order->get_total(),
-            'Timestamp' => \time(),
-            'ReturnURL' => $order->get_checkout_order_received_url(),
-            'NotifyURL' => \home_url( '/wc-api/payuni_notify' ), // WooCommerce API 回調網址
-            'UsrMail' => $order->get_billing_email(),
-            'ProdDesc' => self::get_product_desc( $order ),
+            'Token'      => $sdk_token,
+            'TradeAmt'   => (int) $order->get_total(),
+            'Timestamp'  => \time(),
+            'ReturnURL'  => $order->get_checkout_order_received_url(),
+            'NotifyURL'  => \home_url( '/wc-api/payuni_notify' ), // WooCommerce API 回調網址
+            'UsrMail'    => $order->get_billing_email(),
+            'ProdDesc'   => self::get_product_desc( $order ),
         ];
         
         if( $setting_dto->enable_3d_auth ) {
@@ -107,10 +112,6 @@ final class TradeReqHashDTO {
             $args['CardInst'] = $installment;
         }
         
-        // 設定 BuyerHash（已儲存卡片或新卡片的 CardHash）
-        if( $card_hash ) {
-            $args['BuyerHash'] = $card_hash;
-        }
         
         $ip = $order->get_customer_ip_address();
         if( $ip ) {

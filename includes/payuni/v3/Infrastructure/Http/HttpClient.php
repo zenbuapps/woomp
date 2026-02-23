@@ -214,8 +214,18 @@ final class HttpClient {
         $encrypt_info = [
             'MerID'        => $setting->merchant_id,
             'Timestamp'    => \time(),
-            'IFrameDomain' => self::get_site_url()
+            'IFrameDomain' => self::get_site_url(),
         ];
+        $current_user = \wp_get_current_user();
+        if( $current_user ) {
+            $encrypt_info['UseTokenType'] = 2;
+            $encrypt_info['CreditToken'] = \get_user_meta(
+                $current_user->ID, 'billing_email', true
+            ) ?: $current_user->user_email;
+            $encrypt_info['CreditTokenType'] = 1;
+        }
+        
+        
         return $this->post( '/iframe/token_get', $this->get_auth_body_params( $encrypt_info ) );
     }
     

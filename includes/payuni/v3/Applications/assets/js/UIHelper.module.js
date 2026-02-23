@@ -154,6 +154,24 @@ class UIHelper {
         div.textContent = text;
         return div.innerHTML;
     }
+
+    /**
+     * 顯示已綁定的卡號資訊
+     *
+     * @param {string} cardNo - 已綁定的卡號（隱碼格式，如 414712******2716）
+     */
+    showSavedCardInfo(cardNo) {
+        const $savedCardInfo = $('#payuni_saved_card_info');
+        if ($savedCardInfo.length) {
+            $savedCardInfo.html(`已綁定卡號: ${this.#escapeHtml(cardNo)}`).show();
+        } else {
+            // 如果元素不存在，在表單中創建
+            const $container = $(WC_SELECTORS.TOKEN_TYPE_CHECKBOX_AREA);
+            if ($container.length) {
+                $container.after(`<div id="payuni_saved_card_info" class="payuni-saved-card-info">已綁定卡號: ${this.#escapeHtml(cardNo)}</div>`);
+            }
+        }
+    }
 }
 
 export default UIHelper;

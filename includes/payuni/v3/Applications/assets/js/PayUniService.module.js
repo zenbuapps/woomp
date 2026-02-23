@@ -45,7 +45,8 @@ import ApiService from './ApiService.module.js';
  * @property {string} Status - 交易狀態
  * @property {string} EncryptInfo - 加密的交易資訊
  * @property {string} HashInfo - 雜湊驗證資訊
- * @property {string} [CardHash] - 信用卡綁定 Hash（當有勾選記憶卡號時回傳）
+ * @property {string} MerID - 商店 ID
+ * @property {string} Version - 版本
  */
 
 /**
@@ -168,14 +169,36 @@ class PayUniService {
     /**
      * 處理 Token 類型事件（記憶卡號/約定信用卡）
      *
-     * @param {*} data - 事件資料
+     * @param {Object} data - 事件資料
+     * @param {string|null} data.cardNo - 已記憶的卡號（隱碼格式）
+     * @param {string} data.tokenTypeText - 顯示的文案
+     * @param {string} data.tokenType - Token 類型（1=約定信用卡, 2=記憶卡號, 3=強制約定信用卡）
      * @private
      */
     #handleTokenTypeEvent(data) {
-        // 取得 Token 類型文案（可用於顯示在 checkbox 旁）
-        const tokenTypeText = this.#payuniSDK.getTokenTypeText();
-        console.log('[PayUni] Token 類型文案:', tokenTypeText);
-        // 可依需求在此處理 UI 顯示邏輯
+        const {cardNo, tokenTypeText, tokenType} = data || {};
+
+        console.log('[PayUni] Token 類型事件:', {cardNo, tokenTypeText, tokenType});
+
+        // 顯示 checkbox 區域
+        const $checkboxArea = $(WC_SELECTORS.TOKEN_TYPE_CHECKBOX_AREA);
+        if ($checkboxArea.length) {
+            $checkboxArea.css('display', 'flex');
+        }
+
+        // 啟用記憶卡號，且已綁定成功後，SDK 會透過 cardNo 回傳綁定的記憶卡號
+        if (tokenType === '2' && cardNo !== null) {
+            // 可在此做相對應的畫面處理，例如顯示已綁定卡號
+            console.log('[PayUni] 已綁定卡號:', cardNo);
+            this.#uiHelper.showSavedCardInfo(cardNo);
+        }
+
+        // 顯示 checkbox 的文案
+        setTimeout(() => {
+            if (tokenTypeText) {
+                $(WC_SELECTORS.TOKEN_TYPE_TEXT).html(tokenTypeText);
+            }
+        }, 100);
     }
 
     /**
@@ -313,7 +336,6 @@ class PayUniService {
                 // 使用已儲存的卡片付款
                 const additionalData = {
                     sdk_token_tmp: params.SDK_TOKEN,
-                    card_hash_tmp: '', // 使用已儲存卡片時不需要 card_hash
                     payuni_use_saved_token: '1',
                     payuni_saved_token_id: this.#selectedTokenId,
                     payuni_installment: this.#getInstallmentValue()
@@ -367,10 +389,10 @@ class PayUniService {
             console.log('[PayUni] Step 1 - 取得 SDK 交易結果:', tradeResult);
 
             // Step 2: 送出訂單到 WooCommerce 並取得 PayUni 交易參數
-            const shouldSaveCard = params.ENABLE_TOKENIZATION && $('#payuni_save_card.payuni-save-card-checkbox').is(':checked');
+            // SDK 會在 put_token_type 容器中產生一個 id 為 type-checkbox 的 checkbox
+            const shouldSaveCard = params.ENABLE_TOKENIZATION && $(WC_SELECTORS.TOKEN_TYPE_CHECKBOX).is(':checked');
             const additionalData = {
                 sdk_token_tmp: params.SDK_TOKEN,
-                card_hash_tmp: tradeResult.CardHash || '',
                 payuni_save_card: shouldSaveCard ? '1' : '0',
                 payuni_installment: this.#getInstallmentValue()
             };
@@ -438,7 +460,8 @@ class PayUniService {
         const cardInst = this.#getInstallmentValue();
 
         // 檢查是否需要記憶卡號（需要啟用記憶卡號功能且勾選了儲存卡片）
-        const shouldSaveCard = params.ENABLE_TOKENIZATION && $('#payuni_save_card.payuni-save-card-checkbox').is(':checked');
+        // SDK 會在 put_token_type 容器中產生一個 id 為 type-checkbox 的 checkbox
+        const shouldSaveCard = params.ENABLE_TOKENIZATION && $(WC_SELECTORS.TOKEN_TYPE_CHECKBOX).is(':checked');
 
         const config = {
             cardInst,

@@ -28,7 +28,9 @@ export const IFRAME_ELEMENTS = Object.freeze({
     /** 信用卡有效期限輸入框 */
     CardExp: 'put_card_exp',
     /** 信用卡安全碼輸入框 */
-    CardCvc: 'put_card_cvc'
+    CardCvc: 'put_card_cvc',
+    /** 記憶卡號類型核取方塊容器 */
+    CardTokenType: 'put_token_type'
 });
 
 /**
@@ -86,7 +88,15 @@ export const WC_SELECTORS = Object.freeze({
     /** 付款方式選項 */
     PAYMENT_METHODS: 'input[type="radio"][name="payment_method"]',
     /** 錯誤訊息區塊 */
-    NOTICE_GROUP: '.woocommerce-NoticeGroup-updateOrderReview, .woocommerce-NoticeGroup-checkout'
+    NOTICE_GROUP: '.woocommerce-NoticeGroup-updateOrderReview, .woocommerce-NoticeGroup-checkout',
+    /** 記憶卡號核取方塊區域 */
+    TOKEN_TYPE_CHECKBOX_AREA: '#token_type_checkbox_area',
+    /** 記憶卡號核取方塊容器（SDK 會在此產生 checkbox） */
+    TOKEN_TYPE_CONTAINER: '#put_token_type',
+    /** 記憶卡號文字標籤 */
+    TOKEN_TYPE_TEXT: '#token_type_text',
+    /** SDK 產生的記憶卡號核取方塊（id 由 SDK 自動產生） */
+    TOKEN_TYPE_CHECKBOX: '#type-checkbox'
 });
 
 /**
