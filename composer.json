@@ -10,5 +10,13 @@
     "psr-4": {
       "J7\\Payuni\\": "includes/payuni/v3/"
     }
+  },
+  "require-dev": {
+    "pestphp/pest": "^3.0"
+  },
+  "config": {
+    "allow-plugins": {
+      "pestphp/pest-plugin": true
+    }
   }
 }
