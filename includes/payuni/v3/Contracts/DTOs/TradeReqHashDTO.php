@@ -98,7 +98,7 @@ final class TradeReqHashDTO {
             'TradeAmt'   => (int) $order->get_total(),
             'Timestamp'  => \time(),
             'ReturnURL'  => $order->get_checkout_order_received_url(),
-            'NotifyURL'  => \home_url( '/wc-api/payuni_notify' ), // WooCommerce API 回調網址
+            'NotifyURL'  => self::get_notify_url(), // WooCommerce API 回調網址
             'UsrMail'    => $order->get_billing_email(),
             'ProdDesc'   => self::get_product_desc( $order ),
         ];
@@ -121,12 +121,20 @@ final class TradeReqHashDTO {
         return new self( $args );
     }
     
-    /** 取得訂單商品描述 */
+    /** 取得商品描述 */
     private static function get_product_desc( \WC_Order $order ): string {
         /** @var \WC_Order_Item_Product[] $items */
         $items = $order->get_items();
         $item_names = \array_map( static fn( $item ) => $item->get_name(), $items );
         return \implode( ';', $item_names );
+    }
+    
+    /** 取得背景通知網址，local 環境改用 Cloudflare Tunnel，確保 PayUni 可回調 */
+    private static function get_notify_url(): string {
+        if( 'local' === \wp_get_environment_type() ) {
+            return 'https://payuni-test.powerhouse.tw/wc-api/payuni_notify';
+        }
+        return \home_url( '/wc-api/payuni_notify' );
     }
     
     /** To Array */

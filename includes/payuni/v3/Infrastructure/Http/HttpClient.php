@@ -235,7 +235,7 @@ final class HttpClient {
     /** 取得 IFrameDomain，因為不能使用 .local 的本地網域  */
     private static function get_site_url(): string {
         if( 'local' === \wp_get_environment_type() ) {
-            return 'https://partnerdemo.wpsite.pro';
+            return 'https://payuni-test.powerhouse.tw';
         }
         
         return \untrailingslashit( \site_url() );

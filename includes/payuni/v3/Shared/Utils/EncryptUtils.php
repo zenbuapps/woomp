@@ -34,6 +34,11 @@ final class EncryptUtils {
             $encryptData, 'aes-256-gcm', \trim( $settings->hash_key ), 0, \trim( $settings->hash_iv ),
             \base64_decode( $tag )
         );
+
+        if( $encryptInfo === false ) {
+            return [];
+        }
+
         \parse_str( $encryptInfo, $encryptArr );
         
         return $encryptArr;

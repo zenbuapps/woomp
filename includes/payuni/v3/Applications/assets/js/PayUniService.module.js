@@ -259,7 +259,8 @@ class PayUniService {
     #bindCheckoutEvents() {
         if (this.#eventsBound) return;
 
-        $(WC_SELECTORS.PLACE_ORDER_BTN).on('click', (e) => {
+        // 使用事件代理，避免 WC 更新結帳後按鈕重新渲染導致 handler 失效
+        $(document).on('click', WC_SELECTORS.PLACE_ORDER_BTN, (e) => {
             if (!isPayuni()) return;
 
             e.preventDefault();
