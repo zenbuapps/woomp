@@ -21,7 +21,7 @@ if [[ -z "${VERSION}" ]]; then
     exit 1
 fi
 
-ZIP_NAME="${PLUGIN_SLUG}-${VERSION}.zip"
+ZIP_NAME="${PLUGIN_SLUG}.zip"
 ZIP_PATH="${BUILD_DIR}/${ZIP_NAME}"
 
 echo "================================================"
@@ -44,9 +44,9 @@ rsync -a \
     --exclude="tests/" \
     --exclude="vendor/" \
     --exclude="build/" \
-    --exclude="debug.php" \
     --exclude="phpcs.xml" \
     --exclude="phpunit.xml" \
+		--exclude="build.sh" \
     --exclude="tailwind.config.cjs" \
     --exclude=".gitignore" \
     "${PLUGIN_DIR}/" "${STAGE_DIR}/"
