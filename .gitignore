@@ -9,6 +9,7 @@ pnpm-lock.yaml
 lerna-debug.log*
 
 **/node_modules/**
+e2e/screenshots
 dist
 build
 dist-ssr

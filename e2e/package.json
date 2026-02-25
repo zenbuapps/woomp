@@ -1,0 +1,17 @@
+{
+  "name": "woomp-e2e",
+  "version": "1.0.0",
+  "description": "PayUni v3 E2E Playwright 測試腳本",
+  "scripts": {
+    "test": "npx tsx payuni-checkout.ts",
+    "test:cdp": "npx tsx payuni-checkout.ts --cdp-endpoint=http://localhost:9222"
+  },
+  "dependencies": {
+    "playwright": "^1.50.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
