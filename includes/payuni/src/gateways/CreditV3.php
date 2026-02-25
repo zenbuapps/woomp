@@ -8,6 +8,7 @@
 namespace PAYUNI\Gateways;
 
 use J7\Payuni\Contracts\DTOs\TradeReqDTO;
+use J7\Payuni\Infrastructure\Http\TradeHandler;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -213,25 +214,54 @@ class CreditV3 extends AbstractGateway {
     /**
      * 處理付款
      *
-     * 共用邏輯：
-     * 1. order note 紀錄 gateway
-     * 2. 支付順利的話就扣庫存，不順利就 throw Exception
+     * 流程：
+     * 1. 組裝加密交易參數
+     * 2. server-side 呼叫 PayUni merchant_trade API（避免瀏覽器 CORS 問題）
+     * 3. 依回應更新訂單狀態
      *
      * @param int $order_id 訂單 ID
      *
-     * @return array{result:string, redirect?:string} 'success'|'failure'
+     * @return array{result:string, redirect?:string, order_id?:int} 'success'|'failure'
      */
     public function process_payment( $order_id ): array {
         $order = \wc_get_order( $order_id );
         /** @var \WC_Order $order */
-        $default = [
-            'result'   => 'success',
-            'redirect' => $order->get_checkout_order_received_url(),
-            'order_id' => $order_id,
-        ];
-        $params = TradeReqDTO::of( $order )->to_array();
-        
-        return \array_merge( $default, $params );
+
+        try {
+            // 組裝加密請求參數（EncryptInfo, HashInfo, MerID, Version, ApiUrl）
+            $request_body = TradeReqDTO::of( $order )->to_array();
+
+            // Server-side 呼叫 PayUni merchant_trade（wp_remote_post，無 CORS 問題）
+            $handler      = new TradeHandler();
+            $raw_response = $handler->execute_trade( $request_body );
+
+            // 若有 EncryptInfo → 驗證 HashInfo 並解密（直接授權流程）
+            // 否則使用 raw response（幕後3D流程：TradeNo 由 webhook 補傳）
+            if ( ! empty( $raw_response['EncryptInfo'] ) ) {
+                $trade_result = $handler->process_notify( $raw_response );
+            } else {
+                $trade_result = $raw_response;
+            }
+
+            // 依交易結果更新訂單狀態（SUCCESS → payment_complete, 其他 → failed）
+            $handler->update_order_status( $order, $trade_result );
+
+            return [
+                'result'   => 'success',
+                'redirect' => $order->get_checkout_order_received_url(),
+                'order_id' => $order_id,
+            ];
+
+        } catch ( \Throwable $e ) {
+            \do_action( 'woomp_payuni_log', 'error', 'process_payment 失敗: ' . $e->getMessage(), [
+                'order_id' => $order_id,
+            ] );
+            \wc_add_notice( \esc_html( $e->getMessage() ), 'error' );
+
+            return [
+                'result' => 'failure',
+            ];
+        }
     }
     
     /**

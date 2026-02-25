@@ -140,9 +140,27 @@ final class TradeHandler {
         $card_4no = $trade_result['Card4No'] ?? '';
         $card_hash = $trade_result['CreditHash'] ?? '';
         
-        
-        // 儲存交易資訊到訂單
+        // 儲存交易資訊到訂單（原始解密陣列 + 顯示用獨立欄位）
         $order->update_meta_data( '_payuni_v3_resp', $trade_result );
+        $order->update_meta_data( '_payuni_resp_status', $status );
+        $order->update_meta_data( '_payuni_resp_message', $message );
+        if ( $trade_no ) {
+            $order->update_meta_data( '_payuni_resp_trade_no', $trade_no );
+        }
+        if ( $card_4no ) {
+            $order->update_meta_data( '_payuni_card_number', $card_4no );
+        }
+        
+        // 冪等性保護：訂單已付款（如 process_payment 已呼叫 payment_complete）
+        // 仍需保存 meta（webhook 補傳的 TradeNo/Card4No），但跳過重複付款完成動作
+        if ( $order->is_paid() ) {
+            \do_action( 'woomp_payuni_log', 'info', '訂單已付款，更新交易細節但跳過重複付款', [
+                'order_id' => $order->get_id(),
+                'trade_no' => $trade_no,
+            ] );
+            $order->save();
+            return;
+        }
         
         if( 'SUCCESS' === $status ) {
             // 交易成功
