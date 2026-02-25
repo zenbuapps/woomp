@@ -1,22 +1,14 @@
 {
-  "require": {
-    "oberonlai/wp-metabox": "^1.0",
-    "a7/autoload": "^2.1",
-    "dennykuo/invoice-porter": "^0.2.2",
-    "guzzlehttp/guzzle": "^6.5.8",
-    "yahnis-elsts/plugin-update-checker": "^5.3"
-  },
-  "autoload": {
-    "psr-4": {
-      "J7\\Payuni\\": "includes/payuni/v3/"
-    }
-  },
-  "require-dev": {
-    "pestphp/pest": "^3.0"
-  },
-  "config": {
-    "allow-plugins": {
-      "pestphp/pest-plugin": true
-    }
-  }
+	"require": {
+		"oberonlai/wp-metabox": "^1.0",
+		"a7/autoload": "^2.1",
+		"dennykuo/invoice-porter": "^0.2.2",
+		"guzzlehttp/guzzle": "^6.5.8",
+		"yahnis-elsts/plugin-update-checker": "^5.3"
+	},
+	"autoload": {
+		"psr-4": {
+			"J7\\Payuni\\": "includes/payuni/v3/"
+		}
+	}
 }
