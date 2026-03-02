@@ -188,10 +188,12 @@ class PayUniService {
     #handleTokenTypeEvent(data) {
         const {cardNo, tokenTypeText, tokenType} = data || {};
 
-        // 顯示 checkbox 區域
-        const $checkboxArea = $(WC_SELECTORS.TOKEN_TYPE_CHECKBOX_AREA);
-        if ($checkboxArea.length) {
-            $checkboxArea.css('display', 'flex');
+        // 僅在使用新卡片時顯示「記憶卡號」checkbox（存卡付款不需再次儲存）
+        if (!this.#useSavedCard) {
+            const $checkboxArea = $(WC_SELECTORS.TOKEN_TYPE_CHECKBOX_AREA);
+            if ($checkboxArea.length) {
+                $checkboxArea.css('display', 'flex');
+            }
         }
 
         // 啟用記憶卡號，且已綁定成功後，SDK 會透過 cardNo 回傳綁定的記憶卡號
@@ -326,13 +328,24 @@ class PayUniService {
             // 選擇使用新卡片
             this.#useSavedCard = false;
             this.#selectedTokenId = null;
+            // 重置 token 模式，確保新卡片流程以實際輸入欄位進行驗證
+            this.#sdkTokenCardActive = false;
+            // 還原全部 form-group 可見
+            $('#put_card_no').closest('.payuni-form-group').show();
+            $('#put_card_exp').closest('.payuni-form-group').show();
             $('.payuni-new-card-form').show();
             $('#payuni_used_token_id').val('');
         } else {
             // 選擇使用已儲存的卡片
             this.#useSavedCard = true;
             this.#selectedTokenId = selectedValue;
-            $('.payuni-new-card-form').hide();
+            // 顯示 form wrapper 讓 CVC 可見，但隱藏 CardNo 與 CardExp
+            // SDK getTradeResult({ useDefault: true }) 需要用戶輸入安全碼才能完成交易
+            $('.payuni-new-card-form').show();
+            $('#put_card_no').closest('.payuni-form-group').hide();
+            $('#put_card_exp').closest('.payuni-form-group').hide();
+            // 使用存卡付款時隱藏「記憶卡號」checkbox（不需再次儲存）
+            $(WC_SELECTORS.TOKEN_TYPE_CHECKBOX_AREA).hide();
             $('#payuni_used_token_id').val(selectedValue);
         }
         console.log('[PayUni] 卡片選擇狀態更新:', {useSavedCard: this.#useSavedCard, tokenId: this.#selectedTokenId});
@@ -354,10 +367,15 @@ class PayUniService {
         // 清除之前的錯誤訊息
         this.#uiHelper.clearErrors();
 
-        // 如果是使用已儲存的卡片，跳過 SDK 驗證
+        // 如果是使用已儲存的卡片，跳過 SDK 表單驗證，但仍需呼叫 getTradeResult
         if (this.#useSavedCard && this.#selectedTokenId) {
             this.#uiHelper.setLoading(true);
             try {
+                // Step 1: 必須呼叫 getTradeResult({ useDefault: true })，讓 PayUni 建立 pending trade 記錄
+                // 若省略此步，merchant_trade 將返回 IFTRADE04002（未有交易設定資料）
+                await this.#payuniSDK.getTradeResult({useDefault: true});
+                console.log('[PayUni] 使用已儲存卡片 - getTradeResult 完成');
+
                 // 使用已儲存的卡片付款
                 const additionalData = {
                     sdk_token_tmp: params.SDK_TOKEN,

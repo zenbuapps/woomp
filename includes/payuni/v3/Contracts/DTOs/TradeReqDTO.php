@@ -38,10 +38,6 @@ final class TradeReqDTO {
         $setting = SettingDTO::instance();
         $trade_params = TradeReqHashDTO::of( $order )->to_array();
         
-        // TEST ----- ▼ 印出 WC Logger 記得移除 ----- //
-        \J7\WpUtils\Classes\WC::logger( '$trade_params', 'info', $trade_params );
-        // TEST ---------- END ---------- //
-        
         $encrypt_info = EncryptUtils::encrypt( $trade_params );
         $args = [
             'MerID'       => $setting->merchant_id,

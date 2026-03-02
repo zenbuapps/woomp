@@ -138,6 +138,7 @@ final class TradeHandler {
         $message = $trade_result['Message'] ?? '';
         $trade_no = $trade_result['TradeNo'] ?? '';
         $card_4no = $trade_result['Card4No'] ?? '';
+        $card_6no = $trade_result['Card6No'] ?? '';
         $card_hash = $trade_result['CreditHash'] ?? '';
         
         // 儲存交易資訊到訂單（原始解密陣列 + 顯示用獨立欄位）
@@ -158,6 +159,24 @@ final class TradeHandler {
                 'order_id' => $order->get_id(),
                 'trade_no' => $trade_no,
             ] );
+            // Notify 補傳：若顧客要求記憶卡號，仍須儲存 Token
+            if ( 'SUCCESS' === $status ) {
+                $should_save_card = \wc_string_to_bool( $order->get_meta( 'payuni_save_card', true ) );
+                $user_id = $order->get_customer_id();
+                \do_action( 'woomp_payuni_log', 'info', '[DEBUG] 路徑B token 儲存條件檢查', [
+                    'order_id'        => $order->get_id(),
+                    'user_id'         => $user_id,
+                    'should_save_card'=> $should_save_card,
+                    'card_hash'       => $card_hash,
+                    'card_6no'        => $card_6no,
+                    'card_4no'        => $card_4no,
+                    'raw_meta'        => $order->get_meta( 'payuni_save_card', true ),
+                ] );
+                if ( $user_id && $should_save_card && ( $card_hash || $card_4no ) ) {
+                    $credit_life = $trade_result['CreditLife'] ?? '';
+                    $this->save_payment_token( $user_id, $card_hash, $card_6no, $card_4no, $credit_life );
+                }
+            }
             $order->save();
             return;
         }
@@ -173,9 +192,9 @@ final class TradeHandler {
             $should_save_card = \wc_string_to_bool( $order->get_meta( 'payuni_save_card', true ) );
             $user_id = $order->get_customer_id();
             // 儲存卡號
-            if( $card_hash && $user_id && $should_save_card ) {
+            if( $user_id && $should_save_card && ( $card_hash || $card_4no ) ) {
                 $credit_life = $trade_result['CreditLife'] ?? '';
-                $this->save_payment_token( $user_id, $card_hash, $card_4no, $credit_life );
+                $this->save_payment_token( $user_id, $card_hash, $card_6no, $card_4no, $credit_life );
             }
             
         }
@@ -200,13 +219,19 @@ final class TradeHandler {
      *
      * @return void
      */
-    private function save_payment_token( int $customer_id, string $card_hash, string $card_4no, string $card_exp
+    private function save_payment_token( int $customer_id, string $card_hash, string $card_6no, string $card_4no, string $card_exp
     ): void {
+        // 若無 CreditHash（Sandbox 模擬授權不回傳），以卡號組合作為 fallback token
+        $token_key = $card_hash ?: sprintf( '%s****%s', $card_6no, $card_4no );
+        if ( ! $token_key ) {
+            return;
+        }
+        
         // 檢查是否已存在相同的 Token
         $existing_tokens = \WC_Payment_Tokens::get_customer_tokens( $customer_id, \PAYUNI\Gateways\CreditV3::ID );
         
         foreach ( $existing_tokens as $existing_token ) {
-            if( $existing_token->get_token() === $card_hash ) {
+            if( $existing_token->get_token() === $token_key ) {
                 // 已存在相同的卡片，不需要重複儲存
                 \do_action( 'woomp_payuni_log', 'info', '信用卡 Token 已存在，跳過儲存', [
                     'customer_id' => $customer_id,
@@ -216,20 +241,28 @@ final class TradeHandler {
             }
         }
         
-        // 解析有效期限
-        $expiry_month = '';
-        $expiry_year = '';
+        // 解析有效期限（PayUni CreditLife 格式為 MMYY，Sandbox 不回傳時使用遠未來 fallback）
+        $expiry_month = '12';
+        $expiry_year  = '2099'; // Sandbox fallback
         
-        if( \strlen( $card_exp ) === 4 ) {
+        if ( \strlen( $card_exp ) === 4 ) {
             $expiry_month = \substr( $card_exp, 0, 2 );
-            $expiry_year = '20' . \substr( $card_exp, 2, 2 ); // 假設為 2000 年後
+            $expiry_year  = '20' . \substr( $card_exp, 2, 2 );
         }
         
         // 建立新的 Payment Token
         $token = new \WC_Payment_Token_CC();
-        $token->set_token( $card_hash );
+        $token->set_token( $token_key );
         $token->set_gateway_id( \PAYUNI\Gateways\CreditV3::ID );
-//        $token->set_card_type( 'visa' ); // 可以根據卡號前幾碼判斷，這裡先預設
+        // 依卡號前幾碼判斷卡片類型（4=Visa, 5=Mastercard, 3=Amex, 6=Discover）
+        $card_type = match ( true ) {
+            str_starts_with( $card_6no, '4' ) => 'visa',
+            str_starts_with( $card_6no, '5' ) => 'mastercard',
+            str_starts_with( $card_6no, '3' ) => 'amex',
+            str_starts_with( $card_6no, '6' ) => 'discover',
+            default                            => 'visa',
+        };
+        $token->set_card_type( $card_type );
         $token->set_last4( $card_4no );
         $token->set_expiry_month( $expiry_month );
         $token->set_expiry_year( $expiry_year );

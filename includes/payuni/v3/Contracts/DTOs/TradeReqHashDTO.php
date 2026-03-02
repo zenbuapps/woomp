@@ -38,8 +38,8 @@ final class TradeReqHashDTO {
     /** @var int 指定3D (條件性) - 1=指定3D, 當商店信用卡3D設定為關閉3D時, 可帶入此參數表示此筆交易指定使用3D交易 */
     public int $API3D = 1;
     
-    /** @var string 買方會員已綁定 Hash (條件性) - 交易時帶入買方 Hash 可完成買方驗證及交易綁定, 註: 買方 Hash 經由 UPP 交易使用 BuyerToken 綁定後取得 */
-    public string $BuyerHash;
+    /** @var string|null 信用卡Token (條件性) - 如有使用 UseTokenType 參數，此參數為必填。付款人綁定資料，例：會員編號、Email、手機等 */
+    public ?string $CreditToken = null;
     
     /** @var int 信用卡分期期數 (條件性) - 1=不分期, 3/6/9/12/18/24/30=分期期數 */
     public int $CardInst = 1;
@@ -52,6 +52,9 @@ final class TradeReqHashDTO {
     
     /** @var string 買方名稱或公司抬頭 (必填/條件性) - 當 CarrierType 有帶參數時, 此欄位必填 */
     public string $InvBuyerName = '';
+    
+    /** @var int 記憶卡號 (條件性) - 1=記憶卡號（建立 CreditToken），SDK 幕後交易時若要儲存卡片必填 */
+    public int $UseTokenType;
     
     /** @var string 消費者IP (條件性) - 若有帶入則會列入全平台風險管控機制, 協助阻擋異常交易, 格式: 支援IPv4 和 IPv6 格式 */
     public string $UserIP = '';
@@ -69,9 +72,9 @@ final class TradeReqHashDTO {
     /** 取得 trade params */
     public static function of( \WC_Order $order ): self {
         $setting_dto = SettingDTO::instance();
+        $card_hash = '';
         [
             $sdk_token,
-            $card_hash,
             $save_card,
             $installment,
             $use_saved_token,
@@ -112,6 +115,19 @@ final class TradeReqHashDTO {
             $args['CardInst'] = $installment;
         }
         
+        $buyer_email = $order->get_billing_email();
+        
+        // 記憶卡號：首次付款時記憶卡號（UseTokenType=2）
+        if( $save_card ) {
+            $args['UseTokenType'] = 2;
+            $args['CreditToken']  = $buyer_email;
+        }
+        
+        // 使用已儲存卡片：CreditToken 讓 PayUni 找到對應的記憶卡號
+        if ( $use_saved_token && $saved_token_id ) {
+            $args['UseTokenType'] = 2;
+            $args['CreditToken']  = $buyer_email;
+        }
         
         $ip = $order->get_customer_ip_address();
         if( $ip ) {
