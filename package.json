@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "archiver": "^7.0.1"
+  }
+}

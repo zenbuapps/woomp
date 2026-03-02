@@ -4,24 +4,29 @@
 
 ### 需求
 
-- Bash（WSL、Git Bash 或 macOS/Linux 終端機）
-- [Composer](https://getcomposer.org/) （已加入 PATH）
-- `zip` 指令（WSL Ubuntu 可執行 `sudo apt-get install -y zip` 安裝）
+- [Node.js](https://nodejs.org/) 18+
+- [Composer](https://getcomposer.org/)（已加入 PATH）
 
-### 執行打包
+### 安裝依賴（首次執行）
 
 在 plugin 根目錄執行：
 
 ```bash
-bash build.sh
+npm install
+```
+
+### 執行打包
+
+```bash
+npm run build
 ```
 
 ### 輸出
 
-打包完成後會在 `build/` 目錄產生 zip 檔，檔名帶有版本號：
+打包完成後會在 `build/` 目錄產生 zip 檔：
 
 ```
-build/woomp-{VERSION}.zip
+build/woomp.zip
 ```
 
 > 版本號自動從 `woomp.php` 的 `Version:` header 讀取。
