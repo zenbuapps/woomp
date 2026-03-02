@@ -94,6 +94,12 @@ class PayUniService {
     /** @type {string|null} 已選擇的儲存卡片 Token ID */
     #selectedTokenId = null;
 
+    /** @type {number} 已選擇的分期期數（防止 WC updated_checkout 重置 select 時遺失選擇） */
+    #selectedInstallment = 1;
+
+    /** @type {boolean} SDK 是否處於 token 卡號模式（CardNo/CardExp 已由 useTokenType 設為有效，不應被 SDK 後續事件覆寫） */
+    #sdkTokenCardActive = false;
+
     /**
      * 建構函式
      *
@@ -155,7 +161,11 @@ class PayUniService {
     #handleSDKUpdate(update) {
         const {status, event, data} = update;
 
-        console.log('[PayUni] SDK 狀態更新:', {status, event, data});
+        // 在 token 模式下，SDK 發送的 CardNo:null 不應覆蓋手動設定的 true 值
+        // (token 模式卡號已遮蔽，SDK 只回報 CardNo:null，非真正錯誤)
+        if (this.#sdkTokenCardActive && update.status && update.status.CardNo === null) {
+            delete update.status.CardNo;
+        }
 
         // 更新表單狀態
         this.#formState.update(update);
@@ -178,8 +188,6 @@ class PayUniService {
     #handleTokenTypeEvent(data) {
         const {cardNo, tokenTypeText, tokenType} = data || {};
 
-        console.log('[PayUni] Token 類型事件:', {cardNo, tokenTypeText, tokenType});
-
         // 顯示 checkbox 區域
         const $checkboxArea = $(WC_SELECTORS.TOKEN_TYPE_CHECKBOX_AREA);
         if ($checkboxArea.length) {
@@ -189,8 +197,12 @@ class PayUniService {
         // 啟用記憶卡號，且已綁定成功後，SDK 會透過 cardNo 回傳綁定的記憶卡號
         if (tokenType === '2' && cardNo !== null) {
             // 可在此做相對應的畫面處理，例如顯示已綁定卡號
-            console.log('[PayUni] 已綁定卡號:', cardNo);
             this.#uiHelper.showSavedCardInfo(cardNo);
+            // Token 模式下，SDK 已從已儲存 token 填入卡號與有效期限
+            // useTokenType 事件不含 status，需手動標記這兩欄位為 valid
+            this.#formState.update({status: {CardNo: true, CardExp: true}});
+            // 標記進入 token 卡號模式，後續 SDK 事件的 CardNo:null 將被忽略
+            this.#sdkTokenCardActive = true;
         }
 
         // 顯示 checkbox 的文案
@@ -266,6 +278,18 @@ class PayUniService {
             e.preventDefault();
             e.stopPropagation();
             this.#processCheckout();
+        });
+
+        // 監聽分期選擇變更，儲存至 class 屬性
+        $(document).on('change', '#payuni_installment', (e) => {
+            this.#selectedInstallment = parseInt($(e.target).val(), 10) || 1;
+        });
+
+        // WC updated_checkout 後恢復分期選擇（payment section 重新渲染會重置 select）
+        $(document).on('updated_checkout', () => {
+            if (params.USE_INST && this.#selectedInstallment > 1) {
+                $('#payuni_installment').val(String(this.#selectedInstallment));
+            }
         });
 
         this.#eventsBound = true;
@@ -426,8 +450,7 @@ class PayUniService {
         if (!params.USE_INST) {
             return 1;
         }
-        const selectedInst = $('#payuni_installment').val();
-        return parseInt(selectedInst, 10) || 1;
+        return this.#selectedInstallment;
     }
 
     /**
@@ -466,7 +489,9 @@ class PayUniService {
 
         const config = {
             cardInst,
-            useDefault: false // 是否使用已儲存的卡號（這裡是新卡片，所以是 false）
+            // SDK token 模式下（已綁定卡號），useDefault: true 才能通過 SDK 內部 Code 1005 驗證
+            // SDK 在 token 模式下 this.status.CardNo 不會被更新（卡號遮蔽），必須以 useDefault 取代
+            useDefault: this.#sdkTokenCardActive
         };
 
         // 如果要記憶卡號，設定 useTokenType
