@@ -294,6 +294,23 @@ class PayUniService {
             }
         });
 
+        // 監聽發票載具類型變更，顯示/隱藏對應輸入框
+        $(document).on('change', '#payuni_carrier_type', (e) => {
+            const carrierType = $(e.target).val();
+            // 先隱藏所有載具資訊輸入框
+            $('.payuni-carrier-info-row').hide();
+            // 顯示對應的輸入框
+            if (carrierType && carrierType !== 'amego') {
+                $(`#payuni_carrier_info_row_${carrierType}`).show();
+            }
+            // 捐贈不需買方名稱；其他有載具時顯示
+            if (carrierType && carrierType !== 'Donate') {
+                $('#payuni_inv_buyer_name_row').show();
+            } else {
+                $('#payuni_inv_buyer_name_row').hide();
+            }
+        });
+
         this.#eventsBound = true;
     }
 
@@ -381,7 +398,8 @@ class PayUniService {
                     sdk_token_tmp: params.SDK_TOKEN,
                     payuni_use_saved_token: '1',
                     payuni_saved_token_id: this.#selectedTokenId,
-                    payuni_installment: this.#getInstallmentValue()
+                    payuni_installment: this.#getInstallmentValue(),
+                    ...this.#getCarrierData(),
                 };
 
                 const checkoutResponse = await this.#apiService.submitCheckout(additionalData);
@@ -437,7 +455,8 @@ class PayUniService {
             const additionalData = {
                 sdk_token_tmp: params.SDK_TOKEN,
                 payuni_save_card: shouldSaveCard ? '1' : '0',
-                payuni_installment: this.#getInstallmentValue()
+                payuni_installment: this.#getInstallmentValue(),
+                ...this.#getCarrierData(),
             };
 
             const checkoutResponse = await this.#apiService.submitCheckout(additionalData);
@@ -456,6 +475,34 @@ class PayUniService {
         } finally {
             this.#uiHelper.setLoading(false);
         }
+    }
+
+    /**
+     * 取得發票載具資料
+     *
+     * @private
+     * @returns {Object} 載具相關欄位 { payuni_carrier_type, payuni_carrier_info, payuni_inv_buyer_name }
+     */
+    #getCarrierData() {
+        // 使用 name 屬性選取，避免 WC billing hidden field 的 id 衝突
+        const carrierType = $('select[name="payuni_carrier_type"]').val() || '';
+        if (!carrierType) {
+            return {};
+        }
+        // 依類型從對應輸入框取得 carrier_info
+        let carrierInfo = '';
+        if (carrierType !== 'amego') {
+            const infoInput = $(`#payuni_carrier_info_${carrierType}`);
+            carrierInfo = infoInput.length ? (infoInput.val() || '') : '';
+        }
+        // 同步更新隱藏欄位（供 WC checkout form submit 使用）
+        $('input[name="payuni_carrier_info"]').val(carrierInfo);
+        const invBuyerName = $('input[name="payuni_inv_buyer_name"]').val() || '';
+        return {
+            payuni_carrier_type: carrierType,
+            payuni_carrier_info: carrierInfo,
+            payuni_inv_buyer_name: invBuyerName,
+        };
     }
 
     /**

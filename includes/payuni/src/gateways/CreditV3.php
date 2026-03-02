@@ -208,6 +208,55 @@ class CreditV3 extends AbstractGateway {
         
         // 隱藏欄位：儲存使用的 Token ID
         echo '<input type="hidden" name="payuni_used_token_id" id="payuni_used_token_id" value="" />';
+        
+        // 發票載具選擇區塊
+        echo '<div class="payuni-invoice-carrier-options">';
+        echo '<p class="form-row form-row-wide">';
+        echo '<label for="payuni_carrier_type">' . \esc_html__( '發票載具', 'woomp' ) . '</label>';
+        echo '<select name="payuni_carrier_type" id="payuni_carrier_type" class="payuni-carrier-type-select">';
+        echo '<option value="">' . \esc_html__( '不使用載具（紙本發票）', 'woomp' ) . '</option>';
+        echo '<option value="3J0002">' . \esc_html__( '手機條碼', 'woomp' ) . '</option>';
+        echo '<option value="CQ0001">' . \esc_html__( '自然人憑證', 'woomp' ) . '</option>';
+        echo '<option value="amego">' . \esc_html__( '會員載具', 'woomp' ) . '</option>';
+        echo '<option value="Donate">' . \esc_html__( '捐贈發票', 'woomp' ) . '</option>';
+        echo '<option value="Company">' . \esc_html__( '公司發票（統編）', 'woomp' ) . '</option>';
+        echo '</select>';
+        echo '</p>';
+        
+        // 手機條碼輸入（3J0002）
+        echo '<p class="form-row form-row-wide payuni-carrier-info-row" id="payuni_carrier_info_row_3J0002" style="display:none;">';
+        echo '<label for="payuni_carrier_info_3J0002">' . \esc_html__( '手機條碼（格式：/XXXXXXX）', 'woomp' ) . '</label>';
+        echo '<input type="text" name="payuni_carrier_info_3J0002" id="payuni_carrier_info_3J0002" placeholder="/XXXXXXX" maxlength="8" />';
+        echo '</p>';
+        
+        // 自然人憑證輸入（CQ0001）
+        echo '<p class="form-row form-row-wide payuni-carrier-info-row" id="payuni_carrier_info_row_CQ0001" style="display:none;">';
+        echo '<label for="payuni_carrier_info_CQ0001">' . \esc_html__( '自然人憑證號碼', 'woomp' ) . '</label>';
+        echo '<input type="text" name="payuni_carrier_info_CQ0001" id="payuni_carrier_info_CQ0001" placeholder="請輸入憑證號碼" maxlength="16" />';
+        echo '</p>';
+        
+        // 捐贈碼輸入（Donate）
+        echo '<p class="form-row form-row-wide payuni-carrier-info-row" id="payuni_carrier_info_row_Donate" style="display:none;">';
+        echo '<label for="payuni_carrier_info_Donate">' . \esc_html__( '捐贈碼', 'woomp' ) . '</label>';
+        echo '<input type="text" name="payuni_carrier_info_Donate" id="payuni_carrier_info_Donate" placeholder="請輸入捐贈碼" maxlength="7" />';
+        echo '</p>';
+        
+        // 統編輸入（Company）
+        echo '<p class="form-row form-row-wide payuni-carrier-info-row" id="payuni_carrier_info_row_Company" style="display:none;">';
+        echo '<label for="payuni_carrier_info_Company">' . \esc_html__( '公司統一編號', 'woomp' ) . '</label>';
+        echo '<input type="text" name="payuni_carrier_info_Company" id="payuni_carrier_info_Company" placeholder="請輸入統一編號" maxlength="8" />';
+        echo '</p>';
+        
+        // 買方名稱（有載具時顯示，但捐贈不需填）
+        echo '<p class="form-row form-row-wide" id="payuni_inv_buyer_name_row" style="display:none;">';
+        echo '<label for="payuni_inv_buyer_name">' . \esc_html__( '買方名稱／公司抬頭', 'woomp' ) . '</label>';
+        echo '<input type="text" name="payuni_inv_buyer_name" id="payuni_inv_buyer_name" placeholder="請輸入買方名稱" maxlength="60" />';
+        echo '</p>';
+        
+        // 隱藏欄位：載具資訊（由 JS 填入）
+        echo '<input type="hidden" name="payuni_carrier_info" id="payuni_carrier_info" value="" />';
+        
+        echo '</div>'; // .payuni-invoice-carrier-options
     }
     
     

@@ -78,7 +78,10 @@ final class TradeReqHashDTO {
             $save_card,
             $installment,
             $use_saved_token,
-            $saved_token_id
+            $saved_token_id,
+            $carrier_type,
+            $carrier_info,
+            $inv_buyer_name,
         ] = OrderUtils::get_tmp_data( $order );
         
         // 如果使用已儲存的卡片，從 WC_Payment_Tokens 取得 CardHash
@@ -132,6 +135,17 @@ final class TradeReqHashDTO {
         $ip = $order->get_customer_ip_address();
         if( $ip ) {
             $args['UserIP'] = $ip;
+        }
+        
+        // 發票載具整合
+        if( $carrier_type ) {
+            $args['CarrierType'] = $carrier_type;
+            // amego 會員載具不需填 CarrierInfo；其他類型需填入
+            if( $carrier_type !== 'amego' && $carrier_info ) {
+                $args['CarrierInfo'] = $carrier_info;
+            }
+            // 有 CarrierType 時必填買方名稱
+            $args['InvBuyerName'] = $inv_buyer_name ?: ( $order->get_billing_first_name() . $order->get_billing_last_name() );
         }
         
         return new self( $args );
