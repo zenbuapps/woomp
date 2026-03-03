@@ -13,14 +13,17 @@ async function loginWordPress(page: Page) {
 }
 
 async function addProductToCart(page: Page) {
-  await page.goto(`${BASE_URL}/?add-to-cart=82`);
+  await page.goto(`${BASE_URL}/shop/`);
   await page.waitForLoadState('networkidle');
+  const addToCart = page.locator('.add_to_cart_button').first();
+  await addToCart.click();
+  await page.waitForTimeout(1500);
 }
 
 async function goToCheckout(page: Page) {
   await page.goto(`${BASE_URL}/checkout/`);
   await page.waitForLoadState('networkidle');
-  const payuniRadio = page.locator('#payment_method_payuni_credit_v3');
+  const payuniRadio = page.locator('#payment_method_payuni-credit-v3');
   if (await payuniRadio.isVisible()) {
     await payuniRadio.check();
     await page.waitForTimeout(1000);
@@ -44,7 +47,7 @@ async function selectCarrier(page: Page, carrierType: string, carrierInfo?: stri
   await page.waitForTimeout(300);
 
   if (carrierInfo) {
-    const infoInput = page.locator('input[name="payuni_carrier_info"]');
+    const infoInput = page.locator(`input[name="payuni_carrier_info_${carrierType}"]`);
     await infoInput.fill(carrierInfo);
   }
 
@@ -62,8 +65,8 @@ test.describe('PayUni 發票載具整合 (Invoice Carrier)', () => {
     await addProductToCart(page);
     await goToCheckout(page);
     // Wait for PayUni payment form
-    await page.waitForSelector('#payment_method_payuni_credit_v3', { timeout: 10000 });
-    await page.locator('#payment_method_payuni_credit_v3').check();
+    await page.waitForSelector('#payment_method_payuni-credit-v3', { timeout: 10000 });
+    await page.locator('#payment_method_payuni-credit-v3').check();
     await page.waitForTimeout(1000);
   });
 
@@ -85,7 +88,7 @@ test.describe('PayUni 發票載具整合 (Invoice Carrier)', () => {
     await carrierSelect.selectOption('3J0002');
     await page.waitForTimeout(300);
 
-    const infoInput = page.locator('input[name="payuni_carrier_info"]');
+    const infoInput = page.locator('input[name="payuni_carrier_info_3J0002"]');
     await expect(infoInput).toBeVisible();
     expect(await infoInput.getAttribute('placeholder')).toBeTruthy();
   });
@@ -111,9 +114,9 @@ test.describe('PayUni 發票載具整合 (Invoice Carrier)', () => {
     await page.click('#place_order');
     await page.waitForURL(`${BASE_URL}/checkout/order-received/**`, { timeout: 30000 });
 
-    // 確認付款成功
+    // 確認付款成功（可能顯示「已收到訂單」或「已完成的訂單」）
     const heading = page.locator('h1, .woocommerce-order-received h1');
-    await expect(heading).toContainText('已收到訂單', { timeout: 10000 });
+    await expect(heading).toHaveText(/(已收到訂單|已完成的訂單)/, { timeout: 10000 });
   });
 
   test('不使用載具（紙本發票）：付款成功，不影響一般付款流程', async ({ page }) => {
@@ -128,8 +131,8 @@ test.describe('PayUni 發票載具整合 (Invoice Carrier)', () => {
     await page.click('#place_order');
     await page.waitForURL(`${BASE_URL}/checkout/order-received/**`, { timeout: 30000 });
 
-    // 確認付款成功
+    // 確認付款成功（可能顯示「已收到訂單」或「已完成的訂單」）
     const heading = page.locator('h1, .woocommerce-order-received h1');
-    await expect(heading).toContainText('已收到訂單', { timeout: 10000 });
+    await expect(heading).toHaveText(/(已收到訂單|已完成的訂單)/, { timeout: 10000 });
   });
 });
