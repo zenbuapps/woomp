@@ -211,11 +211,12 @@ async function main() {
     log(`   頁面標題：${pageTitle}`);
     await screenshot(page, 'success');
 
-    // 確認訂單確認頁有成功訊息
-    const orderConfirm = await page.locator('.woocommerce-order').count();
-    if (orderConfirm === 0) {
-      throw new Error('訂單確認區塊未出現');
+    // 確認訂單確認頁有成功訊息（h1 應顯示「已收到訂單」或「已完成的訂單」）
+    const h1Text = await page.locator('h1').first().textContent({ timeout: 10000 });
+    if (!h1Text || !/(已收到訂單|已完成的訂單)/.test(h1Text)) {
+      throw new Error(`訂單確認標題未出現，實際 h1 文字：${h1Text}`);
     }
+    log(`   訂單標題：${h1Text}`);
 
     const errorNotices = await page.locator('.woocommerce-error').count();
     if (errorNotices > 0) {
