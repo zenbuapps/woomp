@@ -1,0 +1,167 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - navigation "工具列":
+      - menu:
+        - group [ref=e3]:
+          - menuitem "關於 WordPress" [ref=e4] [cursor=pointer]:
+            - generic [ref=e6]: 關於 WordPress
+        - group [ref=e7]:
+          - menuitem "test" [ref=e8] [cursor=pointer]
+        - group [ref=e9]:
+          - menuitem "上線" [ref=e10] [cursor=pointer]
+        - group [ref=e11]:
+          - menuitem "編輯網站" [ref=e12] [cursor=pointer]
+        - group [ref=e13]:
+          - menuitem "已有 3 項更新可供安裝" [ref=e14] [cursor=pointer]:
+            - generic [ref=e16]: "3"
+            - generic [ref=e17]: 已有 3 項更新可供安裝
+        - group [ref=e18]:
+          - menuitem "0 則待審閱留言" [ref=e19] [cursor=pointer]:
+            - generic [ref=e21]: "0"
+            - generic [ref=e22]: 0 則待審閱留言
+        - group [ref=e23]:
+          - menuitem "新增項目" [ref=e24] [cursor=pointer]:
+            - generic [ref=e26]: 新增項目
+        - group [ref=e27]:
+          - menuitem "編輯頁面" [ref=e28] [cursor=pointer]
+        - group [ref=e29]:
+          - menuitem "History" [ref=e30] [cursor=pointer]
+      - menu [ref=e31]:
+        - group [ref=e32]:
+          - menuitem "你好，test" [ref=e33] [cursor=pointer]
+        - group [ref=e34]:
+          - menuitem "搜尋" [ref=e35]:
+            - generic [ref=e36]:
+              - textbox "搜尋" [ref=e37] [cursor=pointer]
+              - generic [ref=e38]: 搜尋
+  - link "跳至主要內容" [ref=e39] [cursor=pointer]:
+    - /url: "#wp--skip-link--target"
+  - generic [ref=e40]:
+    - banner [ref=e41]:
+      - generic [ref=e44]:
+        - paragraph [ref=e45]:
+          - link "test" [ref=e46] [cursor=pointer]:
+            - /url: https://payuni-test.powerhouse.tw
+        - generic [ref=e47]:
+          - navigation [ref=e48]:
+            - list [ref=e53]:
+              - list [ref=e54]:
+                - listitem [ref=e55]:
+                  - link "商店" [ref=e56] [cursor=pointer]:
+                    - /url: https://payuni-test.powerhouse.tw/shop/
+                - listitem [ref=e57]:
+                  - link "我的帳號" [ref=e58] [cursor=pointer]:
+                    - /url: https://payuni-test.powerhouse.tw/my-account/
+                - listitem [ref=e59]:
+                  - link "範例頁面" [ref=e60] [cursor=pointer]:
+                    - /url: https://payuni-test.powerhouse.tw/sample-page/
+                - listitem [ref=e61]:
+                  - link "結帳" [ref=e62] [cursor=pointer]:
+                    - /url: https://payuni-test.powerhouse.tw/checkout/
+                - listitem [ref=e63]:
+                  - link "購物車" [ref=e64] [cursor=pointer]:
+                    - /url: https://payuni-test.powerhouse.tw/cart/
+          - link "我的帳號" [ref=e66] [cursor=pointer]:
+            - /url: https://payuni-test.powerhouse.tw/my-account/
+            - img [ref=e67]
+          - generic [ref=e70]:
+            - button "購物車中有 0 件商品，總金額為 NT$0" [ref=e71]:
+              - img [ref=e73]
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - paragraph:
+                          - strong: 你的購物車目前是空的！
+    - main [ref=e79]:
+      - generic [ref=e80]:
+        - heading "我的帳號" [level=1] [ref=e81]
+        - generic [ref=e83]:
+          - navigation "帳號頁面" [ref=e84]:
+            - list [ref=e85]:
+              - listitem [ref=e86]:
+                - link "控制台" [ref=e87] [cursor=pointer]:
+                  - /url: https://payuni-test.powerhouse.tw/my-account/
+              - listitem [ref=e88]:
+                - link "訂單" [ref=e89] [cursor=pointer]:
+                  - /url: https://payuni-test.powerhouse.tw/my-account/orders/
+              - listitem [ref=e90]:
+                - link "下載次數" [ref=e91] [cursor=pointer]:
+                  - /url: https://payuni-test.powerhouse.tw/my-account/downloads/
+              - listitem [ref=e92]:
+                - link "地址" [ref=e93] [cursor=pointer]:
+                  - /url: https://payuni-test.powerhouse.tw/my-account/edit-address/
+              - listitem [ref=e94]:
+                - link "付款方式" [ref=e95] [cursor=pointer]:
+                  - /url: https://payuni-test.powerhouse.tw/my-account/payment-methods/
+              - listitem [ref=e96]:
+                - link "帳戶詳細資料" [ref=e97] [cursor=pointer]:
+                  - /url: https://payuni-test.powerhouse.tw/my-account/edit-account/
+              - listitem [ref=e98]:
+                - link "登出" [ref=e99] [cursor=pointer]:
+                  - /url: https://payuni-test.powerhouse.tw/my-account/customer-logout/?_wpnonce=16d551fd6c
+          - generic [ref=e100]:
+            - paragraph [ref=e101]:
+              - strong [ref=e102]: test
+              - text: 您好 (不是
+              - strong [ref=e103]: test
+              - text: 嗎？
+              - link "請登出" [ref=e104] [cursor=pointer]:
+                - /url: https://payuni-test.powerhouse.tw/wp-login.php?action=logout&redirect_to=https%3A%2F%2Fpayuni-test.powerhouse.tw%2Fmy-account%2F&_wpnonce=8e2adcfecb
+              - text: )
+            - paragraph [ref=e105]:
+              - text: 在您的帳號控制台裡，您可以檢視
+              - link "近期的訂單" [ref=e106] [cursor=pointer]:
+                - /url: https://payuni-test.powerhouse.tw/my-account/orders/
+              - text: ，管理您的
+              - link "收貨地址" [ref=e107] [cursor=pointer]:
+                - /url: https://payuni-test.powerhouse.tw/my-account/edit-address/
+              - text: 和
+              - link "更改密碼或修改帳號資料" [ref=e108] [cursor=pointer]:
+                - /url: https://payuni-test.powerhouse.tw/my-account/edit-account/
+              - text: 。
+    - contentinfo [ref=e109]:
+      - generic [ref=e111]:
+        - generic [ref=e112]:
+          - heading "test" [level=2] [ref=e115]:
+            - link "test" [ref=e116] [cursor=pointer]:
+              - /url: https://payuni-test.powerhouse.tw
+          - generic [ref=e117]:
+            - navigation [ref=e118]:
+              - list [ref=e119]:
+                - listitem [ref=e120]:
+                  - link "部落格" [ref=e121] [cursor=pointer]:
+                    - /url: "#"
+                - listitem [ref=e122]:
+                  - link "關於" [ref=e123] [cursor=pointer]:
+                    - /url: "#"
+                - listitem [ref=e124]:
+                  - link "常見問題集" [ref=e125] [cursor=pointer]:
+                    - /url: "#"
+                - listitem [ref=e126]:
+                  - link "作者" [ref=e127] [cursor=pointer]:
+                    - /url: "#"
+            - navigation [ref=e128]:
+              - list [ref=e129]:
+                - listitem [ref=e130]:
+                  - link "活動" [ref=e131] [cursor=pointer]:
+                    - /url: "#"
+                - listitem [ref=e132]:
+                  - link "商店" [ref=e133] [cursor=pointer]:
+                    - /url: "#"
+                - listitem [ref=e134]:
+                  - link "區塊版面配置" [ref=e135] [cursor=pointer]:
+                    - /url: "#"
+                - listitem [ref=e136]:
+                  - link "佈景主題" [ref=e137] [cursor=pointer]:
+                    - /url: "#"
+        - generic [ref=e139]:
+          - paragraph [ref=e140]: Twenty Twenty-Five
+          - paragraph [ref=e141]:
+            - text: 使用
+            - link "WordPress" [ref=e142] [cursor=pointer]:
+              - /url: https://tw.wordpress.org
+            - text: 設計
+  - status [ref=e145]

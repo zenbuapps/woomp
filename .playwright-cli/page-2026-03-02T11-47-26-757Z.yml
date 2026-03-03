@@ -1,0 +1,668 @@
+- generic [ref=e2]:
+  - navigation "主要選單":
+    - link "跳至主要內容" [ref=e3] [cursor=pointer]:
+      - /url: "#wpbody-content"
+    - link "跳至工具列" [ref=e4] [cursor=pointer]:
+      - /url: "#wp-toolbar"
+    - list [ref=e7]:
+      - listitem [ref=e8]:
+        - link "控制台" [ref=e9] [cursor=pointer]:
+          - /url: index.php
+          - generic [ref=e10]: 
+          - generic [ref=e11]: 控制台
+        - list [ref=e12]:
+          - listitem [ref=e13]:
+            - link "首頁" [ref=e14] [cursor=pointer]:
+              - /url: index.php
+          - listitem [ref=e15]:
+            - link "更新 3" [ref=e16] [cursor=pointer]:
+              - /url: update-core.php
+              - text: 更新
+              - generic [ref=e17]: "3"
+      - listitem [ref=e18]:
+        - link "Simple History" [ref=e19] [cursor=pointer]:
+          - /url: admin.php?page=simple_history_admin_menu_page
+          - generic [ref=e21]: Simple History
+        - list [ref=e22]:
+          - listitem [ref=e23]:
+            - link "Event Log" [ref=e24] [cursor=pointer]:
+              - /url: admin.php?page=simple_history_admin_menu_page
+          - listitem [ref=e25]:
+            - link "Settings" [ref=e26] [cursor=pointer]:
+              - /url: admin.php?page=simple_history_settings_page
+          - listitem [ref=e27]:
+            - link "History Insights New" [ref=e28] [cursor=pointer]:
+              - /url: admin.php?page=simple_history_stats_page
+              - text: History Insights
+              - generic [ref=e29]: New
+          - listitem [ref=e30]:
+            - link "Help & Support" [ref=e31] [cursor=pointer]:
+              - /url: admin.php?page=simple_history_help_support
+          - listitem [ref=e32]:
+            - link "Export" [ref=e33] [cursor=pointer]:
+              - /url: admin.php?page=simple_history_export_history
+          - listitem [ref=e34]:
+            - link "Get Premium" [ref=e35] [cursor=pointer]:
+              - /url: admin.php?page=simple_history_promo_upsell
+      - listitem [ref=e36]
+      - listitem [ref=e38]:
+        - link "文章" [ref=e39] [cursor=pointer]:
+          - /url: edit.php
+          - generic [ref=e40]: 
+          - generic [ref=e41]: 文章
+        - list [ref=e42]:
+          - listitem [ref=e43]:
+            - link "全部文章" [ref=e44] [cursor=pointer]:
+              - /url: edit.php
+          - listitem [ref=e45]:
+            - link "新增文章" [ref=e46] [cursor=pointer]:
+              - /url: post-new.php
+          - listitem [ref=e47]:
+            - link "分類" [ref=e48] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=category
+          - listitem [ref=e49]:
+            - link "標籤" [ref=e50] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=post_tag
+      - listitem [ref=e51]:
+        - link "媒體" [ref=e52] [cursor=pointer]:
+          - /url: upload.php
+          - generic [ref=e53]: 
+          - generic [ref=e54]: 媒體
+        - list [ref=e55]:
+          - listitem [ref=e56]:
+            - link "媒體庫" [ref=e57] [cursor=pointer]:
+              - /url: upload.php
+          - listitem [ref=e58]:
+            - link "新增媒體檔案" [ref=e59] [cursor=pointer]:
+              - /url: media-new.php
+      - listitem [ref=e60]:
+        - link "頁面" [ref=e61] [cursor=pointer]:
+          - /url: edit.php?post_type=page
+          - generic [ref=e62]: 
+          - generic [ref=e63]: 頁面
+        - list [ref=e64]:
+          - listitem [ref=e65]:
+            - link "全部頁面" [ref=e66] [cursor=pointer]:
+              - /url: edit.php?post_type=page
+          - listitem [ref=e67]:
+            - link "新增頁面" [ref=e68] [cursor=pointer]:
+              - /url: post-new.php?post_type=page
+      - listitem [ref=e69]:
+        - link "留言" [ref=e70] [cursor=pointer]:
+          - /url: edit-comments.php
+          - generic [ref=e71]: 
+          - generic [ref=e72]: 留言
+      - listitem [ref=e73]
+      - listitem [ref=e75]:
+        - link "WooCommerce" [ref=e76] [cursor=pointer]:
+          - /url: admin.php?page=wc-admin
+          - generic [ref=e78]: WooCommerce
+        - list [ref=e79]:
+          - listitem [ref=e80]:
+            - link "首頁 2" [ref=e81] [cursor=pointer]:
+              - /url: admin.php?page=wc-admin
+              - text: 首頁
+              - generic [ref=e82]: "2"
+          - listitem [ref=e83]:
+            - link "訂單 13" [ref=e84] [cursor=pointer]:
+              - /url: edit.php?post_type=shop_order
+              - text: 訂單
+              - generic [ref=e85]: "13"
+          - listitem [ref=e86]:
+            - link "顧客" [ref=e87] [cursor=pointer]:
+              - /url: admin.php?page=wc-admin&path=/customers
+          - listitem [ref=e88]:
+            - link "折價券" [ref=e89] [cursor=pointer]:
+              - /url: admin.php?page=coupons-moved
+          - listitem [ref=e90]:
+            - link "報表" [ref=e91] [cursor=pointer]:
+              - /url: admin.php?page=wc-reports
+          - listitem [ref=e92]:
+            - link "設定" [ref=e93] [cursor=pointer]:
+              - /url: admin.php?page=wc-settings
+          - listitem [ref=e94]:
+            - link "好用版擴充設定" [ref=e95] [cursor=pointer]:
+              - /url: https://payuni-test.powerhouse.tw/wp-admin/admin.php?page=wc-settings&tab=woomp_setting
+          - listitem [ref=e96]:
+            - link "– 金流設定" [ref=e97] [cursor=pointer]:
+              - /url: https://payuni-test.powerhouse.tw/wp-admin/admin.php?page=wc-settings&tab=woomp_setting_gateway&section=payuni
+          - listitem [ref=e98]:
+            - link "– 物流設定" [ref=e99] [cursor=pointer]:
+              - /url: https://payuni-test.powerhouse.tw/wp-admin/admin.php?page=wc-settings&tab=woomp_setting_shipping&section=ecpay
+          - listitem [ref=e100]:
+            - link "– 電子發票設定" [ref=e101] [cursor=pointer]:
+              - /url: https://payuni-test.powerhouse.tw/wp-admin/admin.php?page=wc-settings&tab=woomp_setting_invoice&section=ecpay
+          - listitem [ref=e102]:
+            - link "狀態" [ref=e103] [cursor=pointer]:
+              - /url: admin.php?page=wc-status
+          - listitem [ref=e104]:
+            - link "擴充功能" [ref=e105] [cursor=pointer]:
+              - /url: admin.php?page=wc-admin&path=/extensions
+      - listitem [ref=e106]:
+        - link "商品" [ref=e107] [cursor=pointer]:
+          - /url: edit.php?post_type=product
+          - generic [ref=e108]: 
+          - generic [ref=e109]: 商品
+        - list [ref=e110]:
+          - listitem [ref=e111]:
+            - link "所有商品" [ref=e112] [cursor=pointer]:
+              - /url: edit.php?post_type=product
+          - listitem [ref=e113]:
+            - link "新增商品" [ref=e114] [cursor=pointer]:
+              - /url: post-new.php?post_type=product
+          - listitem [ref=e115]:
+            - link "品牌" [ref=e116] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=product_brand&post_type=product
+          - listitem [ref=e117]:
+            - link "分類" [ref=e118] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=product_cat&post_type=product
+          - listitem [ref=e119]:
+            - link "標籤" [ref=e120] [cursor=pointer]:
+              - /url: edit-tags.php?taxonomy=product_tag&post_type=product
+          - listitem [ref=e121]:
+            - link "屬性" [ref=e122] [cursor=pointer]:
+              - /url: edit.php?post_type=product&page=product_attributes
+          - listitem [ref=e123]:
+            - link "商品評價" [ref=e124] [cursor=pointer]:
+              - /url: edit.php?post_type=product&page=product-reviews
+      - listitem [ref=e125]:
+        - link "付款" [ref=e126] [cursor=pointer]:
+          - /url: admin.php?page=wc-settings&tab=checkout&from=PAYMENTS_MENU_ITEM
+          - generic [ref=e128]: 付款
+      - listitem [ref=e129]:
+        - link "分析" [ref=e130] [cursor=pointer]:
+          - /url: admin.php?page=wc-admin&path=/analytics/overview
+          - generic [ref=e131]: 
+          - generic [ref=e132]: 分析
+        - list [ref=e133]:
+          - listitem [ref=e134]:
+            - link "概觀" [ref=e135] [cursor=pointer]:
+              - /url: admin.php?page=wc-admin&path=/analytics/overview
+          - listitem [ref=e136]:
+            - link "商品" [ref=e137] [cursor=pointer]:
+              - /url: admin.php?page=wc-admin&path=/analytics/products
+          - listitem [ref=e138]:
+            - link "收益" [ref=e139] [cursor=pointer]:
+              - /url: admin.php?page=wc-admin&path=/analytics/revenue
+          - listitem [ref=e140]:
+            - link "訂單" [ref=e141] [cursor=pointer]:
+              - /url: admin.php?page=wc-admin&path=/analytics/orders
+          - listitem [ref=e142]:
+            - link "變化類型" [ref=e143] [cursor=pointer]:
+              - /url: admin.php?page=wc-admin&path=/analytics/variations
+          - listitem [ref=e144]:
+            - link "分類" [ref=e145] [cursor=pointer]:
+              - /url: admin.php?page=wc-admin&path=/analytics/categories
+          - listitem [ref=e146]:
+            - link "折價券" [ref=e147] [cursor=pointer]:
+              - /url: admin.php?page=wc-admin&path=/analytics/coupons
+          - listitem [ref=e148]:
+            - link "稅金" [ref=e149] [cursor=pointer]:
+              - /url: admin.php?page=wc-admin&path=/analytics/taxes
+          - listitem [ref=e150]:
+            - link "下載次數" [ref=e151] [cursor=pointer]:
+              - /url: admin.php?page=wc-admin&path=/analytics/downloads
+          - listitem [ref=e152]:
+            - link "庫存" [ref=e153] [cursor=pointer]:
+              - /url: admin.php?page=wc-admin&path=/analytics/stock
+          - listitem [ref=e154]:
+            - link "設定" [ref=e155] [cursor=pointer]:
+              - /url: admin.php?page=wc-admin&path=/analytics/settings
+      - listitem [ref=e156]:
+        - link "行銷" [ref=e157] [cursor=pointer]:
+          - /url: admin.php?page=wc-admin&path=/marketing
+          - generic [ref=e158]: 
+          - generic [ref=e159]: 行銷
+        - list [ref=e160]:
+          - listitem [ref=e161]:
+            - link "概觀" [ref=e162] [cursor=pointer]:
+              - /url: admin.php?page=wc-admin&path=/marketing
+          - listitem [ref=e163]:
+            - link "折價券" [ref=e164] [cursor=pointer]:
+              - /url: edit.php?post_type=shop_coupon
+      - listitem [ref=e165]
+      - listitem [ref=e167]:
+        - link "外觀" [ref=e168] [cursor=pointer]:
+          - /url: themes.php
+          - generic [ref=e169]: 
+          - generic [ref=e170]: 外觀
+        - list [ref=e171]:
+          - listitem [ref=e172]:
+            - link "佈景主題 1" [ref=e173] [cursor=pointer]:
+              - /url: themes.php
+              - text: 佈景主題
+              - generic [ref=e174]: "1"
+          - listitem [ref=e175]:
+            - link "編輯器" [ref=e176] [cursor=pointer]:
+              - /url: site-editor.php
+      - listitem [ref=e177]:
+        - link "外掛 2" [ref=e178] [cursor=pointer]:
+          - /url: plugins.php
+          - generic [ref=e179]: 
+          - generic [ref=e180]:
+            - text: 外掛
+            - generic [ref=e181]: "2"
+        - list [ref=e182]:
+          - listitem [ref=e183]:
+            - link "已安裝的外掛" [ref=e184] [cursor=pointer]:
+              - /url: plugins.php
+          - listitem [ref=e185]:
+            - link "安裝外掛" [ref=e186] [cursor=pointer]:
+              - /url: plugin-install.php
+      - listitem [ref=e187]:
+        - link "使用者" [ref=e188] [cursor=pointer]:
+          - /url: users.php
+          - generic [ref=e189]: 
+          - generic [ref=e190]: 使用者
+        - list [ref=e191]:
+          - listitem [ref=e192]:
+            - link "全部使用者" [ref=e193] [cursor=pointer]:
+              - /url: users.php
+          - listitem [ref=e194]:
+            - link "新增使用者" [ref=e195] [cursor=pointer]:
+              - /url: user-new.php
+          - listitem [ref=e196]:
+            - link "個人資料" [ref=e197] [cursor=pointer]:
+              - /url: profile.php
+      - listitem [ref=e198]:
+        - link "工具" [ref=e199] [cursor=pointer]:
+          - /url: tools.php
+          - generic [ref=e200]: 
+          - generic [ref=e201]: 工具
+        - list [ref=e202]:
+          - listitem [ref=e203]:
+            - link "可用工具" [ref=e204] [cursor=pointer]:
+              - /url: tools.php
+          - listitem [ref=e205]:
+            - link "匯入程式" [ref=e206] [cursor=pointer]:
+              - /url: import.php
+          - listitem [ref=e207]:
+            - link "匯出程式" [ref=e208] [cursor=pointer]:
+              - /url: export.php
+          - listitem [ref=e209]:
+            - link "網站狀態 2" [ref=e210] [cursor=pointer]:
+              - /url: site-health.php
+              - text: 網站狀態
+              - generic [ref=e211]: "2"
+          - listitem [ref=e212]:
+            - link "匯出個人資料" [ref=e213] [cursor=pointer]:
+              - /url: export-personal-data.php
+          - listitem [ref=e214]:
+            - link "清除個人資料" [ref=e215] [cursor=pointer]:
+              - /url: erase-personal-data.php
+          - listitem [ref=e216]:
+            - link "已排程動作" [ref=e217] [cursor=pointer]:
+              - /url: tools.php?page=action-scheduler
+          - listitem [ref=e218]:
+            - link "佈景主題檔案編輯器" [ref=e219] [cursor=pointer]:
+              - /url: theme-editor.php
+          - listitem [ref=e220]:
+            - link "外掛檔案編輯器" [ref=e221] [cursor=pointer]:
+              - /url: plugin-editor.php
+      - listitem [ref=e222]:
+        - link "設定" [ref=e223] [cursor=pointer]:
+          - /url: options-general.php
+          - generic [ref=e224]: 
+          - generic [ref=e225]: 設定
+        - list [ref=e226]:
+          - listitem [ref=e227]:
+            - link "一般" [ref=e228] [cursor=pointer]:
+              - /url: options-general.php
+          - listitem [ref=e229]:
+            - link "寫作" [ref=e230] [cursor=pointer]:
+              - /url: options-writing.php
+          - listitem [ref=e231]:
+            - link "閱讀" [ref=e232] [cursor=pointer]:
+              - /url: options-reading.php
+          - listitem [ref=e233]:
+            - link "討論" [ref=e234] [cursor=pointer]:
+              - /url: options-discussion.php
+          - listitem [ref=e235]:
+            - link "媒體" [ref=e236] [cursor=pointer]:
+              - /url: options-media.php
+          - listitem [ref=e237]:
+            - link "永久連結" [ref=e238] [cursor=pointer]:
+              - /url: options-permalink.php
+          - listitem [ref=e239]:
+            - link "隱私權" [ref=e240] [cursor=pointer]:
+              - /url: options-privacy.php
+      - listitem [ref=e241]:
+        - button "收合主要選單" [expanded] [ref=e242] [cursor=pointer]:
+          - generic [ref=e244]: 收合選單
+  - generic [ref=e245]:
+    - generic [ref=e246]:
+      - navigation "工具列":
+        - menu:
+          - group [ref=e247]:
+            - menuitem "關於 WordPress" [ref=e248] [cursor=pointer]:
+              - generic [ref=e250]: 關於 WordPress
+          - group [ref=e251]:
+            - menuitem "test" [ref=e252] [cursor=pointer]
+          - group [ref=e253]:
+            - menuitem "上線" [ref=e254] [cursor=pointer]
+          - group [ref=e255]:
+            - menuitem "已有 3 項更新可供安裝" [ref=e256] [cursor=pointer]:
+              - generic [ref=e258]: "3"
+              - generic [ref=e259]: 已有 3 項更新可供安裝
+          - group [ref=e260]:
+            - menuitem "0 則待審閱留言" [ref=e261] [cursor=pointer]:
+              - generic [ref=e263]: "0"
+              - generic [ref=e264]: 0 則待審閱留言
+          - group [ref=e265]:
+            - menuitem "新增項目" [ref=e266] [cursor=pointer]:
+              - generic [ref=e268]: 新增項目
+          - group [ref=e269]:
+            - menuitem "History" [ref=e270] [cursor=pointer]
+        - menu [ref=e271]:
+          - group [ref=e272]:
+            - menuitem "你好，test" [ref=e273] [cursor=pointer]
+    - main [ref=e274]:
+      - generic [ref=e275]:
+        - generic [ref=e276]:
+          - button "顯示項目設定" [ref=e278] [cursor=pointer]
+          - button "使用說明" [ref=e280] [cursor=pointer]
+        - generic [ref=e281]:
+          - heading "控制台" [level=1] [ref=e282]
+          - text: 
+          - generic [ref=e284]:
+            - generic [ref=e286]:
+              - generic [ref=e287]:
+                - generic [ref=e288]:
+                  - heading "WooCommerce 設定" [level=2] [ref=e289]
+                  - generic [ref=e290]:
+                    - button "上移一位" [disabled] [ref=e291]:
+                      - generic [ref=e292]: 上移一位
+                    - button "下移一位" [ref=e294] [cursor=pointer]:
+                      - generic [ref=e295]: 下移一位
+                    - 'button "切換面板: WooCommerce 設定" [expanded] [ref=e297] [cursor=pointer]':
+                      - generic [ref=e298]: "切換面板: WooCommerce 設定"
+                - generic [ref=e301]:
+                  - generic [ref=e302]:
+                    - img [ref=e303]
+                    - text: 步驟 4 / 5
+                  - generic:
+                    - generic [ref=e306]:
+                      - text: 快完成了！ 完成商店設定步驟後即可開始收到訂單。
+                      - link "開始銷售" [ref=e308] [cursor=pointer]:
+                        - /url: https://payuni-test.powerhouse.tw/wp-admin/admin.php?page=wc-admin&path=%2Fcustomize-store
+                    - img [ref=e309]
+              - generic [ref=e310]:
+                - generic [ref=e311]:
+                  - heading "網站狀態" [level=2] [ref=e312]
+                  - generic [ref=e313]:
+                    - button "上移一位" [ref=e314] [cursor=pointer]:
+                      - generic [ref=e315]: 上移一位
+                    - button "下移一位" [ref=e317] [cursor=pointer]:
+                      - generic [ref=e318]: 下移一位
+                    - 'button "切換面板: 網站狀態" [expanded] [ref=e320] [cursor=pointer]':
+                      - generic [ref=e321]: "切換面板: 網站狀態"
+                - generic [ref=e324]:
+                  - generic [ref=e325]:
+                    - img [ref=e327]
+                    - generic [ref=e330]: 需要改進
+                  - generic [ref=e331]:
+                    - paragraph [ref=e332]: 這個網站有需要盡快解決的重大問題，解決後便能提升網站效能及安全性。
+                    - paragraph [ref=e333]:
+                      - text: 請查看在 [
+                      - link "網站狀態" [ref=e334] [cursor=pointer]:
+                        - /url: https://payuni-test.powerhouse.tw/wp-admin/site-health.php
+                      - text: "] 頁面中所列的"
+                      - strong [ref=e335]: 5 個項目
+                      - text: 。
+              - generic [ref=e336]:
+                - generic [ref=e337]:
+                  - heading "網站概況" [level=2] [ref=e338]
+                  - generic [ref=e339]:
+                    - button "上移一位" [ref=e340] [cursor=pointer]:
+                      - generic [ref=e341]: 上移一位
+                    - button "下移一位" [ref=e343] [cursor=pointer]:
+                      - generic [ref=e344]: 下移一位
+                    - 'button "切換面板: 網站概況" [expanded] [ref=e346] [cursor=pointer]':
+                      - generic [ref=e347]: "切換面板: 網站概況"
+                - generic [ref=e350]:
+                  - list [ref=e351]:
+                    - listitem [ref=e352]:
+                      - link "1 篇文章" [ref=e353] [cursor=pointer]:
+                        - /url: edit.php?post_type=post
+                    - listitem [ref=e354]:
+                      - link "5 個頁面" [ref=e355] [cursor=pointer]:
+                        - /url: edit.php?post_type=page
+                    - listitem [ref=e356]:
+                      - link "1 則留言" [ref=e357] [cursor=pointer]:
+                        - /url: edit-comments.php
+                  - paragraph [ref=e358]:
+                    - generic [ref=e359]:
+                      - text: 這個網站以 WordPress 6.9.1 建置，目前使用的佈景主題為
+                      - link "Twenty Twenty-Five" [ref=e360] [cursor=pointer]:
+                        - /url: themes.php
+                      - text: 。
+              - generic [ref=e361]:
+                - generic [ref=e362]:
+                  - heading "網站活動" [level=2] [ref=e363]
+                  - generic [ref=e364]:
+                    - button "上移一位" [ref=e365] [cursor=pointer]:
+                      - generic [ref=e366]: 上移一位
+                    - button "下移一位" [ref=e368] [cursor=pointer]:
+                      - generic [ref=e369]: 下移一位
+                    - 'button "切換面板: 網站活動" [expanded] [ref=e371] [cursor=pointer]':
+                      - generic [ref=e372]: "切換面板: 網站活動"
+                - generic [ref=e375]:
+                  - generic [ref=e376]:
+                    - heading "最新發佈" [level=3] [ref=e377]
+                    - list [ref=e378]:
+                      - listitem [ref=e379]:
+                        - generic [ref=e380]: 2025 年 6 月 14 日下午 10:08
+                        - link "編輯〈網站第一篇文章〉" [ref=e381] [cursor=pointer]:
+                          - /url: https://payuni-test.powerhouse.tw/wp-admin/post.php?post=1&action=edit
+                          - text: 網站第一篇文章
+                  - generic [ref=e382]:
+                    - heading "近期留言" [level=3] [ref=e383]
+                    - list [ref=e384]:
+                      - listitem [ref=e385]:
+                        - generic [ref=e386]:
+                          - paragraph [ref=e387]:
+                            - text: 由「
+                            - link "WordPress 示範留言者" [ref=e389] [cursor=pointer]:
+                              - /url: https://tw.wordpress.org/
+                            - text: 」於〈
+                            - link "網站第一篇文章" [ref=e390] [cursor=pointer]:
+                              - /url: https://payuni-test.powerhouse.tw/hello-world/
+                            - text: 〉發佈
+                          - blockquote [ref=e391]:
+                            - paragraph [ref=e392]: 網站管理員你好，這是一則預留內容留言。 …
+                          - paragraph [ref=e393]:
+                            - button "駁回這則留言" [ref=e395] [cursor=pointer]: 駁回
+                            - generic [ref=e396]:
+                              - text: "|"
+                              - button "回覆這則留言" [ref=e397] [cursor=pointer]: 回覆
+                            - generic [ref=e398]:
+                              - text: "|"
+                              - link "編輯這則留言" [ref=e399] [cursor=pointer]:
+                                - /url: comment.php?action=editcomment&c=1
+                                - text: 編輯
+                            - generic [ref=e400]:
+                              - text: "|"
+                              - button "將這則留言標示為垃圾留言" [ref=e401] [cursor=pointer]: 標示為垃圾留言
+                            - generic [ref=e402]:
+                              - text: "|"
+                              - button "將這則留言移至回收桶" [ref=e403] [cursor=pointer]: 移至回收桶
+                            - generic [ref=e404]:
+                              - text: "|"
+                              - link "檢視這則留言" [ref=e405] [cursor=pointer]:
+                                - /url: https://payuni-test.powerhouse.tw/hello-world/#comment-1
+                                - text: 檢視
+                    - heading "檢視更多留言" [level=3] [ref=e406]
+                    - list [ref=e407]:
+                      - listitem [ref=e408]:
+                        - link "全部 (1)" [ref=e409] [cursor=pointer]:
+                          - /url: https://payuni-test.powerhouse.tw/wp-admin/edit-comments.php?comment_status=all
+                          - text: 全部
+                          - generic [ref=e410]: (1)
+                        - text: "|"
+                      - listitem [ref=e411]:
+                        - link "屬於目前登入使用者 (0)" [ref=e412] [cursor=pointer]:
+                          - /url: https://payuni-test.powerhouse.tw/wp-admin/edit-comments.php?comment_status=mine&user_id=2
+                          - text: 屬於目前登入使用者
+                          - generic [ref=e413]: (0)
+                        - text: "|"
+                      - listitem [ref=e414]:
+                        - link "待審閱 (0)" [ref=e415] [cursor=pointer]:
+                          - /url: https://payuni-test.powerhouse.tw/wp-admin/edit-comments.php?comment_status=moderated
+                          - text: 待審閱
+                          - generic [ref=e416]: (0)
+                        - text: "|"
+                      - listitem [ref=e417]:
+                        - link "已核准 (1)" [ref=e418] [cursor=pointer]:
+                          - /url: https://payuni-test.powerhouse.tw/wp-admin/edit-comments.php?comment_status=approved
+                          - text: 已核准
+                          - generic [ref=e419]: (1)
+                        - text: "|"
+                      - listitem [ref=e420]:
+                        - link "垃圾留言 (0)" [ref=e421] [cursor=pointer]:
+                          - /url: https://payuni-test.powerhouse.tw/wp-admin/edit-comments.php?comment_status=spam
+                          - text: 垃圾留言
+                          - generic [ref=e422]: (0)
+                        - text: "|"
+                      - listitem [ref=e423]:
+                        - link "回收桶 (0)" [ref=e424] [cursor=pointer]:
+                          - /url: https://payuni-test.powerhouse.tw/wp-admin/edit-comments.php?comment_status=trash
+                          - text: 回收桶
+                          - generic [ref=e425]: (0)
+              - generic [ref=e426]:
+                - generic [ref=e427]:
+                  - heading "Simple History Settings & Tools" [level=2] [ref=e428]:
+                    - text: Simple History
+                    - link "Settings & Tools" [ref=e429] [cursor=pointer]:
+                      - /url: https://payuni-test.powerhouse.tw/wp-admin/admin.php?page=simple_history_settings_page
+                  - generic [ref=e430]:
+                    - button "上移一位" [ref=e431] [cursor=pointer]:
+                      - generic [ref=e432]: 上移一位
+                    - button "下移一位" [ref=e434] [cursor=pointer]:
+                      - generic [ref=e435]: 下移一位
+                    - 'button "切換面板: Simple History Settings & Tools" [expanded] [ref=e437] [cursor=pointer]':
+                      - generic [ref=e438]:
+                        - text: "切換面板: Simple History"
+                        - link "Settings & Tools" [ref=e439]:
+                          - /url: https://payuni-test.powerhouse.tw/wp-admin/admin.php?page=simple_history_settings_page
+                - generic [ref=e442]:
+                  - generic:
+                    - generic:
+                      - paragraph:
+                        - generic: Dates
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - combobox:
+                                    - option "Loading…" [selected]
+                                  - generic:
+                                    - generic:
+                                      - generic:
+                                        - img
+                      - paragraph:
+                        - generic: Containing words
+                        - searchbox
+                      - paragraph:
+                        - button "Search events"
+                        - button "Show search options"
+                  - generic [ref=e444]:
+                    - generic [ref=e447]: Loading…
+                    - button "Actions (Export & other tools)" [ref=e452] [cursor=pointer]:
+                      - text: Event options
+                      - img [ref=e453]
+                  - button "Click to load new events" [ref=e457] [cursor=pointer]:
+                    - img [ref=e458]
+                    - text: 0 new events
+                  - list [ref=e462]
+            - generic [ref=e465]:
+              - generic [ref=e466]:
+                - generic [ref=e467]:
+                  - heading "快速草稿" [level=2] [ref=e468]:
+                    - generic [ref=e469]: 快速草稿
+                  - generic [ref=e470]:
+                    - button "上移一位" [ref=e471] [cursor=pointer]:
+                      - generic [ref=e472]: 上移一位
+                    - button "下移一位" [ref=e474] [cursor=pointer]:
+                      - generic [ref=e475]: 下移一位
+                    - 'button "切換面板: 快速草稿" [expanded] [ref=e477] [cursor=pointer]':
+                      - generic [ref=e478]:
+                        - text: "切換面板:"
+                        - generic [ref=e479]: 快速草稿
+                - generic [ref=e482]:
+                  - generic [ref=e483]:
+                    - generic [ref=e484]: 標題
+                    - textbox "標題" [ref=e485]
+                  - generic [ref=e486]:
+                    - generic [ref=e487]: 內容
+                    - textbox "內容" [ref=e488]:
+                      - /placeholder: 簡單記錄心中所思所想
+                  - paragraph [ref=e489]:
+                    - button "儲存草稿" [ref=e490] [cursor=pointer]
+              - generic [ref=e491]:
+                - generic [ref=e492]:
+                  - heading "WordPress 活動及新聞" [level=2] [ref=e493]
+                  - generic [ref=e494]:
+                    - button "上移一位" [ref=e495] [cursor=pointer]:
+                      - generic [ref=e496]: 上移一位
+                    - button "下移一位" [ref=e498] [cursor=pointer]:
+                      - generic [ref=e499]: 下移一位
+                    - 'button "切換面板: WordPress 活動及新聞" [expanded] [ref=e501] [cursor=pointer]':
+                      - generic [ref=e502]: "切換面板: WordPress 活動及新聞"
+                - generic [ref=e504]:
+                  - generic [ref=e505]:
+                    - paragraph [ref=e507]:
+                      - text: 參加附近即將舉辦的活動。
+                      - button "選取位置" [ref=e508] [cursor=pointer]:
+                        - generic [ref=e509]: 
+                        - text: 選取位置
+                    - list [ref=e510]:
+                      - listitem [ref=e511]:
+                        - text: 近期沒有任何在你的居地附近舉辦的活動。如果想自己舉辦一場活動，請參考
+                        - link "這份線上說明" [ref=e512] [cursor=pointer]:
+                          - /url: https://make.wordpress.org/community/handbook/meetup-organizer/welcome/
+                        - text: 。
+                  - generic [ref=e513]:
+                    - list [ref=e515]:
+                      - listitem [ref=e516]:
+                        - link "WordPress 7.0 Beta 2" [ref=e517] [cursor=pointer]:
+                          - /url: https://wordpress.org/news/2026/02/wordpress-7-0-beta-2/
+                      - listitem [ref=e518]:
+                        - link "WordPress 7.0 Beta 1" [ref=e519] [cursor=pointer]:
+                          - /url: https://wordpress.org/news/2026/02/wordpress-7-0-beta-1/
+                    - list [ref=e521]:
+                      - listitem [ref=e522]:
+                        - 'link "Matt: Sunday Links" [ref=e523] [cursor=pointer]':
+                          - /url: https://ma.tt/2026/03/sunday-links/
+                      - listitem [ref=e524]:
+                        - 'link "Gutenberg Times: Gutenberg Changelog #127 – WordPress 7.0 Beta and Gutenberg 22.6" [ref=e525] [cursor=pointer]':
+                          - /url: https://gutenbergtimes.com/podcast/gutenberg-changelog-127-wordpress-7-0-beta/
+                      - listitem [ref=e526]:
+                        - 'link "Gutenberg Times: Help test WordPress 7.0 beta2, CSS in Block themes, AI experiements – Weekend Edition 359" [ref=e527] [cursor=pointer]':
+                          - /url: https://gutenbergtimes.com/help-test-wordpress-7-0-beta2-css-in-block-themes-ai-experiements-weekend-edition-359/
+                  - paragraph [ref=e528]:
+                    - link "Meetup 小聚 (在新分頁中開啟)" [ref=e529] [cursor=pointer]:
+                      - /url: https://make.wordpress.org/community/meetups-landing-page
+                      - text: Meetup 小聚
+                      - generic [ref=e530]: (在新分頁中開啟)
+                      - generic [ref=e531]: 
+                    - text: "|"
+                    - link "WordCamp 活動 (在新分頁中開啟)" [ref=e532] [cursor=pointer]:
+                      - /url: https://central.wordcamp.org/schedule/
+                      - text: WordCamp 活動
+                      - generic [ref=e533]: (在新分頁中開啟)
+                      - generic [ref=e534]: 
+                    - text: "|"
+                    - link "新聞 (在新分頁中開啟)" [ref=e535] [cursor=pointer]:
+                      - /url: https://wordpress.org/news/
+                      - text: 新聞
+                      - generic [ref=e536]: (在新分頁中開啟)
+                      - generic [ref=e537]: 
+  - contentinfo [ref=e538]:
+    - paragraph [ref=e539]:
+      - generic [ref=e540]:
+        - text: 感謝採用
+        - link "WordPress" [ref=e541] [cursor=pointer]:
+          - /url: https://tw.wordpress.org/
+        - text: 進行創作
+    - paragraph [ref=e542]: 6.9.1 版

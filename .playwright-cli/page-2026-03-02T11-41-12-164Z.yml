@@ -1,0 +1,111 @@
+- generic [active] [ref=e1]:
+  - link "跳至主要內容" [ref=e2] [cursor=pointer]:
+    - /url: "#wp--skip-link--target"
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e7]:
+        - paragraph [ref=e8]:
+          - link "test" [ref=e9] [cursor=pointer]:
+            - /url: https://payuni-test.powerhouse.tw
+        - generic [ref=e10]:
+          - navigation [ref=e11]:
+            - list [ref=e16]:
+              - list [ref=e17]:
+                - listitem [ref=e18]:
+                  - link "商店" [ref=e19] [cursor=pointer]:
+                    - /url: https://payuni-test.powerhouse.tw/shop/
+                - listitem [ref=e20]:
+                  - link "我的帳號" [ref=e21] [cursor=pointer]:
+                    - /url: https://payuni-test.powerhouse.tw/my-account/
+                - listitem [ref=e22]:
+                  - link "範例頁面" [ref=e23] [cursor=pointer]:
+                    - /url: https://payuni-test.powerhouse.tw/sample-page/
+                - listitem [ref=e24]:
+                  - link "結帳" [ref=e25] [cursor=pointer]:
+                    - /url: https://payuni-test.powerhouse.tw/checkout/
+                - listitem [ref=e26]:
+                  - link "購物車" [ref=e27] [cursor=pointer]:
+                    - /url: https://payuni-test.powerhouse.tw/cart/
+          - link "登入" [ref=e29] [cursor=pointer]:
+            - /url: https://payuni-test.powerhouse.tw/my-account/
+            - img [ref=e30]
+          - generic [ref=e33]:
+            - button "購物車中有 0 件商品，總金額為 NT$0" [ref=e34]:
+              - img [ref=e36]
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - paragraph:
+                          - strong: 你的購物車目前是空的！
+    - main [ref=e42]:
+      - generic [ref=e43]:
+        - heading "付款方式" [level=1] [ref=e44]
+        - generic [ref=e46]:
+          - heading "登入" [level=2] [ref=e47]
+          - generic [ref=e48]:
+            - paragraph [ref=e49]:
+              - generic [ref=e50]:
+                - text: 使用者名稱 或 電子郵件 *
+                - generic [ref=e51]: 必填
+              - textbox "使用者名稱 或 電子郵件 必填" [ref=e52]
+            - paragraph [ref=e53]:
+              - generic [ref=e54]:
+                - text: 密碼 *
+                - generic [ref=e55]: 必填
+              - generic [ref=e56]:
+                - textbox "密碼 必填" [ref=e57]
+                - button "顯示密碼" [ref=e58] [cursor=pointer]
+            - paragraph [ref=e59]:
+              - generic [ref=e60]:
+                - checkbox "保持登入" [ref=e61]
+                - text: 保持登入
+              - button "登入" [ref=e62] [cursor=pointer]
+            - paragraph [ref=e63]:
+              - link "忘記密碼？" [ref=e64] [cursor=pointer]:
+                - /url: https://payuni-test.powerhouse.tw/my-account/lost-password/
+    - contentinfo [ref=e65]:
+      - generic [ref=e67]:
+        - generic [ref=e68]:
+          - heading "test" [level=2] [ref=e71]:
+            - link "test" [ref=e72] [cursor=pointer]:
+              - /url: https://payuni-test.powerhouse.tw
+          - generic [ref=e73]:
+            - navigation [ref=e74]:
+              - list [ref=e75]:
+                - listitem [ref=e76]:
+                  - link "部落格" [ref=e77] [cursor=pointer]:
+                    - /url: "#"
+                - listitem [ref=e78]:
+                  - link "關於" [ref=e79] [cursor=pointer]:
+                    - /url: "#"
+                - listitem [ref=e80]:
+                  - link "常見問題集" [ref=e81] [cursor=pointer]:
+                    - /url: "#"
+                - listitem [ref=e82]:
+                  - link "作者" [ref=e83] [cursor=pointer]:
+                    - /url: "#"
+            - navigation [ref=e84]:
+              - list [ref=e85]:
+                - listitem [ref=e86]:
+                  - link "活動" [ref=e87] [cursor=pointer]:
+                    - /url: "#"
+                - listitem [ref=e88]:
+                  - link "商店" [ref=e89] [cursor=pointer]:
+                    - /url: "#"
+                - listitem [ref=e90]:
+                  - link "區塊版面配置" [ref=e91] [cursor=pointer]:
+                    - /url: "#"
+                - listitem [ref=e92]:
+                  - link "佈景主題" [ref=e93] [cursor=pointer]:
+                    - /url: "#"
+        - generic [ref=e95]:
+          - paragraph [ref=e96]: Twenty Twenty-Five
+          - paragraph [ref=e97]:
+            - text: 使用
+            - link "WordPress" [ref=e98] [cursor=pointer]:
+              - /url: https://tw.wordpress.org
+            - text: 設計
+  - status [ref=e99]

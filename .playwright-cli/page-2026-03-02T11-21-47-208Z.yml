@@ -1,0 +1,137 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - navigation "工具列":
+      - menu:
+        - group [ref=e3]:
+          - menuitem "關於 WordPress" [ref=e4] [cursor=pointer]:
+            - generic [ref=e6]: 關於 WordPress
+        - group [ref=e7]:
+          - menuitem "test" [ref=e8] [cursor=pointer]
+        - group [ref=e9]:
+          - menuitem "上線" [ref=e10] [cursor=pointer]
+        - group [ref=e11]:
+          - menuitem "編輯網站" [ref=e12] [cursor=pointer]
+        - group [ref=e13]:
+          - menuitem "已有 3 項更新可供安裝" [ref=e14] [cursor=pointer]:
+            - generic [ref=e16]: "3"
+            - generic [ref=e17]: 已有 3 項更新可供安裝
+        - group [ref=e18]:
+          - menuitem "0 則待審閱留言" [ref=e19] [cursor=pointer]:
+            - generic [ref=e21]: "0"
+            - generic [ref=e22]: 0 則待審閱留言
+        - group [ref=e23]:
+          - menuitem "新增項目" [ref=e24] [cursor=pointer]:
+            - generic [ref=e26]: 新增項目
+        - group [ref=e27]:
+          - menuitem "編輯頁面" [ref=e28] [cursor=pointer]
+        - group [ref=e29]:
+          - menuitem "History" [ref=e30] [cursor=pointer]
+      - menu [ref=e31]:
+        - group [ref=e32]:
+          - menuitem "你好，test" [ref=e33] [cursor=pointer]
+        - group [ref=e34]:
+          - menuitem "搜尋" [ref=e35]:
+            - generic [ref=e36]:
+              - textbox "搜尋" [ref=e37] [cursor=pointer]
+              - generic [ref=e38]: 搜尋
+  - link "跳至主要內容" [ref=e39] [cursor=pointer]:
+    - /url: "#wp--skip-link--target"
+  - generic [ref=e40]:
+    - banner [ref=e41]:
+      - banner [ref=e42]:
+        - paragraph [ref=e44]:
+          - link "test" [ref=e45] [cursor=pointer]:
+            - /url: https://payuni-test.powerhouse.tw
+    - main [ref=e46]:
+      - generic [ref=e48]:
+        - status [ref=e50]:
+          - img [ref=e51]
+          - generic [ref=e53]:
+            - text: 有折價券嗎?
+            - button "輸入優惠券代碼" [ref=e54] [cursor=pointer]: 按此輸入您的折價碼
+        - form "結帳" [ref=e55]:
+          - generic [ref=e56]:
+            - generic [ref=e58]:
+              - heading "帳單資訊" [level=3] [ref=e59]
+              - generic [ref=e60]:
+                - paragraph [ref=e61]:
+                  - generic [ref=e62]: 名字 *
+                  - textbox "名字" [ref=e64]:
+                    - /placeholder: ""
+                    - text: 測試
+                - paragraph [ref=e65]:
+                  - generic [ref=e66]: 姓氏 *
+                  - textbox "姓氏" [ref=e68]:
+                    - /placeholder: ""
+                    - text: 用戶
+                - paragraph [ref=e69]:
+                  - generic [ref=e70]: 聯絡電話
+                  - textbox "聯絡電話" [ref=e72]:
+                    - /placeholder: ""
+                    - text: "0912345678"
+                - paragraph [ref=e73]:
+                  - generic [ref=e74]: 電子郵件地址 *
+                  - textbox "電子郵件地址" [ref=e76]:
+                    - /placeholder: ""
+                    - text: test@gmail.com
+                - paragraph [ref=e77]
+                - paragraph [ref=e78]
+                - paragraph [ref=e79]
+                - paragraph [ref=e80]
+                - paragraph [ref=e81]
+            - generic [ref=e83]:
+              - heading "額外資訊" [level=3] [ref=e84]
+              - paragraph [ref=e86]:
+                - generic [ref=e87]: 訂單備註
+                - textbox "訂單備註" [ref=e89]:
+                  - /placeholder: "您的訂單的備註，例如: 運送時的特別註記。"
+          - heading "您的訂單" [level=3] [ref=e90]
+          - generic [ref=e91]:
+            - table [ref=e92]:
+              - rowgroup [ref=e93]:
+                - row "商品 小計" [ref=e94]:
+                  - columnheader "商品" [ref=e95]
+                  - columnheader "小計" [ref=e96]
+              - rowgroup [ref=e97]:
+                - row "Album × 1 NT$15" [ref=e98]:
+                  - cell "Album × 1" [ref=e99]:
+                    - text: Album
+                    - strong [ref=e100]: × 1
+                  - cell "NT$15" [ref=e101]:
+                    - generic [ref=e103]: NT$15
+              - rowgroup [ref=e104]:
+                - row "小計 NT$15" [ref=e105]:
+                  - rowheader "小計" [ref=e106]
+                  - cell "NT$15" [ref=e107]:
+                    - generic [ref=e109]: NT$15
+                - row "總計 NT$15" [ref=e110]:
+                  - rowheader "總計" [ref=e111]
+                  - cell "NT$15" [ref=e112]:
+                    - strong [ref=e113]:
+                      - generic [ref=e115]: NT$15
+            - generic [ref=e117]:
+              - list [ref=e118]:
+                - listitem [ref=e119]:
+                  - radio "貨到付款" [ref=e120]
+                  - text: 貨到付款
+                - listitem [ref=e121]:
+                  - radio "統一金流 PAYUNi 信用卡" [ref=e122]
+                  - text: 統一金流 PAYUNi 信用卡
+                - listitem [ref=e123]:
+                  - radio "統一金流 PAYUNi 信用卡分期" [ref=e124]
+                  - text: 統一金流 PAYUNi 信用卡分期
+                - listitem [ref=e125]:
+                  - radio "統一金流 PAYUNi 信用卡 v3" [checked] [ref=e126]
+                  - text: 統一金流 PAYUNi 信用卡 v3
+                  - generic [ref=e128]:
+                    - generic [ref=e130]: 信用卡號碼
+                    - generic [ref=e133]: 有效期限
+                    - generic [ref=e136]: 安全碼
+              - generic [ref=e138]:
+                - paragraph [ref=e141]:
+                  - text: 我們會使用你的個人資料來處理你的訂單、支援你在本網站中的使用體驗，以及用於
+                  - link "隱私權政策" [ref=e142] [cursor=pointer]:
+                    - /url: https://payuni-test.powerhouse.tw/?page_id=3
+                  - text: 中說明的其他用途。
+                - button "下單購買" [ref=e143] [cursor=pointer]
+  - status [ref=e147]
