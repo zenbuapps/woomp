@@ -1,0 +1,160 @@
+; ─── 活動規格語法定義 ──────────────────────────────────────────────────────
+<activity-stream>    ::= <line>+
+
+; 每一行：可為空白行（不影響語意），或含選用縮排與行內便條紙的 event
+<line>               ::= <ws>? <event-body> <inline-comment>? <nl>
+                       | <ws>? <nl>
+
+<event-body>         ::= <activity-event>
+                       | <actor-event>
+                       | <step-event>
+                       | <path-step-event>
+                       | <decision-event>
+                       | <branch-event>
+                       | <loop-branch-event>
+                       | <merge-event>
+                       | <fork-event>
+                       | <parallel-event>
+                       | <join-event>
+                       | <end-event>
+
+; 活動標頭
+<activity-event>     ::= "[ACTIVITY] " <string>
+
+; Actor 定義
+<actor-event>        ::= "[ACTOR] " <actor-id> " -> " <binding>
+
+; 主線步驟（id 為純數字，全局唯一，唯一可作為 loop-back 目標）
+<step-event>         ::= "[STEP:" <step-num> "] " <actor-ref> " " <binding>
+
+; Fork 並行路徑內的後續步驟（path-id = fork-id + 路徑字母）
+<path-step-event>    ::= "[STEP:" <path-id> "] " <actor-ref> " " <binding>
+
+; Decision（條件分支）
+; <node-id> 強制帶後綴，確保與 STEP 的純數字 id 無衝突
+<decision-event>     ::= "[DECISION:" <node-id> "] " <string>
+
+; 一般分支：actorRef 為選用；執行後流向對應的 MERGE
+<branch-event>       ::= "[BRANCH:" <node-id> ":" <guard> "] " (<actor-ref> " ")? <binding>
+
+; 回流分支：執行後 loop back 到指定目標，不走 MERGE
+; loop-back 目標為 <loop-target>，可以是：
+;   - <step-num>（純數字）：跳回主線 STEP，重新執行整個步驟
+;   - <node-id>（帶後綴）：跳回 DECISION，直接重新評估條件（for-each / while 語意）
+; 語意：[BRANCH:4a:否 -> 3]   表示「跳回 STEP:3 重新執行」
+;       [BRANCH:4a:是 -> 4a]  表示「跳回 DECISION:4a 重新評估條件」
+<loop-branch-event>  ::= "[BRANCH:" <node-id> ":" <guard> " -> " <loop-target> "] " (<actor-ref> " ")? <binding>
+
+; loop-back 目標：主線步驟（純數字）或 DECISION（帶後綴），兩者語法上可區分
+<loop-target>        ::= <step-num> | <node-id>
+
+; DECISION 對應的合流點，引用相同的 <node-id>（不宣告新節點）
+<merge-event>        ::= "[MERGE:" <node-id> "]"
+
+; Fork/Join（並行）
+; fork-id 強制帶後綴，確保與 STEP 的純數字 id 無衝突
+<fork-event>         ::= "[FORK:" <fork-id> "]"
+
+; 並行分支：引用相同的 <fork-id>（不宣告新節點）
+; 同一 FORK 下可有多個 PARALLEL 共用同一 <fork-id>，代表不同的並行路徑
+<parallel-event>     ::= "[PARALLEL:" <fork-id> "] " <actor-ref> " " <binding>
+
+; 並行結束：引用相同的 <fork-id>（不宣告新節點）
+<join-event>         ::= "[JOIN:" <fork-id> "]"
+
+; 活動終止節點（Activity Final Node）；整個 Activity 只應出現一次
+<end-event>          ::= "[END]"
+
+; 行內便條紙：掛在任何 event 同行尾端，不影響語意
+; <comment-body> 為 " -->" 之前的所有非換行字元（剖析器以 " -->" token 作為右界）
+<inline-comment>     ::= " <!-- " <comment-body> " -->"
+<comment-body>       ::= [^\n]+
+
+; ─── 識別符定義 ──────────────────────────────────────────────────────────────
+
+<actor-ref>          ::= "@" <actor-id>
+<actor-id>           ::= <identifier>
+
+; 主線步驟 id：純數字，順序遞增
+<step-num>           ::= [1-9][0-9]*
+
+<branch-suffix>      ::= [a-z][a-z0-9]*
+
+; path-id：並行路徑內子步驟的 id = fork-id + 一個路徑字母
+<path-id>            ::= <step-num> <branch-suffix> <branch-suffix>
+
+; node-id：DECISION / BRANCH / MERGE 的 id
+; 強制帶後綴（+ 而非 ?），純數字不合法，確保不與 STEP id 衝突
+; 後綴編碼嵌套路徑：字母與數字交替（2a → 2a1 → 2a1a → …）
+<node-id>            ::= <step-num> <branch-suffix>+
+
+; fork-id：FORK / PARALLEL / JOIN 的 id
+; 強制帶後綴（+ 而非 ?），純數字不合法，確保不與 STEP id 衝突
+<fork-id>            ::= <step-num> <branch-suffix>+
+
+; 綁定（對應到檔案系統上的 feature / markdown 檔）
+<binding>            ::= "{" <file-path> "}"
+<file-path>          ::= <segment> ("/" <segment>)* "/" <filename>
+<segment>            ::= [a-z][a-z0-9-]*
+<filename>           ::= <string> <extension>
+<extension>          ::= ".feature" | ".md"
+
+; 守衛條件：必須明確寫出條件字串，不支援預設路徑（_ 不合法）
+<guard>              ::= <string>
+
+; 縮排（選用）
+<ws>                 ::= (" " | "\t")+
+
+; 終端符號
+<identifier>         ::= [^\s\[\]@:{}->]+
+; <string> 排除 '<'，使其在遇到行內便條紙的 ' <!-- ' 前停止（'<' 不出現於路徑、guard、標籤）
+<string>             ::= [^\n\[\]{}<]+
+<nl>                 ::= "\n"
+
+; ─── id 宣告 vs 引用規則 ──────────────────────────────────────────────────────
+;
+; 宣告新節點（全局唯一）：
+;   STEP:N          純數字，可作為 loop-back 目標（-> N）
+;   DECISION:Nx…    數字 + 後綴，嵌套路徑編碼，可作為 loop-back 目標（-> Nx…）
+;   FORK:Nx…        數字 + 後綴，嵌套路徑編碼
+;
+; 引用現有節點（不宣告新節點）：
+;   BRANCH:Nx…      引用 DECISION:Nx…
+;   MERGE:Nx…       關閉 DECISION:Nx…
+;   PARALLEL:Nx…    引用 FORK:Nx…
+;   JOIN:Nx…        關閉 FORK:Nx…
+;
+; 後綴命名慣例（字母與數字交替，編碼樹中路徑）：
+;   STEP:2 的第一層 gateway       → 2a
+;   DECISION:2a 作用域的第一個嵌套 → 2a1
+;   DECISION:2a1 作用域的第一個嵌套 → 2a1a
+;   DECISION:2a 作用域的第二個嵌套 → 2a2  （同層第二個，數字遞增）
+
+; ─── 完整範例：訂單流程 ────────────────────────────────────────────────────
+;
+; [ACTIVITY] 訂單流程
+;
+; [ACTOR] buyer    -> {specs/personas/買家.md}
+; [ACTOR] platform -> {specs/personas/平台系統.md}
+; [ACTOR] seller   -> {specs/personas/賣家.md}
+;
+; [STEP:1] @buyer    {features/order/瀏覽商品並加入購物車.feature}
+; [STEP:2] @buyer    {features/order/進入結帳頁面.feature}
+; [STEP:3] @buyer    {features/order/選擇付款方式並確認.feature}
+; [STEP:4] @platform {features/order/處理金流交易.feature}
+; [DECISION:4a] 付款成功？
+;   [BRANCH:4a:是]        @platform {features/order/建立訂單.feature}
+;   [BRANCH:4a:否 -> 3]   @buyer    {features/order/顯示付款失敗請重試.feature}
+; [MERGE:4a]
+;
+; [STEP:5] @platform {features/order/通知買家與賣家.feature}
+; [FORK:5a]
+;   [PARALLEL:5a] @buyer   {features/order/發送訂單確認通知.feature}
+;   [PARALLEL:5a] @seller  {features/order/接收出貨通知.feature}
+;     [STEP:5ab] @seller   {features/order/準備商品並出貨.feature}
+;     [STEP:5ab] @platform {features/order/更新物流追蹤資訊.feature}
+; [JOIN:5a]
+;
+; [STEP:6] @buyer    {features/order/確認收貨.feature}
+; [STEP:7] @platform {features/order/訂單完成結算貨款.feature}
+; [END]
