@@ -1,0 +1,1372 @@
+openapi: 3.0.3
+info:
+  title: PayUni UNi Embed Payment Gateway API
+  description: |
+    PayUni UNi Embed credit card payment gateway for WooCommerce (WordPress plugin: woomp).
+
+    This specification covers both external PayUni API calls and internal
+    WooCommerce gateway operations used in the checkout and refund flows.
+
+    Encryption: All PayUni API requests encrypt the payload with AES-256-GCM
+    (EncryptInfo) and sign it with SHA256 HMAC (HashInfo).
+
+    Environments:
+      - Sandbox: https://sandbox-api.payuni.com.tw/api
+      - Production: https://api.payuni.com.tw/api
+  version: 1.0.0
+  contact:
+    name: woomp
+
+servers:
+  - url: https://sandbox-api.payuni.com.tw/api
+    description: Sandbox (TEST mode)
+  - url: https://api.payuni.com.tw/api
+    description: Production (PROD mode)
+
+tags:
+  - name: gateway
+    description: Gateway configuration and SDK initialisation (internal WooCommerce operations)
+  - name: payment
+    description: Credit card payment submission, trade execution, response decryption, and result handling
+  - name: token
+    description: Saved card (tokenisation) query and storage
+  - name: invoice
+    description: Invoice carrier selection and validation
+  - name: webhook
+    description: PayUni asynchronous trade notification receiver
+  - name: refund
+    description: Refund processing via PayUni trade/close API
+
+paths:
+  # ---------------------------------------------------------------------------
+  # GATEWAY
+  # ---------------------------------------------------------------------------
+  /internal/gateway/settings:
+    post:
+      operationId: configureGatewaySettings
+      tags: [gateway]
+      summary: Configure gateway parameters
+      description: |
+        **Internal WooCommerce operation** (wp_options / WC gateway settings).
+
+        Admin configures PayUni merchant credentials and feature toggles in the
+        WooCommerce back-office. Validates required fields, mode value, and
+        installment period values before persisting.
+
+        Feature: features/gateway/設定金流參數.feature
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GatewaySettingsRequest'
+      responses:
+        '200':
+          description: Settings saved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GatewaySettingsResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missingRequired:
+                  summary: Required parameter missing
+                  value:
+                    error: "必要參數未提供"
+                invalidMode:
+                  summary: Invalid mode value
+                  value:
+                    error: "模式必須為 TEST 或 PROD"
+                invalidInstallment:
+                  summary: Invalid installment period
+                  value:
+                    error: "分期期數包含無效值：15"
+
+  /internal/gateway/init-sdk:
+    post:
+      operationId: initCheckoutSdk
+      tags: [gateway]
+      summary: Initialise checkout page SDK
+      description: |
+        **Internal WooCommerce operation** (wp_enqueue_scripts hook).
+
+        Loads the PayUni UNi Embed SDK script on the checkout page, calls the
+        PayUni token_get API to obtain a 10-minute SDK Token, and passes
+        environment parameters to the frontend JavaScript.
+
+        SDK script URLs:
+          - Sandbox: https://sandbox-vendor.payuni.com.tw/sdk/uni-payment.js
+          - Production: https://vendor.payuni.com.tw/sdk/uni-payment.js
+
+        Feature: features/gateway/初始化結帳頁SDK.feature
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_checkout_page:
+                  type: boolean
+                gateway_enabled:
+                  type: boolean
+              required:
+                - is_checkout_page
+                - gateway_enabled
+      responses:
+        '200':
+          description: SDK initialised
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SdkInitResponse'
+        '400':
+          description: Precondition not met
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                notCheckout:
+                  summary: Not on checkout page
+                  value:
+                    error: "非結帳頁面，不載入 SDK"
+                gatewayDisabled:
+                  summary: Gateway disabled
+                  value:
+                    error: "金流閘道未啟用"
+
+  # ---------------------------------------------------------------------------
+  # PAYMENT
+  # ---------------------------------------------------------------------------
+  /internal/payment/submit:
+    post:
+      operationId: submitCreditCardPayment
+      tags: [payment]
+      summary: Submit credit card payment from checkout
+      description: |
+        **Internal WooCommerce operation** (process_payment).
+
+        Collects form data (SDK Token, card selection, installment period,
+        invoice carrier) and stores it in order meta, then triggers the
+        process_payment flow.
+
+        Supports two payment modes:
+          - New card via SDK iframe
+          - Saved card via WC_Payment_Token (useDefault mode, CVC only)
+
+        Feature: features/payment/提交信用卡付款.feature
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitPaymentRequest'
+      responses:
+        '200':
+          description: Payment submitted, temporary data saved to order meta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitPaymentResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidSdkToken:
+                  summary: SDK Token invalid
+                  value:
+                    error: "SDK Token 無效"
+                invalidCvc:
+                  summary: Card CVC validation failed
+                  value:
+                    error: "請確認信用卡安全碼"
+                invalidToken:
+                  summary: Saved card does not belong to user
+                  value:
+                    error: "無效的付款卡片"
+                amountTooLow:
+                  summary: Order amount below minimum
+                  value:
+                    error: "訂單金額低於最低付款金額"
+                invalidInstallment:
+                  summary: Invalid installment period
+                  value:
+                    error: "無效的分期期數"
+
+  /iframe/merchant_trade:
+    post:
+      operationId: executeTrade
+      tags: [payment]
+      summary: Execute PayUni credit card trade
+      description: |
+        **External PayUni API** -- POST to /api/iframe/merchant_trade
+
+        Encrypts order data with AES-256-GCM and signs with SHA256 HMAC, then
+        sends to PayUni for credit card authorisation.
+
+        Encrypted payload (before encryption) includes: MerID, MerTradeNo,
+        Token, TradeAmt, Timestamp, ReturnURL, NotifyURL, UsrMail, ProdDesc,
+        API3D, CardInst, UseTokenType, CreditToken, CarrierType, CarrierInfo,
+        InvBuyerName, UserIP.
+
+        Response behaviour:
+          - Non-3D: synchronous full authorisation result
+          - 3D: returns 3D authentication redirect URL; final result via webhook
+          - Timeout (UNKNOWN): final result delivered via webhook
+
+        Feature: features/payment/執行PayUni交易.feature
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PayuniEncryptedRequest'
+      responses:
+        '200':
+          description: Trade response (encrypted)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayuniEncryptedResponse'
+              examples:
+                nonThreeDSuccess:
+                  summary: Non-3D direct authorisation success
+                  value:
+                    Status: SUCCESS
+                    MerID: ABC123
+                    Version: "1.0"
+                    EncryptInfo: "(AES encrypted string)"
+                    HashInfo: "(SHA256 HMAC string)"
+                nonThreeDUnknown:
+                  summary: Non-3D timeout / unknown
+                  value:
+                    Status: UNKNOWN
+                    MerID: ABC123
+                    Version: "1.0"
+                    EncryptInfo: "(AES encrypted string)"
+                    HashInfo: "(SHA256 HMAC string)"
+                threeDRedirect:
+                  summary: 3D authentication redirect
+                  value:
+                    Status: SUCCESS
+                    MerID: ABC123
+                    Version: "1.0"
+                    EncryptInfo: "(AES encrypted string containing URL)"
+                    HashInfo: "(SHA256 HMAC string)"
+
+  /internal/payment/decrypt-verify:
+    post:
+      operationId: decryptVerifyTradeResponse
+      tags: [payment]
+      summary: Decrypt and verify trade response
+      description: |
+        **Internal operation** (TradeHandler::process_notify).
+
+        Decrypts the PayUni EncryptInfo using AES-256-GCM with the merchant
+        hash_key/hash_iv, then verifies HashInfo integrity via SHA256 HMAC.
+
+        Feature: features/payment/解密驗證交易回應.feature
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayuniEncryptedResponse'
+      responses:
+        '200':
+          description: Decrypted trade result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DecryptedTradeResult'
+        '400':
+          description: Decryption or verification error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missingEncryptInfo:
+                  summary: Missing EncryptInfo
+                  value:
+                    error: "回應缺少加密資訊"
+                hashMismatch:
+                  summary: Hash verification failed
+                  value:
+                    error: "回應簽章驗證失敗"
+
+  /internal/payment/handle-result:
+    post:
+      operationId: handleTradeResult
+      tags: [payment]
+      summary: Handle trade result and update order
+      description: |
+        **Internal WooCommerce operation** (TradeHandler::update_order_status).
+
+        Updates WooCommerce order status based on the decrypted trade result:
+          - SUCCESS: marks order as paid (payment_complete), saves trade metadata
+          - Non-SUCCESS: marks order as failed
+        Idempotent: already-paid orders are not re-processed.
+        Temporary order meta is cleared after processing.
+
+        Feature: features/payment/處理交易結果.feature
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HandleTradeResultRequest'
+      responses:
+        '200':
+          description: Order status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandleTradeResultResponse'
+
+  # ---------------------------------------------------------------------------
+  # TOKEN
+  # ---------------------------------------------------------------------------
+  /iframe/token_get:
+    post:
+      operationId: getSdkToken
+      tags: [token]
+      summary: Get SDK Token from PayUni
+      description: |
+        **External PayUni API** -- POST to /api/iframe/token_get
+
+        Retrieves a short-lived SDK Token (valid for 10 minutes) used to
+        initialise the UNi Embed iframe on the checkout page.
+
+        The encrypted payload includes MerID, Timestamp, IFrameDomain, and
+        optionally UseTokenType, CreditToken, CreditTokenType for tokenised
+        card support.
+
+        Feature: features/gateway/初始化結帳頁SDK.feature (step)
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PayuniEncryptedRequest'
+      responses:
+        '200':
+          description: SDK Token response (encrypted)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SdkTokenApiResponse'
+
+  /internal/token/query:
+    get:
+      operationId: querySavedCards
+      tags: [token]
+      summary: Query saved payment cards
+      description: |
+        **Internal WooCommerce operation** (WC_Payment_Tokens::get_customer_tokens).
+
+        Returns the list of saved credit card tokens for the logged-in consumer
+        under the payuni-credit-v3 gateway. Returns empty if tokenisation is
+        disabled or the consumer is not logged in.
+
+        Feature: features/token/查詢已儲存卡片.feature
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: gateway_id
+          in: query
+          required: true
+          schema:
+            type: string
+            default: payuni-credit-v3
+      responses:
+        '200':
+          description: List of saved cards
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedCardsResponse'
+
+  /internal/token/save:
+    post:
+      operationId: savePaymentToken
+      tags: [token]
+      summary: Save payment token after successful trade
+      description: |
+        **Internal WooCommerce operation** (TradeHandler::save_payment_token).
+
+        After a successful trade, if the consumer opted to save the card and
+        tokenisation is enabled, saves the PayUni CreditHash as a
+        WC_Payment_Token_CC. Card type is auto-detected from the BIN (Card6No).
+
+        Preconditions:
+          - enable_tokenization must be true
+          - Consumer must be logged in
+          - Trade response must include CreditHash
+          - Token must not already exist (deduplication)
+
+        Sandbox fallback: when CreditLife is empty, expiry defaults to 12/2099.
+
+        Feature: features/token/儲存付款Token.feature
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveTokenRequest'
+      responses:
+        '200':
+          description: Token saved (or skipped if duplicate)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaveTokenResponse'
+        '400':
+          description: Precondition not met
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                tokenisationDisabled:
+                  summary: Tokenisation disabled
+                  value:
+                    error: "記憶卡號功能未啟用"
+                notLoggedIn:
+                  summary: Consumer not logged in
+                  value:
+                    error: "消費者未登入"
+                missingCreditHash:
+                  summary: Missing CreditHash
+                  value:
+                    error: "交易回應缺少 CreditHash"
+
+  # ---------------------------------------------------------------------------
+  # INVOICE
+  # ---------------------------------------------------------------------------
+  /internal/invoice/select-carrier:
+    post:
+      operationId: selectInvoiceCarrier
+      tags: [invoice]
+      summary: Select invoice carrier type
+      description: |
+        **Internal WooCommerce operation** (checkout form field processing).
+
+        Consumer selects an invoice carrier type and provides the corresponding
+        information. Carrier data is stored in order meta and sent with the
+        trade parameters to PayUni.
+
+        Supported carrier types:
+          - 3J0002: Mobile barcode (format: /XXXXXXX)
+          - CQ0001: Citizen Digital Certificate (max 16 chars)
+          - amego: Member carrier (no extra info required)
+          - Donate: Donation code (max 7 chars)
+          - Company: Company tax ID (exactly 8 digits)
+
+        Buyer name defaults to billing name when not provided (except Donate).
+
+        Feature: features/invoice/選擇發票載具.feature
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvoiceCarrierRequest'
+      responses:
+        '200':
+          description: Carrier information saved to order meta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceCarrierResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidType:
+                  summary: Invalid carrier type
+                  value:
+                    error: "無效的載具類型"
+                invalidMobileBarcode:
+                  summary: Mobile barcode format error
+                  value:
+                    error: "手機條碼格式錯誤，必須為 /XXXXXXX"
+                citizenCertTooLong:
+                  summary: Citizen certificate too long
+                  value:
+                    error: "自然人憑證號碼長度不可超過 16 碼"
+                invalidCompanyTaxId:
+                  summary: Company tax ID not 8 digits
+                  value:
+                    error: "公司統一編號必須為 8 碼"
+
+  # ---------------------------------------------------------------------------
+  # WEBHOOK
+  # ---------------------------------------------------------------------------
+  /wc-api/payuni_notify:
+    post:
+      operationId: handleTradeNotify
+      tags: [webhook]
+      summary: Receive PayUni trade notification (webhook)
+      description: |
+        **Internal WooCommerce API endpoint** -- POST to /wc-api/payuni_notify
+
+        Registered via: add_action('woocommerce_api_payuni_notify', ...).
+
+        PayUni sends asynchronous trade result notifications (for 3D auth
+        completions, timeout resolutions, etc.) to this endpoint. The system
+        decrypts and verifies the EncryptInfo/HashInfo, looks up the order by
+        MerTradeNo, updates order status, and optionally saves the payment
+        token.
+
+        Idempotent: already-paid orders are not re-processed but token saving
+        can still occur on the duplicate webhook.
+
+        Feature: features/webhook/處理交易回調.feature
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WebhookRequest'
+      responses:
+        '200':
+          description: Notification processed
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/WebhookSuccessResponse'
+                  - $ref: '#/components/schemas/WebhookErrorResponse'
+              examples:
+                success:
+                  summary: Successfully processed
+                  value:
+                    success: true
+                    data: null
+                orderNotFound:
+                  summary: Order not found
+                  value:
+                    success: false
+                    data: "找不到訂單: 9999"
+
+  # ---------------------------------------------------------------------------
+  # REFUND
+  # ---------------------------------------------------------------------------
+  /trade/close:
+    post:
+      operationId: processRefund
+      tags: [refund]
+      summary: Process refund via PayUni
+      description: |
+        **External PayUni API** -- POST to /api/trade/close
+
+        Triggered from WooCommerce admin via process_refund(). Encrypts refund
+        parameters (TradeNo, TradeAmt, CloseType=2) and sends to PayUni.
+
+        Supports partial refunds (any positive amount); upper-limit validation
+        is handled by the PayUni API. On success, an order note is added with
+        the refund record.
+
+        Feature: features/refund/處理退費.feature
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PayuniEncryptedRequest'
+      responses:
+        '200':
+          description: Refund response (encrypted)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayuniEncryptedResponse'
+
+  /internal/refund/process:
+    post:
+      operationId: processWooCommerceRefund
+      tags: [refund]
+      summary: WooCommerce process_refund entry point
+      description: |
+        **Internal WooCommerce operation** (AbstractGateway::process_refund).
+
+        Admin initiates a refund from the WooCommerce order admin page. The
+        system validates preconditions, encrypts the refund parameters, calls
+        the PayUni /api/trade/close endpoint, and records the result as an
+        order note.
+
+        Preconditions:
+          - Order must have a PayUni trade number (_payuni_resp_trade_no)
+          - Refund amount must be greater than 0
+
+        Feature: features/refund/處理退費.feature
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundRequest'
+      responses:
+        '200':
+          description: Refund result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+        '400':
+          description: Refund failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ---------------------------------------------------------------------------
+  # ERROR MAPPING
+  # ---------------------------------------------------------------------------
+  /internal/error/map:
+    post:
+      operationId: mapErrorCode
+      tags: [error]
+      summary: Map PayUni error code to Chinese message
+      description: |
+        **Internal operation** (HttpClient::get_error_msg).
+
+        Looks up a PayUni error code in the error_mapper (109 codes) and returns
+        the formatted message in "{code}: {Chinese message}" format.
+        Unknown codes return "{code}: 未知錯誤".
+
+        The error mapper is also available on the frontend via
+        window.payuni_payment_v3_checkout_params.ERROR_MAPPER (wp_localize_script).
+
+        Feature: features/error/對應錯誤訊息.feature
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [error_code]
+              properties:
+                error_code:
+                  type: string
+                  description: PayUni error code (e.g. IFTRADE04001, 1008, TRADE02008)
+                  example: IFTRADE04001
+      responses:
+        '200':
+          description: Mapped error message
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error_code:
+                    type: string
+                    example: IFTRADE04001
+                  error_message:
+                    type: string
+                    example: "IFTRADE04001: Token已過期"
+                  is_known:
+                    type: boolean
+                    description: Whether the code was found in error_mapper
+                    example: true
+
+components:
+  schemas:
+    # =========================================================================
+    # GATEWAY
+    # =========================================================================
+    GatewaySettingsRequest:
+      type: object
+      description: Gateway configuration parameters
+      required:
+        - merchant_id
+        - hash_key
+        - hash_iv
+      properties:
+        merchant_id:
+          type: string
+          description: PayUni Merchant ID
+          example: ABC123
+        hash_key:
+          type: string
+          description: AES-256-GCM encryption key
+          example: test_hash_key_32
+        hash_iv:
+          type: string
+          description: AES-256-GCM initialisation vector
+          example: test_hash_iv_16
+        mode:
+          type: string
+          enum: [TEST, PROD]
+          description: Environment mode
+          default: TEST
+        enable_tokenization:
+          type: boolean
+          description: Enable card tokenisation (remember card)
+          default: false
+        enable_3d_auth:
+          type: boolean
+          description: Enable 3D Secure authentication
+          default: true
+        enable_log:
+          type: boolean
+          description: Enable logging
+          default: true
+        installment_options:
+          type: string
+          description: Comma-separated valid installment periods (3,6,9,12,18,24,30)
+          example: "3,6,12"
+
+    GatewaySettingsResponse:
+      type: object
+      properties:
+        merchant_id:
+          type: string
+        hash_key:
+          type: string
+        hash_iv:
+          type: string
+        mode:
+          type: string
+          enum: [TEST, PROD]
+        enable_tokenization:
+          type: boolean
+        installment_options:
+          type: string
+        api_base_url:
+          type: string
+          description: Resolved API base URL based on mode
+          example: https://sandbox-api.payuni.com.tw/api
+
+    SdkInitResponse:
+      type: object
+      properties:
+        env:
+          type: string
+          enum: [S, P]
+          description: "'S' for sandbox, 'P' for production"
+        sdk_token:
+          type: string
+          description: SDK Token valid for 10 minutes (empty string on API failure)
+          example: token_abc123
+        enable_3d_auth:
+          type: boolean
+        enable_tokenization:
+          type: boolean
+        sdk_script_url:
+          type: string
+          description: URL of the PayUni SDK JavaScript file
+          example: https://sandbox-vendor.payuni.com.tw/sdk/uni-payment.js
+
+    # =========================================================================
+    # PAYUNI COMMON ENCRYPTED REQUEST / RESPONSE
+    # =========================================================================
+    PayuniEncryptedRequest:
+      type: object
+      description: Standard PayUni encrypted request envelope
+      required:
+        - MerID
+        - Version
+        - EncryptInfo
+        - HashInfo
+      properties:
+        MerID:
+          type: string
+          description: Merchant ID
+          example: ABC123
+        Version:
+          type: string
+          description: API version
+          example: "1.0"
+        EncryptInfo:
+          type: string
+          description: AES-256-GCM encrypted payload string
+        HashInfo:
+          type: string
+          description: SHA256 HMAC signature of EncryptInfo
+
+    PayuniEncryptedResponse:
+      type: object
+      description: Standard PayUni encrypted response envelope
+      properties:
+        Status:
+          type: string
+          description: Response status
+          example: SUCCESS
+        MerID:
+          type: string
+          example: ABC123
+        Version:
+          type: string
+          example: "1.0"
+        EncryptInfo:
+          type: string
+          description: AES-256-GCM encrypted response payload
+        HashInfo:
+          type: string
+          description: SHA256 HMAC signature for verification
+
+    # =========================================================================
+    # TRADE PARAMETERS (pre-encryption)
+    # =========================================================================
+    TradeParameters:
+      type: object
+      description: |
+        Full set of trade parameters assembled before AES encryption.
+        Sent inside EncryptInfo to /iframe/merchant_trade.
+      required:
+        - MerID
+        - MerTradeNo
+        - Token
+        - TradeAmt
+        - Timestamp
+        - ProdDesc
+      properties:
+        MerID:
+          type: string
+          description: Merchant ID
+          example: ABC123
+        MerTradeNo:
+          type: string
+          description: WooCommerce order number (max 25 chars, alphanumeric with -_)
+          example: "1001"
+        Token:
+          type: string
+          description: SDK Token from token_get API
+          example: token_abc
+        TradeAmt:
+          type: integer
+          description: Order amount in TWD
+          example: 500
+        Timestamp:
+          type: integer
+          description: Unix timestamp
+          example: 1711929600
+        ReturnURL:
+          type: string
+          description: Frontend return URL after payment (Form Post)
+        NotifyURL:
+          type: string
+          description: Backend webhook URL for async notification (/wc-api/payuni_notify)
+        UsrMail:
+          type: string
+          description: Consumer email
+          example: alice@test.com
+        ProdDesc:
+          type: string
+          description: Product description (semicolon-separated, max 550 chars)
+        API3D:
+          type: integer
+          enum: [1]
+          description: "1 = force 3D Secure authentication"
+        CardInst:
+          type: integer
+          enum: [1, 3, 6, 9, 12, 18, 24, 30]
+          description: Credit card installment periods (1 = no installment)
+          default: 1
+        UseTokenType:
+          type: integer
+          enum: [2]
+          description: "2 = create/use CreditToken binding"
+        CreditToken:
+          type: string
+          description: Consumer binding identifier (email) for tokenised payments
+          example: alice@test.com
+        CarrierType:
+          type: string
+          enum: ["3J0002", "CQ0001", "amego", "Donate", "Company"]
+          description: Invoice carrier type
+        CarrierInfo:
+          type: string
+          description: Carrier-specific data (mobile barcode, certificate no., donation code, tax ID)
+          example: "/ABC1234"
+        InvBuyerName:
+          type: string
+          description: Buyer name or company title (required when CarrierType is present)
+          example: Alice Chen
+        UserIP:
+          type: string
+          description: Consumer IP address (IPv4 or IPv6) for risk control
+
+    # =========================================================================
+    # PAYMENT
+    # =========================================================================
+    SubmitPaymentRequest:
+      type: object
+      description: Checkout form submission data
+      required:
+        - order_id
+        - sdk_token
+      properties:
+        order_id:
+          type: integer
+          example: 1001
+        sdk_token:
+          type: string
+          description: SDK Token from token_get API
+          example: token_abc
+        payment_mode:
+          type: string
+          enum: [new_card, saved_card]
+          default: new_card
+        card_validation:
+          type: object
+          description: SDK iframe field validation states (new card only)
+          properties:
+            CardNo:
+              type: string
+              enum: [valid, invalid]
+            CardExp:
+              type: string
+              enum: [valid, invalid]
+            CardCvc:
+              type: string
+              enum: [valid, invalid]
+        saved_token_id:
+          type: integer
+          description: WC_Payment_Token ID (saved card only)
+          example: 101
+        installment:
+          type: integer
+          enum: [1, 3, 6, 9, 12, 18, 24, 30]
+          default: 1
+        save_card:
+          type: boolean
+          description: Whether to save card for future use
+          default: false
+
+    SubmitPaymentResponse:
+      type: object
+      properties:
+        result:
+          type: string
+          enum: [success, failure]
+        order_meta:
+          type: object
+          description: Temporary payment data saved to order meta
+          properties:
+            sdk_token_tmp:
+              type: string
+            payuni_save_card:
+              type: string
+              enum: ["0", "1"]
+            payuni_installment:
+              type: string
+            payuni_use_saved_token:
+              type: string
+              enum: ["0", "1"]
+            payuni_saved_token_id:
+              type: string
+
+    DecryptedTradeResult:
+      type: object
+      description: Decrypted trade result from PayUni EncryptInfo
+      properties:
+        Status:
+          type: string
+          enum: [SUCCESS, ERROR, UNKNOWN]
+          example: SUCCESS
+        Message:
+          type: string
+          example: "信用卡授權成功"
+        MerID:
+          type: string
+          example: ABC123
+        MerTradeNo:
+          type: string
+          description: WooCommerce order number
+          example: "1001"
+        Gateway:
+          type: string
+        TradeNo:
+          type: string
+          description: PayUni trade number
+          example: PAY202601010001
+        TradeAmt:
+          type: string
+          example: "500"
+        TradeStatus:
+          type: string
+          description: "1 = authorised"
+          example: "1"
+        PaymentType:
+          type: string
+        CardBank:
+          type: string
+        Card6No:
+          type: string
+          description: First 6 digits of card number (BIN)
+          example: "411111"
+        Card4No:
+          type: string
+          description: Last 4 digits of card number
+          example: "1234"
+        CardInst:
+          type: string
+          description: Installment periods
+        FirstAmt:
+          type: string
+          description: First installment amount
+        EachAmt:
+          type: string
+          description: Subsequent installment amount
+        ResCode:
+          type: string
+        ResCodeMsg:
+          type: string
+        AuthCode:
+          type: string
+        AuthBank:
+          type: string
+        AuthBankName:
+          type: string
+        AuthType:
+          type: string
+        AuthDay:
+          type: string
+        AuthTime:
+          type: string
+        CreditHash:
+          type: string
+          description: Card token hash for tokenisation
+          example: hash_new456
+        CreditLife:
+          type: string
+          description: Card expiry in MMYY format (may be empty in sandbox)
+          example: "1228"
+        CoBrandCode:
+          type: string
+        URL:
+          type: string
+          description: 3D authentication redirect URL (3D flow only)
+
+    HandleTradeResultRequest:
+      type: object
+      required:
+        - order_id
+        - trade_result
+      properties:
+        order_id:
+          type: integer
+          example: 1001
+        trade_result:
+          $ref: '#/components/schemas/DecryptedTradeResult'
+
+    HandleTradeResultResponse:
+      type: object
+      properties:
+        order_id:
+          type: integer
+        order_status:
+          type: string
+          enum: [processing, failed]
+          description: "'processing' for paid orders, 'failed' for failed"
+        order_meta:
+          type: object
+          properties:
+            _payuni_resp_status:
+              type: string
+            _payuni_resp_trade_no:
+              type: string
+            _payuni_resp_message:
+              type: string
+            _payuni_card_number:
+              type: string
+        idempotent_skip:
+          type: boolean
+          description: True if the order was already paid and processing was skipped
+
+    # =========================================================================
+    # TOKEN
+    # =========================================================================
+    SdkTokenApiResponse:
+      type: object
+      description: PayUni token_get API response
+      properties:
+        Status:
+          type: string
+          example: SUCCESS
+        MerID:
+          type: string
+          example: ABC123
+        Version:
+          type: string
+          example: "3.0"
+        EncryptInfo:
+          type: string
+          description: Encrypted payload containing the SDK Token
+        HashInfo:
+          type: string
+
+    SdkTokenDecrypted:
+      type: object
+      description: Decrypted content of token_get EncryptInfo
+      properties:
+        Token:
+          type: string
+          description: SDK Token (valid for 10 minutes)
+          example: token_abc123
+
+    SavedCard:
+      type: object
+      properties:
+        token_id:
+          type: integer
+          example: 101
+        gateway_id:
+          type: string
+          example: payuni-credit-v3
+        last4:
+          type: string
+          example: "1234"
+        expiry_month:
+          type: string
+          example: "12"
+        expiry_year:
+          type: string
+          example: "2028"
+        card_type:
+          type: string
+          enum: [visa, mastercard, amex, discover]
+          example: visa
+        is_default:
+          type: boolean
+
+    SavedCardsResponse:
+      type: object
+      properties:
+        cards:
+          type: array
+          items:
+            $ref: '#/components/schemas/SavedCard'
+
+    SaveTokenRequest:
+      type: object
+      required:
+        - order_id
+        - user_id
+      properties:
+        order_id:
+          type: integer
+          example: 1001
+        user_id:
+          type: integer
+          example: 1
+        CreditHash:
+          type: string
+          description: PayUni card hash token
+          example: hash_new456
+        Card6No:
+          type: string
+          description: First 6 digits for BIN detection
+          example: "411111"
+        Card4No:
+          type: string
+          description: Last 4 digits
+          example: "1234"
+        CreditLife:
+          type: string
+          description: Card expiry in MMYY format (empty in sandbox)
+          example: "1228"
+
+    SaveTokenResponse:
+      type: object
+      properties:
+        saved:
+          type: boolean
+          description: Whether a new token was created
+        token_id:
+          type: integer
+          description: WC_Payment_Token ID (if created)
+        token:
+          type: string
+          description: Token value (CreditHash)
+        last4:
+          type: string
+        expiry_month:
+          type: string
+        expiry_year:
+          type: string
+        card_type:
+          type: string
+          enum: [visa, mastercard, amex, discover]
+        gateway_id:
+          type: string
+          example: payuni-credit-v3
+        user_id:
+          type: integer
+
+    # =========================================================================
+    # INVOICE
+    # =========================================================================
+    InvoiceCarrierRequest:
+      type: object
+      required:
+        - carrier_type
+      properties:
+        carrier_type:
+          type: string
+          enum: ["3J0002", "CQ0001", "amego", "Donate", "Company"]
+          description: |
+            3J0002 = Mobile barcode
+            CQ0001 = Citizen Digital Certificate
+            amego  = Member carrier
+            Donate = Donation
+            Company = Company invoice (tax ID)
+        carrier_info:
+          type: string
+          description: |
+            Carrier-specific data:
+              - 3J0002: /XXXXXXX (slash + 7 alphanumeric chars)
+              - CQ0001: up to 16 chars
+              - Donate: up to 7 chars
+              - Company: exactly 8 digits
+              - amego: not required (empty string)
+          example: "/ABC1234"
+        inv_buyer_name:
+          type: string
+          description: Buyer name or company title. Defaults to billing name if empty. Not required for Donate.
+          example: Alice Chen
+
+    InvoiceCarrierResponse:
+      type: object
+      properties:
+        carrier_type:
+          type: string
+        carrier_info:
+          type: string
+        inv_buyer_name:
+          type: string
+
+    # =========================================================================
+    # WEBHOOK
+    # =========================================================================
+    WebhookRequest:
+      type: object
+      description: PayUni webhook POST body (form-encoded)
+      required:
+        - MerID
+        - Version
+        - EncryptInfo
+        - HashInfo
+      properties:
+        MerID:
+          type: string
+          example: ABC123
+        Version:
+          type: string
+          example: "1.0"
+        EncryptInfo:
+          type: string
+          description: AES-256-GCM encrypted trade result
+        HashInfo:
+          type: string
+          description: SHA256 HMAC signature
+
+    WebhookSuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          nullable: true
+          example: null
+
+    WebhookErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        data:
+          type: string
+          example: "找不到訂單: 9999"
+
+    # =========================================================================
+    # REFUND
+    # =========================================================================
+    RefundParameters:
+      type: object
+      description: Refund parameters assembled before AES encryption for /trade/close
+      required:
+        - MerID
+        - TradeNo
+        - TradeAmt
+        - Timestamp
+        - CloseType
+      properties:
+        MerID:
+          type: string
+          example: ABC123
+        TradeNo:
+          type: string
+          description: PayUni trade number from _payuni_resp_trade_no order meta
+          example: PAY202601010001
+        TradeAmt:
+          type: number
+          description: Refund amount (must be > 0; upper limit validated by PayUni)
+          example: 500
+        Timestamp:
+          type: integer
+          description: Unix timestamp
+        CloseType:
+          type: integer
+          enum: [2]
+          description: "2 = refund"
+          example: 2
+
+    RefundRequest:
+      type: object
+      required:
+        - order_id
+        - amount
+      properties:
+        order_id:
+          type: integer
+          example: 1001
+        amount:
+          type: number
+          description: Refund amount (must be > 0)
+          example: 500
+        reason:
+          type: string
+          description: Refund reason (optional)
+          example: "客戶要求"
+
+    RefundResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        order_note:
+          type: string
+          description: Order note added on success
+          example: "統一金流退費紀錄 退費結果：退費成功 退費原因：客戶要求"
+
+    # =========================================================================
+    # COMMON
+    # =========================================================================
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+          example: "必要參數未提供"
