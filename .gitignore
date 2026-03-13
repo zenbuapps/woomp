@@ -10,6 +10,9 @@ lerna-debug.log*
 
 **/node_modules/**
 e2e/screenshots
+tests/e2e/playwright-report/
+tests/e2e/test-results/
+tests/e2e/.env
 dist
 build
 dist-ssr

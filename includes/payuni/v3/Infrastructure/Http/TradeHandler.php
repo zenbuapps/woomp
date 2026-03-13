@@ -6,6 +6,7 @@ namespace J7\Payuni\Infrastructure\Http;
 
 use J7\Payuni\Contracts\DTOs\SettingDTO;
 use J7\Payuni\Shared\Utils\EncryptUtils;
+use J7\Payuni\Shared\Utils\OrderUtils;
 
 /**
  * 處理 PayUni 交易請求
@@ -206,7 +207,7 @@ final class TradeHandler {
         }
         
         $order->save();
-//        OrderUtils::delete_tmp_data( $order );
+        OrderUtils::delete_tmp_data( $order );
     }
     
     /**

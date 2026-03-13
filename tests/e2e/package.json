@@ -1,0 +1,23 @@
+{
+  "name": "woomp-e2e-tests",
+  "version": "1.0.0",
+  "description": "E2E tests for WooMP PayUni Embed integration",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:headed": "npx playwright test --headed",
+    "test:debug": "npx playwright test --debug",
+    "test:p0": "npx playwright test --grep @P0",
+    "test:p1": "npx playwright test --grep @P1",
+    "test:p2": "npx playwright test --grep @P2",
+    "test:checkout": "npx playwright test tests/A-checkout/",
+    "test:invoice": "npx playwright test tests/B-invoice/",
+    "test:error": "npx playwright test tests/C-error/",
+    "test:edge": "npx playwright test tests/D-edge-cases/",
+    "test:boundary": "npx playwright test tests/E-boundary/",
+    "report": "npx playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "dotenv": "^16.4.0"
+  }
+}

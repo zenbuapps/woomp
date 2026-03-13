@@ -180,6 +180,18 @@ final class Bootstrap {
                 throw new \Exception( "找不到訂單: {$mer_trade_no}" );
             }
             
+            // Webhook 防重複：若訂單已完成付款且 TradeNo 相同，直接回傳成功
+            $incoming_trade_no = $trade_result['TradeNo'] ?? '';
+            $existing_trade_no = $order->get_meta( '_payuni_resp_trade_no', true );
+            if ( $incoming_trade_no && $existing_trade_no === $incoming_trade_no && $order->is_paid() ) {
+                \do_action( 'woomp_payuni_log', 'info', 'Webhook 重複通知，已略過', [
+                    'order_id' => $order->get_id(),
+                    'trade_no' => $incoming_trade_no,
+                ] );
+                \wp_send_json_success();
+                return;
+            }
+            
             // 更新訂單狀態
             $handler->update_order_status( $order, $trade_result );
             

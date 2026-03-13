@@ -318,5 +318,81 @@ final class HttpClient {
         
     }
     
+    /**
+     * 查詢單筆交易狀態
+     *
+     * @param string $trade_no PayUni 交易編號
+     *
+     * @return array 解密後的交易資料
+     * @throws \Exception 查詢失敗時拋出例外
+     */
+    public function query_trade( string $trade_no ): array {
+        $setting = SettingDTO::instance();
+        
+        $encrypt_info = [
+            'MerID'     => $setting->merchant_id,
+            'TradeNo'   => $trade_no,
+            'Timestamp' => \time(),
+        ];
+        
+        $request_body            = $this->get_auth_body_params( $encrypt_info );
+        $request_body['Version'] = '2.0';
+        
+        $response = $this->post( '/api/trade/query', $request_body );
+        
+        return EncryptUtils::decrypt( $response['EncryptInfo'] ?? '' );
+    }
+    
+    /**
+     * 取消交易授權
+     *
+     * @param string $trade_no PayUni 交易編號
+     *
+     * @return array 解密後的回應資料
+     * @throws \Exception 取消失敗時拋出例外
+     */
+    public function cancel_trade( string $trade_no ): array {
+        $setting = SettingDTO::instance();
+        
+        $encrypt_info = [
+            'MerID'     => $setting->merchant_id,
+            'TradeNo'   => $trade_no,
+            'Timestamp' => \time(),
+        ];
+        
+        $request_body = $this->get_auth_body_params( $encrypt_info );
+        
+        $response = $this->post( '/api/trade/cancel', $request_body );
+        
+        return EncryptUtils::decrypt( $response['EncryptInfo'] ?? '' );
+    }
+    
+    /**
+     * 退款（請款取消）
+     *
+     * @param string $trade_no PayUni 交易編號
+     * @param int    $amount   退款金額
+     *
+     * @return array 解密後的回應資料
+     * @throws \Exception 退款失敗時拋出例外
+     */
+    public function refund( string $trade_no, int $amount ): array {
+        $setting = SettingDTO::instance();
+        
+        $encrypt_info = [
+            'MerID'     => $setting->merchant_id,
+            'TradeNo'   => $trade_no,
+            'TradeAmt'  => $amount,
+            'Timestamp' => \time(),
+            'CloseType' => 2,
+        ];
+        
+        $request_body = $this->get_auth_body_params( $encrypt_info );
+        
+        $response = $this->post( '/api/trade/close', $request_body );
+        
+        return EncryptUtils::decrypt( $response['EncryptInfo'] ?? '' );
+    }
+    
     #endregion 內部方法
 }

@@ -95,6 +95,10 @@ final class TradeReqHashDTO {
             if( $token && $token->get_user_id() === $order->get_customer_id() ) {
                 $card_hash = $token->get_token();
             }
+            
+            if( empty( $card_hash ) ) {
+                throw new \Exception( '已儲存的卡片資料無效或已過期，請使用新卡片付款。' );
+            }
         }
         
         $args = [
@@ -115,6 +119,12 @@ final class TradeReqHashDTO {
         
         // 設定分期期數（若大於 1 則表示有分期）
         if( $installment > 1 ) {
+            $allowed_periods = $setting_dto->installment_options;
+            if ( empty( $allowed_periods ) || ! \in_array( $installment, $allowed_periods, true ) ) {
+                throw new \Exception(
+                    \sprintf( '不支援的分期期數：%d 期。可用期數：%s', $installment, \implode( '、', $allowed_periods ?: [] ) )
+                );
+            }
             $args['CardInst'] = $installment;
         }
         

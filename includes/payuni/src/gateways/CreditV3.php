@@ -8,6 +8,7 @@
 namespace PAYUNI\Gateways;
 
 use J7\Payuni\Contracts\DTOs\TradeReqDTO;
+use J7\Payuni\Infrastructure\Http\HttpClient;
 use J7\Payuni\Infrastructure\Http\TradeHandler;
 
 \defined( 'ABSPATH' ) || exit;
@@ -101,6 +102,56 @@ class CreditV3 extends AbstractGateway {
     }
     
     public function validate_fields(): bool {
+        $carrier_type = isset( $_POST['payuni_carrier_type'] ) ? sanitize_text_field( wp_unslash( $_POST['payuni_carrier_type'] ) ) : '';
+
+        if ( '' === $carrier_type || 'amego' === $carrier_type ) {
+            return true;
+        }
+
+        $validation_map = [
+            '3J0002'  => [
+                'field'   => 'payuni_carrier_info_3J0002',
+                'pattern' => '/^\/[0-9A-Z\+\-\.]{7}$/',
+                'label'   => '手機條碼',
+                'hint'    => '格式為 / 開頭加上 7 碼大寫英數字（例：/ABC1234）',
+            ],
+            'CQ0001'  => [
+                'field'   => 'payuni_carrier_info_CQ0001',
+                'pattern' => '/^[A-Z]{2}[0-9]{14}$/',
+                'label'   => '自然人憑證',
+                'hint'    => '格式為 2 碼大寫英文加上 14 碼數字',
+            ],
+            'Donate'  => [
+                'field'   => 'payuni_carrier_info_Donate',
+                'pattern' => '/^[0-9]{1,7}$/',
+                'label'   => '捐贈碼',
+                'hint'    => '請輸入 1~7 碼數字',
+            ],
+            'Company' => [
+                'field'   => 'payuni_carrier_info_Company',
+                'pattern' => '/^[0-9]{8}$/',
+                'label'   => '公司統編',
+                'hint'    => '請輸入 8 碼數字',
+            ],
+        ];
+
+        if ( ! isset( $validation_map[ $carrier_type ] ) ) {
+            return true;
+        }
+
+        $rule  = $validation_map[ $carrier_type ];
+        $value = isset( $_POST[ $rule['field'] ] ) ? sanitize_text_field( wp_unslash( $_POST[ $rule['field'] ] ) ) : '';
+
+        if ( '' === $value ) {
+            wc_add_notice( sprintf( '請輸入%s資訊。', $rule['label'] ), 'error' );
+            return false;
+        }
+
+        if ( ! preg_match( $rule['pattern'], $value ) ) {
+            wc_add_notice( sprintf( '%s格式不正確，%s', $rule['label'], $rule['hint'] ), 'error' );
+            return false;
+        }
+
         return true;
     }
     
@@ -358,6 +409,79 @@ class CreditV3 extends AbstractGateway {
         HTML;
         
         echo $html;
+    }
+    
+    /**
+     * 退款處理
+     *
+     * @param int        $order_id 訂單 ID
+     * @param float|null $amount   退款金額
+     * @param string     $reason   退款原因
+     * @return bool|\WP_Error
+     */
+    public function process_refund( $order_id, $amount = null, $reason = '' ) {
+        $order = wc_get_order( $order_id );
+        if ( ! $order ) {
+            return new \WP_Error( 'payuni_refund_error', '找不到訂單。' );
+        }
+
+        $trade_no = $order->get_meta( '_payuni_resp_trade_no' );
+        if ( empty( $trade_no ) ) {
+            return new \WP_Error( 'payuni_refund_error', '找不到 PayUni 交易編號，無法退款。' );
+        }
+
+        if ( ! $amount || $amount <= 0 ) {
+            return new \WP_Error( 'payuni_refund_error', '退款金額必須大於 0。' );
+        }
+
+        $http_client = new HttpClient();
+
+        try {
+            $query_result = $http_client->query_trade( $trade_no );
+        } catch ( \Exception $e ) {
+            return new \WP_Error( 'payuni_refund_error', '查詢交易狀態失敗：' . $e->getMessage() );
+        }
+
+        $close_status = $query_result['Result']['0']['CloseStatus'] ?? '';
+
+        try {
+            switch ( $close_status ) {
+                case '1': // 請款申請中 → 取消請款
+                case '7': // 請款處理中 → 取消請款
+                    $result = $http_client->cancel_trade( $trade_no );
+                    $order->add_order_note(
+                        sprintf(
+                            'PayUni 取消請款成功（CloseStatus=%s）。%s',
+                            $close_status,
+                            $reason ? "退款原因：{$reason}" : ''
+                        )
+                    );
+                    return true;
+
+                case '3': // 已取消
+                case '9': // 未申請請款
+                    $order->add_order_note(
+                        sprintf( 'PayUni 交易已取消或未請款（CloseStatus=%s），無需退款。', $close_status )
+                    );
+                    return true;
+
+                case '2': // 請款成功 → 退款
+                default:
+                    $refund_amount = intval( round( $amount ) );
+                    $result        = $http_client->refund( $trade_no, $refund_amount );
+                    $order->add_order_note(
+                        sprintf(
+                            'PayUni 退款成功，金額 NT$%s。%s',
+                            number_format( $amount ),
+                            $reason ? "退款原因：{$reason}" : ''
+                        )
+                    );
+                    return true;
+            }
+        } catch ( \Exception $e ) {
+            $order->add_order_note( 'PayUni 退款失敗：' . $e->getMessage() );
+            return new \WP_Error( 'payuni_refund_error', '退款失敗：' . $e->getMessage() );
+        }
     }
     
     
