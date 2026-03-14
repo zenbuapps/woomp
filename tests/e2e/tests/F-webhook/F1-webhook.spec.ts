@@ -33,10 +33,10 @@ test.describe('F1. Webhook 回調測試', () => {
     expect(orderId).toMatch(/^\d+$/);
 
     await loginAdmin(page);
-    await page.goto(`${process.env.BASE_URL}/wp-admin/edit.php?post_type=shop_order&s=${orderId}`);
+    await page.goto(`${process.env.BASE_URL}/wp-admin/admin.php?page=wc-orders&s=${orderId}`);
     await page.waitForLoadState('networkidle');
 
-    const orderRow = page.locator('table.wp-list-table tbody tr').first();
+    const orderRow = page.locator('table.wc-orders-list-table tbody tr, table.wp-list-table tbody tr').first();
     await expect(orderRow).toBeVisible({ timeout: 10_000 });
     const rowText = (await orderRow.textContent()) || '';
     expect(/processing|處理中/i.test(rowText)).toBeTruthy();
@@ -84,9 +84,19 @@ test.describe('F1. Webhook 回調測試', () => {
     await clickPlaceOrder(page);
     await verifyOrderReceived(page);
 
-    // Navigate to payment methods
-    await page.goto(`${process.env.BASE_URL}/my-account/payment-methods/`);
+    // Navigate to payment methods via My Account page (avoids permalink rewrite 404)
+    await page.goto(`${process.env.BASE_URL}/my-account/`);
     await page.waitForLoadState('networkidle');
+
+    const paymentMethodsLink = page.locator('a[href*="payment-methods"]').first();
+    if (await paymentMethodsLink.isVisible().catch(() => false)) {
+      await paymentMethodsLink.click();
+      await page.waitForLoadState('networkidle');
+    } else {
+      // Fallback: direct URL
+      await page.goto(`${process.env.BASE_URL}/my-account/payment-methods/`);
+      await page.waitForLoadState('networkidle');
+    }
 
     // Should have at least one saved payment method
     const paymentMethods = page.locator('.woocommerce-PaymentMethods .woocommerce-PaymentMethod, .wc-payment-form .woocommerce-SavedPaymentMethods-token, table.woocommerce-MyAccount-paymentMethods tbody tr');

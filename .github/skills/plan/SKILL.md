@@ -38,7 +38,7 @@ Planner agent 將依序執行下列步驟，除非需要澄清否則**不中斷*
 
 1. 閱讀 `.github/copilot-instructions.md`（如存在），瞭解命名空間、架構、text_domain、建構指令
 2. 閱讀 `.github/instructions/*.instructions.md`（如存在）
-3. 閱讀 `.github/skills/{project_name}/SKILL.md`、`specs/*`、`specs/erm.dbml`（如存在）
+3. 閱讀 `.github/skills/{project_name}/SKILL.md`、`specs/*`、`specs/**/erm.dbml`（如存在）
 4. 快速瀏覽 `composer.json`、`plugin.php`、`inc/src/` 或主要原始碼目錄，掌握架構風格
 5. 檢查是否有可用的 Skills（如 `/wordpress-router`、`/wp-abilities-api` 等），優先善加利用
 

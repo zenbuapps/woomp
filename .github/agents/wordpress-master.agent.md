@@ -44,7 +44,7 @@ mcp-servers:
 1. **查看專案指引**：
    - 閱讀 `.github/copilot-instructions.md`（如存在），瞭解專案的命名空間、架構、text_domain、建構指令等
    - 閱讀 `.github/instructions/*.instructions.md`（如存在），瞭解專案的其他指引
-   - 閱讀 `.github/skills/{project_name}/SKILL.md`, `specs/*`, `specs/erm.dbml` （如存在）瞭解專案的 SKILL, Spec, 數據模型等等
+   - 閱讀 `.github/skills/{project_name}/SKILL.md`, `specs/*`, `specs/**/erm.dbml` （如存在）瞭解專案的 SKILL, Spec, 數據模型等等
 2. **探索專案結構**：快速瀏覽 `composer.json`、`plugin.php`、`inc/src/`（或其他 PHP 原始碼目錄），掌握命名空間與架構風格
 3. **查找可用 Skills**：檢查是否有可用的 Copilot Skills（如 `/wordpress-router`、`/wp-abilities-api` 等），善加利用
 4. **遵循專案慣例**：若專案已有既定風格（如特定 DTO 基底類別、Logger、命名空間），優先遵循，不強加外部規範

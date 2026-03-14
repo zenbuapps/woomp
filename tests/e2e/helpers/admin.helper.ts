@@ -1,15 +1,15 @@
 import { Page, expect } from '@playwright/test';
 import { loginAdmin } from './auth.helper';
 
-/** 前往後台訂單列表 */
+/** 前往後台訂單列表（HPOS 相容） */
 export async function goToAdminOrders(page: Page): Promise<void> {
-  await page.goto('/wp-admin/edit.php?post_type=shop_order');
+  await page.goto('/wp-admin/admin.php?page=wc-orders');
   await page.waitForLoadState('networkidle');
 }
 
-/** 前往特定訂單的後台編輯頁 */
+/** 前往特定訂單的後台編輯頁（HPOS 相容） */
 export async function goToAdminOrder(page: Page, orderId: string): Promise<void> {
-  await page.goto(`/wp-admin/post.php?post=${orderId}&action=edit`);
+  await page.goto(`/wp-admin/admin.php?page=wc-orders&action=edit&id=${orderId}`);
   await page.waitForLoadState('networkidle');
 }
 
