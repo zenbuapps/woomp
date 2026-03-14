@@ -163,36 +163,82 @@ mcp-servers:
 **記住**：好的計劃是具體的、可執行的，並且同時考量主要流程與邊界情況。
 最好的計劃能讓人有信心地進行漸進式實作。
 
---
+---
+
+## Issue 拆分與執行準則
+
+### 1. 以功能為拆分單位，不以前後端分層
+
+- 每個 issue 代表一個**完整的用戶可感知功能**，包含該功能所需的所有後端與前端代碼。
+- 拆分粒度依功能大小決定：一個 issue 應可在合理時間內完成，且完成後能獨立測試。
+- 禁止將同一功能的前端與後端拆成不同 issue，避免無法獨立驗收的孤立分支。
+
+### 2. 單一 issue 內，後端先行、前端接續
+
+- 在同一個 branch 上，先完成後端（API、資料庫、業務邏輯），再進行前端（頁面、元件、串接）。
+- 如需平行作業，可開 sub-agent 分工，但最終產出必須合併在同一個 branch。
+- 前端開發開始前，後端 API 的 contract（路徑、請求/回應格式）必須先確定。
+
+### 3. 每個 issue 完成時必須可獨立測試
+
+- checkout 該 branch 後，功能應可端到端執行並驗證，不依賴其他未合併的分支。
+- 如果一個功能太大而無法在單一 issue 內完成，應按**使用流程的階段**垂直切分（例如：「建立租屋物件」與「編輯租屋物件」），而非按技術層切分。
+
+### 4. Issue 描述需包含驗收條件
+
+每個 issue 應明確列出：
+
+- **功能範圍**：這個 issue 完成後，使用者可以做什麼？
+- **API 規格**（如適用）：endpoint、method、request/response schema。
+- **驗收方式**：如何確認功能正常？（手動測試步驟或自動化測試）。
+
+### 5. 驗收條件未達成，不得停止任務
+
+- Agent 在執行 issue 時，必須逐一檢查所有驗收條件，全數通過後才可標記任務完成。
+- 遇到錯誤或測試失敗時，應自行排查並修復，不得跳過或留待人工處理。
+- 如果因外部因素（權限不足、第三方服務異常等）確實無法繼續，必須在 issue 中明確記錄阻塞原因與已完成的進度，而非靜默停止。
+
+### 6. 共用基礎設施獨立處理
+
+- 資料庫 migration、共用 utility、第三方服務串接設定等**不屬於特定功能**的工作，可獨立為一個 issue。
+- 這類 issue 應優先完成並合併到主分支，讓後續功能 issue 可以基於其開發。
+
+### 7. 避免跨 issue 依賴鏈
+
+- 盡量讓每個 issue 可獨立於其他 issue 開發與合併。
+- 如果 issue B 必須在 issue A 完成後才能開始，需在 issue B 中明確標註依賴關係，並確保 A 先合併。
+
+---
 
 ## Sub-Issue Agent 路由規則
 
-建立 sub-issue 時，**必須**在 body 最上方加入 `## 執行 Agent` 區塊，明確指定 agent：
+建立 sub-issue 時，**必須**在 body 最上方加入 `## 執行 Agent` 區塊，明確指定執行的 agent。
 
-| 任務類型 | 執行 Agent |
-| --- | --- |
-| PHP / WordPress 後端（`inc/`、`*.php`、REST API、WooCommerce Hooks） | `wordpress-master` |
-| React / TypeScript 前端（`js/src/`、`*.tsx`、`*.ts`、Ant Design、Refine.dev） | `react-master` |
-| 混合（同時涉及前後端） | **拆成兩個 sub-issue**，分別指派 |
+> Planner 本身不綁定特定技術架構。請根據專案實際使用的技術棧，查閱 `agents/` 目錄下可用的 agent，選擇最合適的 agent 指派任務。
 
 ### Sub-Issue Body 範本
 
 ```markdown
 ## 執行 Agent
 
-> ⚙️ 此 Issue 應指派給 **`@wordpress-master`** agent 執行（PHP/WordPress 後端任務）
+> ⚙️ 此 Issue 應指派給 **`@{agent-name}`** agent 執行
 
 ---
 
-[其餘 issue 內容]
+## 實作計劃
+
+### 階段 1：後端
+- [ ] 任務描述...
+
+### 階段 2：前端
+- [ ] 任務描述...
+
+## 驗收條件
+- [ ] 條件 1
+- [ ] 條件 2
 ```
 
-### 命名慣例
-
-- PHP 後端 sub-issue 標題前綴：`[PHP]`
-- React 前端 sub-issue 標題前綴：`[React]`
-
-> **重要**：Copilot assign issue 時會讀取 body 最上方的 `## 執行 Agent` 區塊，以決定啟用 `wordpress-master` 或 `react-master` agent。請務必正確填寫。
+> **重要**：Copilot assign issue 時會讀取 body 最上方的 `## 執行 Agent` 區塊，以決定啟用哪個 agent。請務必正確填寫。
 
 ---
 
