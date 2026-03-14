@@ -1,3 +1,8 @@
+---
+name: woomp
+description: WooCommerce 台灣在地化外掛開發指引，涵蓋 PayUni/綠界/藍新/立吉富金流、超商物流、電子發票整合架構與模組載入機制
+---
+
 # Woomp 開發指引 SKILL
 
 ## 架構概覽
