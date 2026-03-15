@@ -1,7 +1,4 @@
-<!-- NOTE: 專案文件的標準來源是 CLAUDE.md（專案根目錄）。
-     此檔案保留以維持 GitHub Copilot 相容性。 -->
-
-# Woomp - WooCommerce 好用版擴充
+# Woomp — WooCommerce 好用版擴充
 
 ## 專案概述
 
@@ -15,15 +12,15 @@ Woomp（好用版擴充 MorePower Addon for WooCommerce）是一個以**台灣�
 
 ## 技術棧
 
-| 層級 | 技術 |
-|------|------|
-| 後端 | PHP 8.0+、WordPress 6.x、WooCommerce 5.3+ |
-| 前端 | jQuery、ES6 Modules（PayUni v3）、Tailwind CSS |
-| 自動載入 | Composer PSR-4（`J7\Payuni\` -> `includes/payuni/v3/`）、a7/autoload |
-| 程式碼風格 | WordPress Coding Standards（phpcs.xml）、短陣列語法 `[]` |
-| 建置 | `node build.mjs`（archiver ZIP 打包） |
-| E2E 測試 | Playwright（TypeScript），位於 `e2e/` |
-| 依賴套件 | `oberonlai/wp-metabox`、`dennykuo/invoice-porter`、`guzzlehttp/guzzle ^6.5.8`、`yahnis-elsts/plugin-update-checker ^5.3` |
+| 層級 | 技術 | 版本 |
+|------|------|------|
+| 後端 | PHP、WordPress、WooCommerce | 8.0+ / 6.x / 5.3+ |
+| 前端 | jQuery、ES6 Modules（PayUni v3）、Tailwind CSS | — |
+| 自動載入 | Composer PSR-4（`J7\Payuni\` → `includes/payuni/v3/`）、a7/autoload | — |
+| 程式碼風格 | WordPress Coding Standards（phpcs.xml）、短陣列語法 `[]` | — |
+| 建置 | `node build.mjs`（archiver ZIP 打包） | — |
+| E2E 測試 | Playwright（TypeScript），位於 `e2e/` | — |
+| 依賴套件 | `oberonlai/wp-metabox`、`dennykuo/invoice-porter`、`guzzlehttp/guzzle`、`yahnis-elsts/plugin-update-checker` | ^6.5.8 / ^5.3 |
 
 ## 目錄結構
 
@@ -65,6 +62,7 @@ woomp/
 ```
 
 ## 測試環境
+
 請使用 playwright MCP 登入 https://payuni-test.powerhouse.tw/ 測試
 登入網址: https://payuni-test.powerhouse.tw/wp-admin
 帳號: test
@@ -72,9 +70,14 @@ woomp/
 
 https://payuni-test.powerhouse.tw 透過 cloudflare tunnel 連線到本地測試伺服器，**若無法連線請提請開發者開啟測試伺服器**
 
+## 溝通慣例
+
+- **註解 / 文件**：繁體中文
+- **程式碼命名**：English
+- **Commit 格式**：Conventional Commits（`feat:`, `fix:`, `chore:`, `test:` 等）
+
 ## Git 工作流程
 
-- **提交風格**：Conventional Commits（`feat:`、`fix:`、`chore:`、`test:` 等）
 - **主分支**：`master`
 - **功能分支**：`feature/<名稱>`
 - **發佈**：透過 GitHub Releases 發佈 ZIP 檔，經 Plugin Update Checker 自動更新
@@ -91,7 +94,7 @@ https://payuni-test.powerhouse.tw 透過 cloudflare tunnel 連線到本地測試
 所有金流閘道繼承 `WC_Payment_Gateway`（或 `WC_Payment_Gateway_CC`）。PayUni v1 使用 `PAYUNI\Gateways\AbstractGateway`。PayUni v3 使用 PSR-4 命名空間 `J7\Payuni\`，搭配 DTO/Infrastructure 分層架構。
 
 ### PayUni v3 ES6 模組系統
-前端使用原生 ES6 模組：`checkout.js` -> `Elements.module.js` -> `PayUniService.module.js`。腳本透過 `script_loader_tag` 過濾器以 `type="module"` 方式載入。
+前端使用原生 ES6 模組：`checkout.js` → `Elements.module.js` → `PayUniService.module.js`。腳本透過 `script_loader_tag` 過濾器以 `type="module"` 方式載入。
 
 ## 常用指令
 
@@ -111,3 +114,11 @@ cd e2e && npx playwright test
 # 執行特定 E2E 測試
 cd e2e && npx playwright test payuni-checkout.ts
 ```
+
+## 相關文件指引
+
+| 文件 | 用途 |
+|------|------|
+| `.claude/rules/wordpress.rule.md` | WordPress / PHP 編碼規範（自動套用於 `**/*.php`） |
+| `.claude/skills/payuni-embed/SKILL.md` | PayUni Embed 支付整合知識 |
+| `.claude/skills/woomp/SKILL.md` | Woomp 專案開發指引 |
