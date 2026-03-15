@@ -6,7 +6,7 @@ Woomp（好用版擴充 MorePower Addon for WooCommerce）是一個以**台灣�
 
 - **版本**：3.4.81
 - **授權**：GPL-2.0+
-- **需求**：WooCommerce 5.3+、PHP 8.0+
+- **需求**：WooCommerce 7.1+、PHP 8.0+
 - **主分支**：`master`
 - **更新來源**：GitHub（`j7-dev/woomp`），透過 Plugin Update Checker 自動更新
 
@@ -14,7 +14,8 @@ Woomp（好用版擴充 MorePower Addon for WooCommerce）是一個以**台灣�
 
 | 層級 | 技術 | 版本 |
 |------|------|------|
-| 後端 | PHP、WordPress、WooCommerce | 8.0+ / 6.x / 5.3+ |
+| 後端 | PHP、WordPress、WooCommerce | 8.0+ / 6.x / 7.1+ |
+| HPOS | WooCommerce High-Performance Order Storage（`woocommerce/src/Features/Orders/CustomOrdersTableController`） | WC 7.1+，需宣告相容 |
 | 前端 | jQuery、ES6 Modules（PayUni v3）、Tailwind CSS | — |
 | 自動載入 | Composer PSR-4（`J7\Payuni\` → `includes/payuni/v3/`）、a7/autoload | — |
 | 程式碼風格 | WordPress Coding Standards（phpcs.xml）、短陣列語法 `[]` | — |
@@ -96,6 +97,25 @@ https://payuni-test.powerhouse.tw 透過 cloudflare tunnel 連線到本地測試
 ### PayUni v3 ES6 模組系統
 前端使用原生 ES6 模組：`checkout.js` → `Elements.module.js` → `PayUniService.module.js`。腳本透過 `script_loader_tag` 過濾器以 `type="module"` 方式載入。
 
+### HPOS 相容性
+
+WooCommerce 7.1 起引入高效能訂單儲存（HPOS），訂單資料改存於專屬資料表而非 `wp_postmeta`。本外掛已完整宣告並實作 HPOS 相容。
+
+**宣告相容**：在 `woomp.php` 的 `before_woocommerce_init` hook 中呼叫 `FeaturesUtil::declare_compatibility('custom_order_tables', __FILE__, true)` 完成相容宣告。
+
+**`Woomp_HPOS_Helper` 輔助類別**：集中提供訂單操作的 HPOS 相容 API，主要方法：
+- `get_order( $post_id )` — 回傳 `WC_Order` 物件（取代直接讀取 post）
+- `get_order_meta( $order_or_id, $key, $single )` — 讀取訂單 meta
+- `update_order_meta( $order_or_id, $key, $value )` — 寫入訂單 meta 並自動呼叫 `$order->save()`
+- `delete_order_meta( $order_or_id, $key )` — 刪除訂單 meta
+
+**訂單 Meta 操作原則**：所有訂單相關的 meta 讀寫皆透過 `WC_Order` 物件 API（`get_meta` / `update_meta_data` + `save`），禁止直接使用 `get_post_meta` / `update_post_meta`。
+
+**Hook 遷移原則**：
+- `save_post_shop_order` 已全面改為 `woocommerce_process_shop_order_meta`
+- 後台訂單列表的自訂欄位（column）、批次操作（bulk action）、Meta Box 均採用 HPOS 雙重註冊：傳統 post 型與 HPOS 的 `woocommerce_shop_order_list_table_*` hook 並存，確保兩種模式下功能正常。
+- Meta Box 使用 `woocommerce_process_shop_order_meta` 並透過 `wc_get_order()` 取得訂單物件後操作。
+
 ## 常用指令
 
 ```bash
@@ -113,6 +133,12 @@ cd e2e && npx playwright test
 
 # 執行特定 E2E 測試
 cd e2e && npx playwright test payuni-checkout.ts
+
+# 啟動 wp-env 測試環境
+npx @wordpress/env start
+
+# 執行整合測試
+npx @wordpress/env run tests-cli -- bash -c 'cd /var/www/html/wp-content/plugins/woomp && WP_TESTS_DIR=/wordpress-phpunit vendor/bin/phpunit --configuration tests/phpunit/phpunit.xml.dist --no-coverage'
 ```
 
 ## 相關文件指引

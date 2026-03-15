@@ -100,9 +100,9 @@ class EmailNotificationTest extends WP_UnitTestCase {
 		$tracking_no = 'TRACK20240101001';
 		$shipping_company = '黑貓宅急便';
 
-		// 儲存物流追蹤資訊。
+		// 儲存物流追蹤資訊（使用自訂 meta key，避免 WC internal meta key 警告）。
 		$this->order->update_meta_data( '_shipping_tracking_no', $tracking_no );
-		$this->order->update_meta_data( '_shipping_company', $shipping_company );
+		$this->order->update_meta_data( '_woomp_shipping_company', $shipping_company );
 		$this->order->save();
 
 		$saved_order = wc_get_order( $this->order->get_id() );
@@ -115,7 +115,7 @@ class EmailNotificationTest extends WP_UnitTestCase {
 
 		$this->assertEquals(
 			$shipping_company,
-			$saved_order->get_meta( '_shipping_company' ),
+			$saved_order->get_meta( '_woomp_shipping_company' ),
 			'應可讀取物流公司名稱'
 		);
 

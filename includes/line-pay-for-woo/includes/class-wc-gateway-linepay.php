@@ -255,9 +255,13 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
      * @return array
      */
     public function process_payment( $order_id ) {
-        add_post_meta( $order_id, '_linepay_payment_status', null, true );
-        add_post_meta( $order_id, '_linepay_reserved_transaction_id', null, true );
-        
+        $order = wc_get_order( $order_id );
+        if ( $order ) {
+            $order->update_meta_data( '_linepay_payment_status', null );
+            $order->update_meta_data( '_linepay_reserved_transaction_id', null );
+            $order->save();
+        }
+
         // reserve.
         return $this->process_payment_reserve( $order_id );
     }
@@ -371,10 +375,11 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
             }
             
             // Upon successful request.
-            update_post_meta( $order_id, '_linepay_payment_status', WC_Gateway_LINEPay_Const::PAYMENT_STATUS_RESERVED );
-            update_post_meta( $order_id, '_linepay_reserved_transaction_id', $info->transactionId );
-            update_post_meta( $order_id, '_linepay_refund_info', [] );
-            
+            $order->update_meta_data( '_linepay_payment_status', WC_Gateway_LINEPay_Const::PAYMENT_STATUS_RESERVED );
+            $order->update_meta_data( '_linepay_reserved_transaction_id', $info->transactionId );
+            $order->update_meta_data( '_linepay_refund_info', [] );
+            $order->save();
+
             // 回傳 paymentUrl 導向付款頁面.
             return [
                 'result'   => 'success',
@@ -400,8 +405,11 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
                 $order->update_status( 'failed' );
             }
             
-            update_post_meta( $order_id, '_linepay_payment_status', WC_Gateway_LINEPay_Const::PAYMENT_STATUS_FAILED );
-            
+            if ( $order instanceof WC_Order ) {
+                $order->update_meta_data( '_linepay_payment_status', WC_Gateway_LINEPay_Const::PAYMENT_STATUS_FAILED );
+                $order->save();
+            }
+
             return [
                 'result'   => 'failure',
                 'redirect' => wc_get_cart_url(),
@@ -433,9 +441,9 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
             $amount = $order->get_total();
             $currency = $order->get_currency();
             
-            // Direct access to DB to check whether order price information is altered.
+            // 直接從訂單物件取得訂單金額，確認是否被竄改
             $reserved_std_amount = $this->get_standardized(
-                get_post_meta( $order_id, '_order_total', true ), $currency
+                $order->get_meta( '_order_total' ), $currency
             );
             $std_amount = $this->get_standardized( $amount );
             
@@ -450,7 +458,7 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
             }
             
             // api call.
-            $reserved_transaction_id = get_post_meta( $order_id, '_linepay_reserved_transaction_id', true );
+            $reserved_transaction_id = $order->get_meta( '_linepay_reserved_transaction_id' );
             $url = $this->get_request_url(
                 WC_Gateway_LINEPay_Const::REQUEST_TYPE_CONFIRM, [ 'transaction_id' => $reserved_transaction_id ]
             );
@@ -490,10 +498,9 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
             }
             
             $order->payment_complete( $info->transactionId );
-            add_post_meta( $order_id, '_linepay_transaction_balanced_amount', $std_confirmed_amount, true );
-            update_post_meta(
-                $order_id, '_linepay_payment_status', WC_Gateway_LINEPay_Const::PAYMENT_STATUS_CONFIRMED
-            );
+            $order->update_meta_data( '_linepay_transaction_balanced_amount', $std_confirmed_amount );
+            $order->update_meta_data( '_linepay_payment_status', WC_Gateway_LINEPay_Const::PAYMENT_STATUS_CONFIRMED );
+            $order->save();
             
             // cart initialization.
             WC()->cart->empty_cart();
@@ -515,7 +522,8 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
             // FIXME: not sure the purpose.
             WC()->session->set( 'order_awaiting_payment', false );
             
-            $reserved_transaction_id = get_post_meta( $order_id, '_linepay_reserved_transaction_id', true );
+            $order = wc_get_order( $order_id );
+            $reserved_transaction_id = $order ? $order->get_meta( '_linepay_reserved_transaction_id' ) : '';
             $detail_url = $this->get_request_url(
                 WC_Gateway_LINEPay_Const::REQUEST_TYPE_DETAILS, [ 'transaction_id' => $reserved_transaction_id ]
             );
@@ -544,7 +552,10 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
             }
             
             // FIXME:  not sure purpose.
-            update_post_meta( $order_id, '_linepay_payment_status', WC_Gateway_LINEPay_Const::PAYMENT_STATUS_FAILED );
+            if ( $order instanceof WC_Order ) {
+                $order->update_meta_data( '_linepay_payment_status', WC_Gateway_LINEPay_Const::PAYMENT_STATUS_FAILED );
+                $order->save();
+            }
             
             WC()->cart->empty_cart();
             wp_safe_redirect( $this->get_return_url( $order ) );
@@ -565,9 +576,13 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
      */
     function process_payment_cancel( $order_id ) {
         $order = wc_get_order( $order_id );
-        $reserved_transaction_id = get_post_meta( $order_id, '_linepay_reserved_transaction_id', true );
-        
-        update_post_meta( $order_id, '_linepay_payment_status', WC_Gateway_LINEPay_Const::PAYMENT_STATUS_CANCELLED );
+        if ( ! $order ) {
+            return;
+        }
+        $reserved_transaction_id = $order->get_meta( '_linepay_reserved_transaction_id' );
+
+        $order->update_meta_data( '_linepay_payment_status', WC_Gateway_LINEPay_Const::PAYMENT_STATUS_CANCELLED );
+        $order->save();
         $order->update_status( 'cancelled' );
         
         // Initialize order stored in session.
@@ -637,7 +652,7 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
         if( WC_Gateway_LINEPay_Const::USER_STATUS_CUSTOMER === $requester ) {
             
             $std_balanced_amount = $this->get_standardized(
-                get_post_meta( $order_id, '_linepay_transaction_balanced_amount', true ), $order->get_currency()
+                $order->get_meta( '_linepay_transaction_balanced_amount' ), $order->get_currency()
             );
             // Only the transaction itself can be canceled. No refund is possible if the refund amount is different from the total.
             if( $std_amount !== $std_balanced_amount ) {
@@ -696,25 +711,26 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
         }
         
         // Save refund transaction information.
-        $linepay_refund_info = get_post_meta( $order_id, '_linepay_refund_info', true ) ?: [];
+        $linepay_refund_info = $order->get_meta( '_linepay_refund_info' ) ?: [];
         if( !is_array( $linepay_refund_info ) ) {
             $linepay_refund_info = [];
         }
         $refund_info = unserialize( $linepay_refund_info );
-        
+
         $refund_info[$info->refundTransactionId] = [
             'requester' => $requester,
             'reason'    => $reason,
             'date'      => $info->refundTransactionDate,
         ];
-        update_post_meta( $order_id, '_linepay_refund_info', serialize( $refund_info ) );
-        
+        $order->update_meta_data( '_linepay_refund_info', serialize( $refund_info ) );
+
         // Amount balance revision.
-        $balanced_amount = get_post_meta( $order_id, '_linepay_transaction_balanced_amount', true );
+        $balanced_amount = $order->get_meta( '_linepay_transaction_balanced_amount' );
         $new_balanced_amount = $this->get_standardized(
             floatval( $balanced_amount ) - floatval( $std_refund_amount ), $order->get_currency()
         );
-        update_post_meta( $order_id, '_linepay_transaction_balanced_amount', $new_balanced_amount );
+        $order->update_meta_data( '_linepay_transaction_balanced_amount', $new_balanced_amount );
+        $order->save();
         
         return true;
     }

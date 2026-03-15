@@ -21,11 +21,18 @@ if ( ! defined( 'WPINC' ) ) {
 /**
  * Check WooCommerce exist
  */
-if ( ! in_array(
-	'woocommerce/woocommerce.php',
-	apply_filters( 'active_plugins', get_option( 'active_plugins' ) ),
-	true
-) ) {
+// 檢查 WooCommerce 是否存在（支援不同目錄名稱，如 wp-env 的 woocommerce.latest-stable）。
+$woomp_wc_active = class_exists( 'WooCommerce' );
+if ( ! $woomp_wc_active ) {
+	$active_plugins = apply_filters( 'active_plugins', get_option( 'active_plugins' ) );
+	foreach ( $active_plugins as $plugin ) {
+		if ( strpos( $plugin, 'woocommerce.php' ) !== false ) {
+			$woomp_wc_active = true;
+			break;
+		}
+	}
+}
+if ( ! $woomp_wc_active ) {
 	require_once ABSPATH . 'wp-admin/includes/plugin.php';
 
 	function require_woocommerce_notice() {
@@ -66,6 +73,11 @@ function deactivate_woomp() {
 
 register_activation_hook( __FILE__, 'activate_woomp' );
 register_deactivation_hook( __FILE__, 'deactivate_woomp' );
+
+/**
+ * HPOS 相容性工具類別
+ */
+require plugin_dir_path( __FILE__ ) . 'includes/class-woomp-hpos-helper.php';
 
 /**
  * The core plugin class that is used to define internationalization,

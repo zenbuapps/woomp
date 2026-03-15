@@ -2,15 +2,26 @@
 class RY_ECPay_Shipping_Meta_Box {
 
 	public static function add_meta_box( $post_type, $post ) {
-		if ( $post_type == 'shop_order' ) {
+		// HPOS 相容：同時支援 shop_order 和 HPOS screen ID
+		if ( in_array( $post_type, Woomp_HPOS_Helper::get_order_screen_ids(), true ) ) {
 			global $theorder;
 			if ( ! is_object( $theorder ) ) {
-				$theorder = wc_get_order( $post->ID );
+				$order = Woomp_HPOS_Helper::get_order( $post );
+				if ( $order ) {
+					$theorder = $order;
+				}
+			}
+
+			if ( ! is_object( $theorder ) ) {
+				return;
 			}
 
 			foreach ( $theorder->get_items( 'shipping' ) as $item_id => $item ) {
 				if ( RY_ECPay_Shipping::get_order_support_shipping( $item ) !== false ) {
-					add_meta_box( 'ry-ecpay-shipping-info', __( 'ECPay shipping info', 'ry-woocommerce-tools' ), [ __CLASS__, 'output' ], 'shop_order', 'normal', 'high' );
+					// HPOS 相容：為所有 screen ID 註冊 meta box
+					foreach ( Woomp_HPOS_Helper::get_order_screen_ids() as $screen ) {
+						add_meta_box( 'ry-ecpay-shipping-info', __( 'ECPay shipping info', 'ry-woocommerce-tools' ), [ __CLASS__, 'output' ], $screen, 'normal', 'high' );
+					}
 					break;
 				}
 			}
@@ -20,9 +31,16 @@ class RY_ECPay_Shipping_Meta_Box {
 	public static function output( $post ) {
 		global $theorder;
 
+		// HPOS 相容：使用 Helper 取得訂單物件
 		if ( ! is_object( $theorder ) ) {
-			$theorder = wc_get_order( $post->ID );
+			$theorder = Woomp_HPOS_Helper::get_order( $post );
 		}
+
+		if ( ! $theorder ) {
+			return;
+		}
+
+		$order_id = $theorder->get_id();
 
 		$shipping_list = $theorder->get_meta( '_ecpay_shipping_info', true );
 		if ( ! is_array( $shipping_list ) ) {
@@ -75,7 +93,7 @@ class RY_ECPay_Shipping_Meta_Box {
 			?>
 		<tr class="shippingId-<?php echo $item['ID']; ?>">
 			<td>
-				<a class="button btnEcpayShippingCvsRemove" data-order="<?php echo $post->ID; ?>" data-item="<?php echo $item['ID']; ?>"  href="#"><?php echo __( '刪除', 'ry-woocommerce-tools' ); ?></a>
+				<a class="button btnEcpayShippingCvsRemove" data-order="<?php echo $order_id; ?>" data-item="<?php echo $item['ID']; ?>"  href="#"><?php echo __( '刪除', 'ry-woocommerce-tools' ); ?></a>
 			</td>
 			<td>
 			<?php echo $item['ID']; ?>
@@ -121,7 +139,7 @@ class RY_ECPay_Shipping_Meta_Box {
 			echo esc_url(
 				add_query_arg(
 					[
-						'orderid'  => $post->ID,
+						'orderid'  => $order_id,
 						'id'       => $item['ID'],
 						'noheader' => 1,
 					],

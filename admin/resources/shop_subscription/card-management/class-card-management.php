@@ -52,9 +52,14 @@ final class CardManagement {
 	 * @return void
 	 */
 	public function render_meta_box_content( $post ): void {
-		$post_type = \get_post_type( $post );
-		$is_order  = 'shop_order' === $post_type;
-		$order     = $this->get_order_by_post( $post );
+		// HPOS 相容：判斷 $post 類型
+		$is_order = false;
+		if ( $post instanceof \WC_Order ) {
+			$is_order = true;
+		} elseif ( $post instanceof \WP_Post ) {
+			$is_order = 'shop_order' === \get_post_type( $post );
+		}
+		$order = $this->get_order_by_post( $post );
 		if ( ! $order ) {
 			echo $is_order ? '找不到訂單資訊' : '找不到此訂閱的上層訂單資訊';
 			return;
@@ -155,6 +160,11 @@ final class CardManagement {
 	 * @return \WC_Order|null 訂單或訂閱的父訂單
 	 */
 	private function get_order_by_post( $post ) {
+		// HPOS 相容：$post 可能是 WC_Order 物件
+		if ( $post instanceof \WC_Order ) {
+			return $post;
+		}
+
 		$post_type = \get_post_type( $post );
 		$is_order  = 'shop_order' === $post_type;
 

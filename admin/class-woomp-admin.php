@@ -243,7 +243,10 @@ class Woomp_Admin {
 	public function disable_order_table_link( $classes ) {
 		if ( is_admin() ) {
 			$current_screen = get_current_screen();
-			if ( $current_screen->base == 'edit' && $current_screen->post_type == 'shop_order' ) {
+			// HPOS 相容：同時判斷傳統訂單列表和 HPOS 訂單列表
+			$is_order_list = ( $current_screen->base == 'edit' && $current_screen->post_type == 'shop_order' )
+				|| in_array( $current_screen->id, Woomp_HPOS_Helper::get_order_screen_ids(), true );
+			if ( $is_order_list ) {
 				$classes[] = 'no-link';
 			}
 		}
@@ -255,10 +258,16 @@ class Woomp_Admin {
 	 */
 	public function update_order_shipping_number() {
 		if ( isset( $_POST['shippingNo'] ) && isset( $_POST['orderId'] ) ) {
-			$shipping_no = $_POST['shippingNo'];
-			$order_id    = $_POST['orderId'];
-			update_post_meta( $order_id, 'wmp_shipping_no', $shipping_no );
-			echo wp_json_encode( '變更完成' );
+			$shipping_no = sanitize_text_field( wp_unslash( $_POST['shippingNo'] ) );
+			$order_id    = absint( $_POST['orderId'] );
+			$order       = wc_get_order( $order_id );
+			if ( $order ) {
+				$order->update_meta_data( 'wmp_shipping_no', $shipping_no );
+				$order->save();
+				echo wp_json_encode( '變更完成' );
+			} else {
+				echo wp_json_encode( '找不到訂單' );
+			}
 		} else {
 			echo wp_json_encode( '發生錯誤' );
 		}
@@ -364,7 +373,10 @@ class Woomp_Admin {
 	 */
 	public function set_unpaid_atm_order_cron( $order_id ) {
 
-		$order = new WC_Order( $order_id );
+		$order = wc_get_order( $order_id );
+		if ( ! $order ) {
+			return;
+		}
 
 		if ( $order->get_payment_method() === 'ry_ecpay_atm' ) {
 			$atm        = WC()->payment_gateways()->get_available_payment_gateways()['ry_ecpay_atm'];
@@ -382,7 +394,10 @@ class Woomp_Admin {
 	 * Cancel unpaid order
 	 */
 	public function cancel_unpaid_order( $order_id ) {
-		$order = new WC_Order( $order_id );
+		$order = wc_get_order( $order_id );
+		if ( ! $order ) {
+			return;
+		}
 		if ( 'pending' === $order->get_status() || 'on-hold' === $order->get_status() ) {
 			$order->update_status( 'cancelled' );
 		}
@@ -393,7 +408,7 @@ class Woomp_Admin {
 	 */
 	public function set_ecpay_atm_transfer_remind( $order_id ) {
 
-		$order = new WC_Order( $order_id );
+		$order = wc_get_order( $order_id );
 
 		if ( $order ) {
 			if ( 'pending' === $order->get_status() || 'on-hold' === $order->get_status() ) {

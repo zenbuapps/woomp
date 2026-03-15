@@ -123,7 +123,8 @@ final class RY_SmilePay_Shipping_admin {
 		$print_info = '';
 		$order      = wc_get_order( $order_ID );
 		if ( ! $order ) {
-			wp_redirect( admin_url( 'edit.php?post_type=shop_order' ) );
+			// HPOS 相容：使用 Helper 取得訂單列表 URL
+			wp_redirect( Woomp_HPOS_Helper::get_order_list_url() );
 			exit();
 		}
 
@@ -139,7 +140,8 @@ final class RY_SmilePay_Shipping_admin {
 			}
 		}
 
-		wp_redirect( admin_url( 'post.php?post=' . $order_ID . '&action=edit' ) );
+		// HPOS 相容：使用 Helper 取得訂單編輯 URL
+		wp_redirect( Woomp_HPOS_Helper::get_order_edit_url( $order_ID ) );
 		exit();
 	}
 
@@ -150,7 +152,8 @@ final class RY_SmilePay_Shipping_admin {
 		$print_info = '';
 		$order      = wc_get_order( $order_ID );
 		if ( ! $order ) {
-			wp_redirect( admin_url( 'edit.php?post_type=shop_order' ) );
+			// HPOS 相容：使用 Helper 取得訂單列表 URL
+			wp_redirect( Woomp_HPOS_Helper::get_order_list_url() );
 			exit();
 		}
 
@@ -172,7 +175,8 @@ final class RY_SmilePay_Shipping_admin {
 			}
 		}
 
-		wp_redirect( admin_url( 'post.php?post=' . $order_ID . '&action=edit' ) );
+		// HPOS 相容：使用 Helper 取得訂單編輯 URL
+		wp_redirect( Woomp_HPOS_Helper::get_order_edit_url( $order_ID ) );
 		exit();
 	}
 }

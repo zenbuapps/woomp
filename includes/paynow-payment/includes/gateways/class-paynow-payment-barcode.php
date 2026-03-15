@@ -59,7 +59,7 @@ class PayNow_Payment_Barcode extends PayNow_Abstract_Payment_Gateway {
 	 */
 	public function process_payment( $order_id ) {
 		global $woocommerce;
-		$order = new WC_Order( $order_id );
+		$order = wc_get_order( $order_id );
 
 		// Return thankyou redirect.
 		return [
@@ -121,17 +121,18 @@ class PayNow_Payment_Barcode extends PayNow_Abstract_Payment_Gateway {
 
 			echo '<h2>' . esc_html( __( 'PayNow Payment Detail', 'paynow-payment' ) ) . '</h2><table class="shop_table paynow_payment_details"><tbody>';
 
+			$tran_id = $order->get_meta( '_paynow_tran_id' );
 			echo '<tr><td><strong>' . esc_html( __( 'Transaction No', 'paynow-payment' ) ) . '</strong></td>';
-			echo '<td><a href="' . esc_html( $this->barcode_url ) . esc_html( get_post_meta( $order->get_id(), '_paynow_tran_id', true ) ) . '" target="_blank">' . esc_html( get_post_meta( $order->get_id(), '_paynow_tran_id', true ) ) . '</a></td></tr>';
+			echo '<td><a href="' . esc_html( $this->barcode_url ) . esc_html( $tran_id ) . '" target="_blank">' . esc_html( $tran_id ) . '</a></td></tr>';
 
 			echo '<tr><td><strong>' . esc_html( __( 'New Date', 'paynow-payment' ) ) . '</strong></td>';
-			echo '<td>' . esc_html( get_post_meta( $order->get_id(), '_paynow_new_date', true ) ) . '</td></tr>';
+			echo '<td>' . esc_html( $order->get_meta( '_paynow_new_date' ) ) . '</td></tr>';
 
 			echo '<tr><td><strong>' . esc_html( __( 'Due Date', 'paynow-payment' ) ) . '</strong></td>';
-			echo '<td>' . esc_html( get_post_meta( $order->get_id(), '_paynow_due_date', true ) ) . '</td></tr>';
+			echo '<td>' . esc_html( $order->get_meta( '_paynow_due_date' ) ) . '</td></tr>';
 
 			echo '<tr><td><strong>' . esc_html( __( 'Tran Status', 'paynow-payment' ) ) . '</strong></td>';
-			$tran_status = get_post_meta( $order->get_id(), '_paynow_tran_status', true );
+			$tran_status = $order->get_meta( '_paynow_tran_status' );
 			$pay_status  = ( 'F' === $tran_status ) ? __( 'Unpaid', 'paynow-payment' ) : __( 'Paid', 'paynow-payment' );
 			echo '<td>' . esc_html( $pay_status ) . '</td></tr>';
 

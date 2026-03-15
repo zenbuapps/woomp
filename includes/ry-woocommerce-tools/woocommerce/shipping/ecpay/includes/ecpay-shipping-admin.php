@@ -42,9 +42,11 @@ final class RY_ECPay_Shipping_admin {
 		add_action( 'woocommerce_order_action_get_new_ecpay_no_cod', [ 'RY_ECPay_Shipping_Api', 'get_code_cod' ] );
 		add_action( 'woocommerce_order_action_send_at_cvs_email', [ 'RY_ECPay_Shipping', 'send_at_cvs_email' ] );
 
-		// 訂單批量處理
+		// 訂單批量處理（傳統 + HPOS 雙重註冊）
 		add_filter( 'bulk_actions-edit-shop_order', [ __CLASS__, 'bulk_action' ], 99, 1 );
+		add_filter( 'bulk_actions-woocommerce_page_wc-orders', [ __CLASS__, 'bulk_action' ], 99, 1 );
 		add_filter( 'handle_bulk_actions-edit-shop_order', [ __CLASS__, 'handle_bulk_order_status_update' ], 100, 3 );
+		add_filter( 'handle_bulk_actions-woocommerce_page_wc-orders', [ __CLASS__, 'handle_bulk_order_status_update' ], 100, 3 );
 	}
 
 	/**
@@ -218,7 +220,7 @@ final class RY_ECPay_Shipping_admin {
 		if ( $logistics_ID > 0 ) {
 			$order = wc_get_order( (int) $order_ID );
 			if ( empty( $order ) ) {
-				wp_redirect( admin_url( 'edit.php?post_type=shop_order' ) );
+				wp_redirect( Woomp_HPOS_Helper::get_order_list_url() );
 				exit();
 			}
 
@@ -390,7 +392,8 @@ final class RY_ECPay_Shipping_admin {
 			RY_ECPay_Shipping_Api::get_code( $post_id, 'get_new_ecpay_no_cod' === $action );
 		}
 
-		$order_list_url = admin_url( 'edit.php?post_type=shop_order' );
+		// HPOS 相容：使用 Helper 取得訂單列表 URL
+		$order_list_url = Woomp_HPOS_Helper::get_order_list_url();
 
 		return $redirect_to ? $redirect_to : $order_list_url;
 	}

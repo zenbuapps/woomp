@@ -38,47 +38,58 @@ class PayNow_Payment_Order_Meta_Boxes {
 	}
 
 	/**
-	 * Add meta box
+	 * 註冊後台訂單 meta box（HPOS 相容）
 	 *
-	 * @param object $post The post object.
+	 * @param string                $post_type Post type 或 screen ID
+	 * @param \WP_Post|\WC_Order $post_or_order Post 或 Order 物件
 	 * @return void
 	 */
-	public function paynow_add_meta_boxes( $post ) {
+	public function paynow_add_meta_boxes( $post_type, $post_or_order ) {
 
-		global $post;
+		$order = Woomp_HPOS_Helper::get_order( $post_or_order );
+		if ( ! $order ) {
+			return;
+		}
 
-		if ( array_key_exists( get_post_meta( $post->ID, '_payment_method', true ), Paynow_Payment::$allowed_payments ) ) {
-			add_meta_box(
-				'paynow-order-meta-boxes',
-				__( 'PayNow Payment Detail', 'taishin-payment' ),
-				[
-					self::get_instance(),
-					'paynow_order_admin_meta_box',
-				],
-				'shop_order',
-				'side',
-				'default'
-			);
+		if ( array_key_exists( $order->get_payment_method(), Paynow_Payment::$allowed_payments ) ) {
+			foreach ( Woomp_HPOS_Helper::get_order_screen_ids() as $screen ) {
+				add_meta_box(
+					'paynow-order-meta-boxes',
+					__( 'PayNow Payment Detail', 'taishin-payment' ),
+					[
+						self::get_instance(),
+						'paynow_order_admin_meta_box',
+					],
+					$screen,
+					'side',
+					'default'
+				);
+			}
 		}
 	}
 
 	/**
-	 * Meta box ouput
+	 * Meta box 內容輸出（HPOS 相容）
 	 *
-	 * @param object $post The post object.
+	 * @param \WP_Post|\WC_Order $post_or_order Post 或 Order 物件
 	 * @return void
 	 */
-	public function paynow_order_admin_meta_box( $post ) {
+	public function paynow_order_admin_meta_box( $post_or_order ) {
 
-		$payment_method = get_post_meta( $post->ID, '_payment_method', true );
+		$order = Woomp_HPOS_Helper::get_order( $post_or_order );
+		if ( ! $order ) {
+			return;
+		}
+
+		$payment_method = $order->get_payment_method();
 		$gateway        = Paynow_Payment::$allowed_payments[ $payment_method ];
 
 		foreach ( $gateway::order_metas() as $key => $value ) {
-			echo '<div><strong>' . esc_html( $value ) . ':</strong> ' . esc_html( get_post_meta( $post->ID, $key, true ) ) . '</div>';
+			echo '<div><strong>' . esc_html( $value ) . ':</strong> ' . esc_html( $order->get_meta( $key ) ) . '</div>';
 		}
 
-		$tran_status = get_post_meta( $post->ID, '_paynow_tran_status', true );
-		$errordesc   = get_post_meta( $post->ID, '_paynow_errdesc', true );
+		$tran_status = $order->get_meta( '_paynow_tran_status' );
+		$errordesc   = $order->get_meta( '_paynow_errdesc' );
 		if ( 'F' === $tran_status && $errordesc ) {
 			echo '<div><strong>' . esc_html( __( 'Payment Error Description', 'paynow-payment' ) ) . ':</strong> ' . esc_html( $errordesc ) . '</div>';
 		}

@@ -51,7 +51,7 @@ class PayNow_Shipping_Order_Admin {
 	public static function paynow_shipping_cvs_fields( $shipping_fields ) {
 		global $theorder;
 		// phpcs:disable WordPress.Security.NonceVerification.Missing
-		if ( empty( $theorder ) ) {
+		if ( empty( $theorder ) || ! ( $theorder instanceof \WC_Order ) ) {
 			if ( isset( $_POST['post_ID'] ) ) {
 				$theorder = wc_get_order( wc_clean( wp_unslash( $_POST['post_ID'] ) ) );
 			} else {
@@ -134,9 +134,20 @@ class PayNow_Shipping_Order_Admin {
 
 	public static function paynow_admin_choose_cvs_script() {
 		global $pagenow;
-		if ( 'post.php' === $pagenow && isset( $_GET['post'] ) && 'shop_order' === get_post_type( $_GET['post'] ) ) {
 
-			$order = wc_get_order( $_GET['post'] );
+		// HPOS 相容：傳統模式檢查 post.php + shop_order，HPOS 模式檢查 admin.php + wc-orders 頁面
+		$is_order_edit = false;
+		$order         = null;
+
+		if ( 'post.php' === $pagenow && isset( $_GET['post'] ) && 'shop_order' === get_post_type( absint( $_GET['post'] ) ) ) {
+			$is_order_edit = true;
+			$order         = wc_get_order( absint( $_GET['post'] ) );
+		} elseif ( 'admin.php' === $pagenow && isset( $_GET['page'] ) && 'wc-orders' === $_GET['page'] && isset( $_GET['id'] ) ) {
+			$is_order_edit = true;
+			$order         = wc_get_order( absint( $_GET['id'] ) );
+		}
+
+		if ( $is_order_edit && $order ) {
 
 			foreach ( $order->get_items( 'shipping' ) as $item_id => $item ) {
 				if ( PayNow_Shipping::is_paynow_shipping_cvs( $item->get_method_id() ) ) {

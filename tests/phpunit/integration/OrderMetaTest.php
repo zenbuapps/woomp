@@ -33,9 +33,12 @@ class OrderMetaTest extends WP_UnitTestCase {
 			$this->markTestSkipped( 'WooCommerce 未載入，跳過訂單 Meta 測試' );
 		}
 
-		// 建立含有商品的測試訂單。
+		// 建立測試訂單（不依賴 WC_Helper_Product，直接用 WC_Product）。
 		$this->order = wc_create_order();
-		$product     = WC_Helper_Product::create_simple_product();
+		$product     = new WC_Product_Simple();
+		$product->set_name( '測試商品' );
+		$product->set_regular_price( '1000' );
+		$product->save();
 		$this->order->add_product( $product, 2 );
 		$this->order->set_total( 2000 );
 		$this->order->set_payment_method( 'payuni-credit' );

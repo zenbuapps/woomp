@@ -93,9 +93,9 @@ class PayNow_Payment_Response {
 
 	// 信用卡(01)、WebATM(02) 即時通知結果
 	/**
-	 * Update post meta using the received post data
+	 * 處理線上金流即時通知，更新訂單 meta 資料
 	 *
-	 * @param array $posted The post data received from PayNow.
+	 * @param array $posted PayNow 回傳的交易資料
 	 * @return void
 	 */
 	public static function paynow_valid_response( $posted ) {
@@ -125,23 +125,24 @@ class PayNow_Payment_Response {
 
 		if ( $order ) {
 
-			update_post_meta( $order->get_id(), '_paynow_tran_id', $buysafe_no );
-			update_post_meta( $order->get_id(), '_paynow_tran_status', $tran_status );
+			$order->update_meta_data( '_paynow_tran_id', $buysafe_no );
+			$order->update_meta_data( '_paynow_tran_status', $tran_status );
 
 			// 01:信用卡, 09:銀聯, 11:分期付款.
 			if ( PayNow_Pay_Type::CREDIT === $pay_type || PayNow_Pay_Type::UNION === $pay_type || PayNow_Pay_Type::CREDIT_INSTALL === $pay_type ) {
-				update_post_meta( $order->get_id(), '_paynow_pan_no4', $pan_no4 );
+				$order->update_meta_data( '_paynow_pan_no4', $pan_no4 );
 			}
 
 			// 定期定額.
 			if ( array_key_exists( 'CIFID', $posted ) ) {
-				update_post_meta( $order->get_id(), '_cifid', $posted['CIFID'] );
-				update_post_meta( $order->get_id(), '_cifpw', $posted['CIFPW'] );
-				update_post_meta( $order->get_id(), '_cifid_sn', $posted['CIFID_SN'] );
+				$order->update_meta_data( '_cifid', $posted['CIFID'] );
+				$order->update_meta_data( '_cifpw', $posted['CIFPW'] );
+				$order->update_meta_data( '_cifid_sn', $posted['CIFID_SN'] );
 			}
 
 			if ( 'S' === $tran_status ) {
 
+				$order->save();
 				$order->payment_complete( $buysafe_no );
 				$woocommerce->cart->empty_cart();
 
@@ -149,10 +150,11 @@ class PayNow_Payment_Response {
 
 				$err_desc = $posted['ErrDesc'];
 
+				$order->update_meta_data( '_paynow_errdesc', urldecode( $err_desc ) );
+				$order->save();
+
 				$order->update_status( 'on-hold' );
 				$woocommerce->cart->empty_cart();
-
-				update_post_meta( $order->get_id(), '_paynow_errdesc', urldecode( $err_desc ) );
 
 			}
 
@@ -162,9 +164,9 @@ class PayNow_Payment_Response {
 	}
 
 	/**
-	 * Receive offline payment (虛擬帳號、超商代碼、條碼) response from PayNow
+	 * 處理離線支付（虛擬帳號、超商代碼、條碼）PayNow 回傳通知
 	 *
-	 * @param array $posted The post data received from PayNow.
+	 * @param array $posted PayNow 回傳的交易資料
 	 * @return void
 	 */
 	public static function paynow_valid_offline_response( $posted ) {
@@ -196,20 +198,20 @@ class PayNow_Payment_Response {
 
 		if ( $order ) {
 
-			update_post_meta( $order->get_id(), '_paynow_new_date', $new_date );
-			update_post_meta( $order->get_id(), '_paynow_due_date', $due_date );
+			$order->update_meta_data( '_paynow_new_date', $new_date );
+			$order->update_meta_data( '_paynow_due_date', $due_date );
 
-			update_post_meta( $order->get_id(), '_paynow_tran_id', $buysafe_no );
-			update_post_meta( $order->get_id(), '_paynow_tran_status', $tran_status );
-			update_post_meta( $order->get_id(), '_transaction_id', $buysafe_no );
+			$order->update_meta_data( '_paynow_tran_id', $buysafe_no );
+			$order->update_meta_data( '_paynow_tran_status', $tran_status );
+			$order->update_meta_data( '_transaction_id', $buysafe_no );
 
 			// 虛擬帳號 virtual account pay type = 03.
 			if ( PayNow_Pay_Type::VIRTUAL_ACCOUNT === $pay_type ) {
 
 				$bank_code = $posted['BankCode'];
 				$atm_no    = $posted['ATMNo'];
-				update_post_meta( $order->get_id(), '_paynow_bank_code', $bank_code );
-				update_post_meta( $order->get_id(), '_paynow_atm_no', $atm_no );
+				$order->update_meta_data( '_paynow_bank_code', $bank_code );
+				$order->update_meta_data( '_paynow_atm_no', $atm_no );
 
 			}
 
@@ -219,9 +221,9 @@ class PayNow_Payment_Response {
 				$barcode1 = $posted['BarCode1'];
 				$barcode2 = $posted['BarCode2'];
 				$barcode3 = $posted['BarCode3'];
-				update_post_meta( $order->get_id(), 'barcode1', $barcode1 );
-				update_post_meta( $order->get_id(), 'barcode2', $barcode2 );
-				update_post_meta( $order->get_id(), 'barcode3', $barcode3 );
+				$order->update_meta_data( 'barcode1', $barcode1 );
+				$order->update_meta_data( 'barcode2', $barcode2 );
+				$order->update_meta_data( 'barcode3', $barcode3 );
 
 			}
 
@@ -230,20 +232,22 @@ class PayNow_Payment_Response {
 
 				$ibon_no   = $posted['IBONNO'];
 				$passcode2 = $posted['PassCode2'];
-				update_post_meta( $order->get_id(), '_paynow_ibon_no', $ibon_no );
+				$order->update_meta_data( '_paynow_ibon_no', $ibon_no );
 				// TODO: should validate passcode2.
-				update_post_meta( $order->get_id(), '_paynow_passcode2', $passcode2 );
+				$order->update_meta_data( '_paynow_passcode2', $passcode2 );
 
 			}
 
 			if ( 'S' === $tran_status ) {
 
+				$order->save();
 				$order->add_order_note( __( 'Recieved PayNow payment completed notification', 'paynow-payment' ) );
 				$order->payment_complete( $buysafe_no );
 				$woocommerce->cart->empty_cart();
 
 			} else {
 
+				$order->save();
 				$order->update_status( 'on-hold' );
 				$woocommerce->cart->empty_cart();
 
@@ -255,6 +259,12 @@ class PayNow_Payment_Response {
 	}
 
 	// 成功才會回傳
+	/**
+	 * 處理 PayNow 背景通知（成功付款時回傳）
+	 *
+	 * @param array $posted PayNow 回傳的交易資料
+	 * @return void
+	 */
 	public static function paynow_background_notification( $posted ) {
 		global $woocommerce;
 
@@ -276,11 +286,12 @@ class PayNow_Payment_Response {
 
 		$order = self::get_paynow_order( $posted );
 		if ( $order ) {
-			update_post_meta( $order->get_id(), '_paynow_tran_id', $buysafe_no );
-			update_post_meta( $order->get_id(), '_paynow_tran_status', $tran_status );
+			$order->update_meta_data( '_paynow_tran_id', $buysafe_no );
+			$order->update_meta_data( '_paynow_tran_status', $tran_status );
 			if ( ! empty( $pan_no4 ) ) {
-				update_post_meta( $order->get_id(), '_paynow_pan_no4', $pan_no4 );
+				$order->update_meta_data( '_paynow_pan_no4', $pan_no4 );
 			}
+			$order->save();
 
 			if ( ! $order->is_paid() && 'S' === $tran_status ) {
 				$order->payment_complete( $buysafe_no );

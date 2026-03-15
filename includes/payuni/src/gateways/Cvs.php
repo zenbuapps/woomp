@@ -108,7 +108,14 @@ class Cvs extends AbstractGateway {
 	 */
 	public function process_payment( $order_id ): array {
 
-		$order = new \WC_Order( $order_id );
+		$order = \wc_get_order( $order_id );
+
+		if ( ! $order ) {
+			return [
+				'result'   => 'failure',
+				'redirect' => \wc_get_cart_url(),
+			];
+		}
 
 		$request = new Request( new self() );
 		$resp    = $request->build_request( $order );

@@ -22,15 +22,24 @@ if ( ! class_exists( 'WooMP_Order_Public' ) ) {
 		 * 前台訂單查詢顯示物流單號
 		 */
 		public function display_order_shipping_number( $order_id ) {
+			$order = wc_get_order( $order_id );
+			if ( ! $order ) {
+				return;
+			}
 
-			// 綠界物流單號.
-			$ecpay_shipping_info = get_post_meta( $order_id, '_ecpay_shipping_info' );
+			// 綠界物流單號（HPOS 相容：使用 $order->get_meta()）
+			$ecpay_shipping_info = $order->get_meta( '_ecpay_shipping_info', false );
 			if ( $ecpay_shipping_info ) {
 				$ecpay_no = [];
-				foreach ( $ecpay_shipping_info as $data ) {
-					foreach ( $data as $i ) {
-						$shipping_no = $i['PaymentNo'] . ' ' . $i['ValidationNo'];
-						$ecpay_no[]  = $shipping_no;
+				foreach ( $ecpay_shipping_info as $meta ) {
+					$data = $meta->value ?? $meta;
+					if ( is_array( $data ) ) {
+						foreach ( $data as $i ) {
+							if ( isset( $i['PaymentNo'], $i['ValidationNo'] ) ) {
+								$shipping_no = $i['PaymentNo'] . ' ' . $i['ValidationNo'];
+								$ecpay_no[]  = $shipping_no;
+							}
+						}
 					}
 				}
 				if ( count( $ecpay_no ) > 0 ) { ?>
@@ -49,7 +58,7 @@ if ( ! class_exists( 'WooMP_Order_Public' ) ) {
 					<tbody>
 					<?php foreach ( $ecpay_no as $value ) : ?>
 						<tr>
-							
+
 							<td class="woocommerce-table__shipping-no shipping-no">
 						<?php echo esc_html( $value ); ?>
 							</td>
@@ -61,8 +70,9 @@ if ( ! class_exists( 'WooMP_Order_Public' ) ) {
 				}
 			}
 
-			// 自行輸入物流單號.
-			if ( get_post_meta( $order_id, 'wmp_shipping_no' ) ) {
+			// 自行輸入物流單號（HPOS 相容：使用 $order->get_meta()）
+			$wmp_shipping_no = $order->get_meta( 'wmp_shipping_no', true );
+			if ( $wmp_shipping_no ) {
 				?>
 				<h2 class="woocommerce-order-details__title">
 				<?php echo __( 'Shipping details', 'woomp' ); ?>
@@ -80,7 +90,7 @@ if ( ! class_exists( 'WooMP_Order_Public' ) ) {
 						<tr>
 							<td class="woocommerce-table__shipping-no shipping-no">
 				<?php
-				echo get_post_meta( $order_id, 'wmp_shipping_no', true );
+				echo esc_html( $wmp_shipping_no );
 				?>
 							</td>
 						</tr>

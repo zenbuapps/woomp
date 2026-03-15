@@ -15,11 +15,20 @@ define( 'WOOMP_PLUGIN_DIR_TEST', dirname( dirname( __DIR__ ) ) . '/' );
 $_tests_dir = getenv( 'WP_TESTS_DIR' );
 
 if ( ! $_tests_dir ) {
-	// wp-env 預設將測試套件放在 /tmp/wordpress-tests-lib。
-	$_tests_dir = '/tmp/wordpress-tests-lib';
+	// wp-env 預設路徑（新版在 /wordpress-phpunit，舊版在 /tmp/wordpress-tests-lib）。
+	$fallback_dirs = [
+		'/wordpress-phpunit',
+		'/tmp/wordpress-tests-lib',
+	];
+	foreach ( $fallback_dirs as $dir ) {
+		if ( file_exists( $dir . '/includes/functions.php' ) ) {
+			$_tests_dir = $dir;
+			break;
+		}
+	}
 }
 
-if ( ! file_exists( $_tests_dir . '/includes/functions.php' ) ) {
+if ( ! $_tests_dir || ! file_exists( $_tests_dir . '/includes/functions.php' ) ) {
 	// 嘗試 Local by Flywheel / 其他環境的備用路徑。
 	$_tests_dir = getenv( 'WP_PHPUNIT__DIR' );
 }
@@ -56,10 +65,21 @@ function _manually_load_plugins() {
 		update_option( $key, $value );
 	}
 
-	// 載入 WooCommerce。
-	$wc_dir = WP_PLUGIN_DIR . '/woocommerce/woocommerce.php';
-	if ( file_exists( $wc_dir ) ) {
-		require $wc_dir;
+	// 載入 WooCommerce（支援不同目錄名稱）。
+	$wc_candidates = [
+		WP_PLUGIN_DIR . '/woocommerce/woocommerce.php',
+		WP_PLUGIN_DIR . '/woocommerce.latest-stable/woocommerce.php',
+	];
+	// 動態搜尋 woocommerce*/woocommerce.php。
+	$wc_glob = glob( WP_PLUGIN_DIR . '/woocommerce*/woocommerce.php' );
+	if ( $wc_glob ) {
+		$wc_candidates = array_merge( $wc_candidates, $wc_glob );
+	}
+	foreach ( array_unique( $wc_candidates ) as $wc_dir ) {
+		if ( file_exists( $wc_dir ) ) {
+			require $wc_dir;
+			break;
+		}
 	}
 
 	// 載入 Woomp 主外掛檔案。

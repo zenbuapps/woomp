@@ -142,7 +142,9 @@ final class RY_Shipping {
 		$screen    = get_current_screen();
 		$screen_id = $screen ? $screen->id : '';
 
-		if ( in_array( $screen_id, [ 'shop_order', 'edit-shop_order' ] ) ) {
+		// HPOS 相容：同時支援傳統和 HPOS screen ID
+		$allowed_screens = array_merge( [ 'shop_order', 'edit-shop_order' ], Woomp_HPOS_Helper::get_order_screen_ids() );
+		if ( in_array( $screen_id, array_unique( $allowed_screens ), true ) ) {
 			wp_enqueue_style( 'ry-shipping-admin-style', RY_WT_PLUGIN_URL . 'style/admin/ry_shipping.css', [], RY_WT_VERSION );
 			wp_enqueue_script( 'ry-shipping-admin', RY_WT_PLUGIN_URL . 'style/js/admin/ry_shipping.js', [ 'jquery' ], RY_WT_VERSION );
 		}
@@ -174,10 +176,11 @@ final class RY_Shipping {
 							$order->update_meta_data( '_shipping_cvs_store_telephone', wc_clean( wp_unslash( $_POST['_shipping_cvs_store_telephone'] ) ) );
 							$order->save_meta_data();
 
-							// I know this is not the bast way to do thios thing
+							// HPOS 相容：使用物件方法操作 meta
 							$shipping_address = $order->get_address( 'shipping' );
-							update_post_meta( $order_id, '_shipping_address_1', wc_clean( wp_unslash( $_POST['_shipping_cvs_store_address'] ) ) );
-							update_post_meta( $order_id, '_shipping_address_index', implode( ' ', $shipping_address ) );
+							$order->update_meta_data( '_shipping_address_1', wc_clean( wp_unslash( $_POST['_shipping_cvs_store_address'] ) ) );
+							$order->update_meta_data( '_shipping_address_index', implode( ' ', $shipping_address ) );
+							$order->save();
 						}
 					}
 				}

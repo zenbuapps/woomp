@@ -56,7 +56,7 @@ class PayNow_Payment_IBon extends PayNow_Abstract_Payment_Gateway {
 	 */
 	public function process_payment( $order_id ) {
 		global $woocommerce;
-		$order = new WC_Order( $order_id );
+		$order = wc_get_order( $order_id );
 
 		// Return thankyou redirect.
 		return [
@@ -121,19 +121,19 @@ class PayNow_Payment_IBon extends PayNow_Abstract_Payment_Gateway {
 			echo '<h2>' . esc_html( __( 'PayNow Payment Detail', 'paynow-payment' ) ) . '</h2><table class="shop_table paynow_payment_details"><tbody>';
 
 			echo '<tr><td><strong>' . esc_html( __( 'Transaction No', 'paynow-payment' ) ) . '</strong></td>';
-			echo '<td>' . esc_html( get_post_meta( $order->get_id(), '_paynow_tran_id', true ) ) . '</td></tr>';
+			echo '<td>' . esc_html( $order->get_meta( '_paynow_tran_id' ) ) . '</td></tr>';
 
 			echo '<tr><td><strong>' . esc_html( __( 'ibon NO', 'paynow-payment' ) ) . '</strong></td>';
-			echo '<td>' . esc_html( get_post_meta( $order->get_id(), '_paynow_ibon_no', true ) ) . '</td></tr>';
+			echo '<td>' . esc_html( $order->get_meta( '_paynow_ibon_no' ) ) . '</td></tr>';
 
 			echo '<tr><td><strong>' . esc_html( __( 'New Date', 'paynow-payment' ) ) . '</strong></td>';
-			echo '<td>' . esc_html( get_post_meta( $order->get_id(), '_paynow_new_date', true ) ) . '</td></tr>';
+			echo '<td>' . esc_html( $order->get_meta( '_paynow_new_date' ) ) . '</td></tr>';
 
 			echo '<tr><td><strong>' . esc_html( __( 'Due Date', 'paynow-payment' ) ) . '</strong></td>';
-			echo '<td>' . esc_html( get_post_meta( $order->get_id(), '_paynow_due_date', true ) ) . '</td></tr>';
+			echo '<td>' . esc_html( $order->get_meta( '_paynow_due_date' ) ) . '</td></tr>';
 
 			echo '<tr><td><strong>' . esc_html( __( 'Trans Status', 'paynow-payment' ) ) . '</strong></td>';
-			$tran_status = get_post_meta( $order->get_id(), '_paynow_tran_status', true );
+			$tran_status = $order->get_meta( '_paynow_tran_status' );
 			$pay_status  = ( 'F' === $tran_status ) ? esc_html( __( 'Unpaid', 'paynow-payment' ) ) : esc_html( __( 'Paid', 'paynow-payment' ) );
 			echo '<td>' . esc_html( $pay_status ) . '</td></tr>';
 

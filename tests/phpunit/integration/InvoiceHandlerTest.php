@@ -34,9 +34,12 @@ class InvoiceHandlerTest extends WP_UnitTestCase {
 			$this->markTestSkipped( 'WooCommerce 未載入，跳過發票測試' );
 		}
 
-		// 建立含有商品的測試訂單。
+		// 建立測試訂單（不依賴 WC_Helper_Product）。
 		$this->order = wc_create_order();
-		$product     = WC_Helper_Product::create_simple_product();
+		$product     = new WC_Product_Simple();
+		$product->set_name( '測試商品' );
+		$product->set_regular_price( '100' );
+		$product->save();
 		$this->order->add_product( $product, 1 );
 		$this->order->set_total( 100 );
 		$this->order->set_billing_email( 'test@example.com' );

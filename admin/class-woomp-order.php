@@ -42,14 +42,19 @@ if ( ! class_exists( 'WooMP_Order' ) ) {
 			add_action( 'woocommerce_admin_order_data_after_shipping_address', [ $class, 'add_choose_cvs_btn' ] );
 			add_action( 'admin_enqueue_scripts', [ $class, 'enqueue_choose_cvs_script' ] );
 
-			// 訂單列表優化
+			// 訂單列表優化（傳統 + HPOS 雙重註冊）
 			add_filter( 'manage_shop_order_posts_columns', [ $class, 'shop_order_columns' ], 11, 1 );
+			add_filter( 'manage_woocommerce_page_wc-orders_columns', [ $class, 'shop_order_columns' ], 11, 1 );
 			add_action( 'manage_shop_order_posts_custom_column', [ $class, 'shop_order_column' ], 11, 2 );
+			add_action( 'manage_woocommerce_page_wc-orders_custom_column', [ $class, 'shop_order_column' ], 11, 2 );
 
-			// 批次處理
+			// 批次處理（傳統 + HPOS 雙重註冊）
 			add_filter( 'bulk_actions-edit-shop_order', [ $class, 'bulk_action' ], 99, 1 );
+			add_filter( 'bulk_actions-woocommerce_page_wc-orders', [ $class, 'bulk_action' ], 99, 1 );
 			add_filter( 'handle_bulk_actions-edit-shop_order', [ $class, 'print_shipping_note' ], 10, 3 );
+			add_filter( 'handle_bulk_actions-woocommerce_page_wc-orders', [ $class, 'print_shipping_note' ], 10, 3 );
 			add_filter( 'handle_bulk_actions-edit-shop_order', [ $class, 'handle_bulk_order_status_update' ], 10, 3 );
+			add_filter( 'handle_bulk_actions-woocommerce_page_wc-orders', [ $class, 'handle_bulk_order_status_update' ], 10, 3 );
 			add_action( 'admin_notices', [ $class, 'bulk_admin_notices' ] );
 		}
 
@@ -130,13 +135,19 @@ if ( ! class_exists( 'WooMP_Order' ) ) {
 				wp_send_json_error( '參數錯誤' );
 			}
 
-			$ecpay_shipping_info = get_post_meta( $order_id, '_ecpay_shipping_info', true );
+			$order = wc_get_order( $order_id );
+			if ( ! $order ) {
+				wp_send_json_error( '找不到訂單' );
+			}
+
+			$ecpay_shipping_info = $order->get_meta( '_ecpay_shipping_info', true );
 			if ( ! is_array( $ecpay_shipping_info ) ) {
 				wp_send_json_error( '找不到物流資訊' );
 			}
 
 			unset( $ecpay_shipping_info[ $ecpay_shipping_id ] );
-			update_post_meta( $order_id, '_ecpay_shipping_info', $ecpay_shipping_info );
+			$order->update_meta_data( '_ecpay_shipping_info', $ecpay_shipping_info );
+			$order->save();
 
 			wp_send_json_success( '已成功刪除物流資訊' );
 		}
@@ -194,7 +205,7 @@ if ( ! class_exists( 'WooMP_Order' ) ) {
 		 */
 		private function display_shipping_number( $order ) {
 			$shipping_list   = $order->get_meta( '_ecpay_shipping_info', true );
-			$paynow_shipping = get_post_meta( $order->get_id(), '_paynow_shipping_paymentno', true );
+			$paynow_shipping = $order->get_meta( '_paynow_shipping_paymentno', true );
 
 			if ( is_array( $shipping_list ) ) {
 				foreach ( $shipping_list as $item ) {
@@ -217,7 +228,7 @@ if ( ! class_exists( 'WooMP_Order' ) ) {
 			} elseif ( $paynow_shipping ) {
 				echo esc_html( $paynow_shipping );
 			} else {
-				$this->display_shipping_input( $order->get_id() );
+				$this->display_shipping_input( $order->get_id(), $order );
 			}
 		}
 
@@ -227,8 +238,13 @@ if ( ! class_exists( 'WooMP_Order' ) ) {
 		 * @param int $order_id 訂單 ID.
 		 * @return void
 		 */
-		private function display_shipping_input( $order_id ) {
-			$current_no = get_post_meta( $order_id, 'wmp_shipping_no', true );
+		private function display_shipping_input( $order_id, $order = null ) {
+			if ( $order ) {
+				$current_no = $order->get_meta( 'wmp_shipping_no', true );
+			} else {
+				$order      = wc_get_order( $order_id );
+				$current_no = $order ? $order->get_meta( 'wmp_shipping_no', true ) : '';
+			}
 			?>
 			<div class="shippingNoWrap">
 				<input type="text"
@@ -480,8 +496,20 @@ if ( ! class_exists( 'WooMP_Order' ) ) {
 		 */
 		public function enqueue_choose_cvs_script() {
 			global $pagenow;
-			if ( 'post.php' === $pagenow && isset( $_GET['post'] ) && 'shop_order' === get_post_type( $_GET['post'] ) && get_option( RY_WT::$option_prefix . 'enabled_ecpay_shipping', 1 ) === 'yes' ) {
-				$order = wc_get_order( $_GET['post'] );
+
+			// HPOS 相容：判斷是否在訂單編輯頁面
+			$is_order_edit = false;
+			$order         = null;
+
+			if ( 'post.php' === $pagenow && isset( $_GET['post'] ) && 'shop_order' === get_post_type( absint( $_GET['post'] ) ) ) {
+				$is_order_edit = true;
+				$order         = wc_get_order( absint( $_GET['post'] ) );
+			} elseif ( isset( $_GET['page'] ) && 'wc-orders' === $_GET['page'] && isset( $_GET['action'] ) && 'edit' === $_GET['action'] && isset( $_GET['id'] ) ) {
+				$is_order_edit = true;
+				$order         = wc_get_order( absint( $_GET['id'] ) );
+			}
+
+			if ( $is_order_edit && $order && get_option( RY_WT::$option_prefix . 'enabled_ecpay_shipping', 1 ) === 'yes' ) {
 				foreach ( $order->get_items( 'shipping' ) as $item_id => $item ) {
 					$method_class = RY_ECPay_Shipping::get_order_support_shipping( $item );
 					if ( $method_class !== false && strpos( $method_class, 'cvs' ) !== false ) {
