@@ -6,6 +6,10 @@
 		"guzzlehttp/guzzle": "^6.5.8",
 		"yahnis-elsts/plugin-update-checker": "^5.3"
 	},
+	"require-dev": {
+		"yoast/phpunit-polyfills": "^2.0",
+		"yoast/wp-test-utils": "^1.2"
+	},
 	"autoload": {
 		"psr-4": {
 			"J7\\Payuni\\": "includes/payuni/v3/"
