@@ -1,0 +1,97 @@
+Activity: PayUni v1 信用卡訂閱（定期定額）付款
+Description: 消費者透過 PayUni v1 閘道完成訂閱商品的首次付款與定期自動扣款
+
+Actors:
+  - Consumer: 購買訂閱商品的消費者
+  - WooCommerce: WooCommerce 結帳核心
+  - WCSubscriptions: WooCommerce Subscriptions 外掛
+  - CreditSubscriptionGateway: PAYUNI\Gateways\CreditSubscription 閘道類別（id: payuni-credit-subscription）
+  - SubscriptionHandler: PAYUNI\Gateways\Subscription 類別，處理定期扣款邏輯
+  - RequestBuilder: PAYUNI\Gateways\Request 類別
+  - PayUniAPI: PayUni 外部 API 端點（api/credit）
+  - ResponseHandler: PAYUNI\Gateways\Response 類別
+
+Triggers:
+  - Consumer 購買訂閱商品並選擇「統一金流 PAYUNi 信用卡定期定額」付款
+  - WCSubscriptions 排程觸發定期扣款（woocommerce_scheduled_subscription_payment_payuni-credit-subscription）
+
+Flow:
+  【首次付款流程】
+
+  1. SubscriptionHandler::conditional_payment_gateways() 根據購物車內容控制閘道顯示
+     → Hook: woocommerce_available_payment_gateways
+     → Condition: 購物車是否包含 subscription 或 variable-subscription 類型商品
+       No → 隱藏 payuni-credit-subscription 閘道
+       Yes → 保留顯示
+
+  2. Consumer 看到信用卡表單（繼承 AbstractGateway::form）
+     → payuni.php 過濾器隱藏「儲存付款方式」checkbox（payuni-credit-subscription 強制儲存）
+       → Hook: woocommerce_payment_gateway_save_new_payment_method_option_html → return ''
+
+  3. CreditSubscriptionGateway::process_payment($order_id) 處理付款
+     → get_card_data() 取得卡號資料
+     → Condition: 訂單金額為 0
+       Yes → Condition: token_id 非數字（無已存卡號）
+         Yes → 走 hash request（build_hash_request），扣 5 元取得 Token
+         No → 持有 Token 且金額為 0，直接 payment_complete
+       No → 走標準 build_request
+
+  4. RequestBuilder::get_transaction_args() 組裝參數
+     → 基本參數同信用卡付款
+     → 強制設定 save_new_card = 'yes'（訂閱必須儲存卡號）
+     → 加入 CreditToken（客戶 email）以取得 CreditHash
+     → Condition: 3D 驗證啟用 → API3D=1, ReturnURL
+
+  5. RequestBuilder 發送 POST 到 PayUni api/credit
+
+  6. 處理回應（同信用卡付款流程）
+     → Condition: CREDIT04001（相同訂單編號）
+       Yes → woomp_copy_order() 建立新訂單
+         → 更新訂閱的 parent_id 為新訂單 ID（wcs_get_subscriptions_for_order）
+         → 遞迴 process_payment
+
+  7. ResponseHandler::card_response() 處理回應
+     → save_card_to_payment_method() 儲存 WC_Payment_Token_CC（gateway_id: payuni-credit-subscription）
+
+  【定期扣款流程】
+
+  8. WCSubscriptions 排程觸發定期扣款
+     → Hook: woocommerce_scheduled_subscription_payment_payuni-credit-subscription
+     → 呼叫 SubscriptionHandler::process_subscription_payment($amount, $order)
+
+  9. SubscriptionHandler 建立 Request 實例（CreditSubscription 閘道）
+     → 呼叫 RequestBuilder::build_subscription_request($amount, $order)
+
+  10. RequestBuilder::build_subscription_request() 組裝定期扣款參數
+      → MerID, MerTradeNo, TradeAmt, Timestamp, UsrMail, ProdDesc
+      → CreditToken = $order->get_billing_email()
+      → CreditHash = get_card_hash($order)
+        → 先檢查用戶預設 Token 是否為 payuni-credit-subscription
+        → 若否，取 payuni-credit-subscription 閘道的最新 Token
+      → 不加入 API3D（定期扣款不需 3D 驗證）
+
+  11. RequestBuilder 發送 POST 到 PayUni api/credit
+
+  12. ResponseHandler::card_response() 處理回應
+      → Condition: 成功
+        Yes → 訂單完成，訂閱狀態維持 active
+        No → 訂閱狀態變更
+
+  【定期扣款失敗處理】
+
+  13. WCSubscriptions 觸發 woocommerce_subscription_renewal_payment_failed
+      → Hook: SubscriptionHandler::subscription_fail_handler()
+      → Condition: 訂單狀態為 failed 且付款方式為 payuni-credit-subscription 且回應非 SUCCESS
+        Yes → 將訂單狀態改為 pending（允許重試）
+
+Side Effects:
+  - 訂閱首次付款必定儲存 WC_Payment_Token_CC
+  - 若首次金額為 0，會扣 5 元取 Token，再排程 2 分鐘後取消授權退刷
+  - 定期扣款使用已儲存的 CreditHash，不需重新輸入卡號
+  - 支援 WooCommerce Subscriptions 的完整生命週期管理
+  - PAYUNI\Gateways\Subscription 僅在 WC_Subscriptions 類別存在時才初始化
+
+Related Features:
+  - payuni-subscription.feature
+  - payuni-tokenization.feature
+  - payuni-credit-card-payment.feature

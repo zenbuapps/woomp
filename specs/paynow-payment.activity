@@ -1,0 +1,92 @@
+Activity: 立吉富金流付款流程
+Description: 顧客透過立吉富（PayNow）金流提供的信用卡、虛擬帳號、WebATM、超商代碼、條碼等付款方式完成線上付款
+
+Actors:
+  - Customer: 結帳的消費者
+  - WooCommerce: WordPress 電商系統
+  - PayNow_Gateway: 立吉富金流閘道（PayNow_Abstract_Payment_Gateway 及其子類別）
+  - PayNow_API: 立吉富 API 伺服器（www.paynow.com.tw / test.paynow.com.tw）
+  - PayNow_Response: 立吉富回調處理器（PayNow_Payment_Response）
+
+Triggers:
+  - Customer 在結帳頁面選擇立吉富付款方式並提交訂單
+
+Flow:
+  1. WooCommerce 載入立吉富金流模組
+     → PayNow_Payment::init() 初始化
+     → 註冊 5 種閘道至 woocommerce_payment_gateways：
+       paynow-credit（信用卡，PayType=01）
+       paynow-virtual-account（虛擬帳號，PayType=03）
+       paynow-webatm（WebATM，PayType=02）
+       paynow-ibon（ibon 超商代碼，PayType=05）
+       paynow-barcode（條碼繳費，PayType=10）
+     → 全域設定：web_no, trans_pwd, merchant_name（從 WordPress options 讀取）
+     → 最低金額：30 元
+
+  2. Customer 選擇立吉富付款方式並提交訂單
+     → process_payment() 回傳 redirect 至 $order->get_checkout_payment_url(true)
+
+  3. 收據頁載入，閘道 receipt_page() 建立表單
+     → 建立 PayNow_Payment_Request 實例
+     → get_transaction_args() 組建參數：
+       WebNo：商店代碼（大寫）
+       PassCode：SHA1(WebNo + OrderNo + TotalPrice + trans_pwd)
+       TotalPrice：訂單金額
+       OrderInfo：商品名稱串（最長 200 字元）
+       ReceiverName：姓+名
+       ReceiverEmail, ReceiverTel
+       OrderNo：WooCommerce 訂單編號
+       PayType：付款類型代碼
+       Note1：訂單 ID
+       EPT：1（固定）
+       ECPlatform：paynowwoocommerce
+     → Hook: paynow_transaction_args_{gateway_id}
+     → 表單自動提交至立吉富 API
+
+  4. Customer 在立吉富頁面完成付款
+
+  5. 立吉富回調至 WooCommerce
+     → 兩個回調端點：
+       即時付款（信用卡/WebATM）：woocommerce_api_paynow_payment → paynow_payment_online_response
+       離線付款（虛擬帳號/超商代碼/條碼）：woocommerce_api_paynow_payment_offline → paynow_payment_offline_response
+     → 背景通知（method=paynow_return）：paynow_payment_online_background_notification
+     → 注意：validate_passcode() 目前尚未實作驗證（回傳 true）
+
+  6. 即時付款回調處理（paynow_valid_response）
+     → 驗證 WebNo 是否匹配
+     → 儲存 _paynow_tran_id（BuysafeNo）、_paynow_tran_status（S 或 F）
+     → 信用卡/銀聯/分期（PayType 01/09/11）：儲存 _paynow_pan_no4（末四碼）
+     → 定期定額：儲存 CIFID, CIFPW, CIFID_SN
+     → TranStatus = S → payment_complete()
+     → TranStatus = F → on-hold，儲存 _paynow_errdesc
+
+  7. 離線付款回調處理（paynow_valid_offline_response）
+     → 儲存 _paynow_new_date, _paynow_due_date, _paynow_tran_id, _paynow_tran_status
+     → 虛擬帳號（PayType=03）：儲存 _paynow_bank_code, _paynow_atm_no
+     → 條碼（PayType=10）：儲存 barcode1/2/3
+     → ibon（PayType=05）：儲存 _paynow_ibon_no, _paynow_passcode2
+     → TranStatus = S → payment_complete()
+     → TranStatus != S → on-hold
+
+  8. 背景通知處理（paynow_background_notification）
+     → 僅處理成功付款（TranStatus=S）
+     → 儲存交易資訊並呼叫 payment_complete()
+
+  9. 前台訂單詳情顯示付款資訊
+     → Hook: woocommerce_order_details_after_order_table
+     → 信用卡：Transaction No, Card Last 4 Num, Trans Status, Error Description
+     → 虛擬帳號：BankCode, ATM No, Due Date
+     → ibon：ibon No
+     → 條碼：Barcode 1/2/3
+
+Side Effects:
+  - PassCode 使用 SHA1(WebNo + OrderNo + TotalPrice + trans_pwd)
+  - 目前 validate_passcode() 未實作驗證（安全風險）
+  - 使用 update_post_meta / get_post_meta（非 HPOS 相容方式）
+  - API URL 根據 testmode 切換：test.paynow.com.tw vs www.paynow.com.tw
+  - 每個閘道子類別（Credit, Virtual_Account, WebATM, IBon, Barcode）定義自己的 order_metas() 用於後台 Meta Box
+  - PayNow_Payment_Order_Meta_Boxes 在 add_meta_boxes hook 中根據付款方式動態新增 Meta Box
+
+Related Features:
+  - paynow-payment.feature
+  - paynow-shipping.activity

@@ -1,0 +1,87 @@
+Activity: PayUni ATM 轉帳付款
+Description: 消費者透過 PayUni ATM 閘道取得虛擬帳號，至銀行 ATM 完成轉帳付款
+
+Actors:
+  - Consumer: 結帳頁面的購物消費者
+  - WooCommerce: WooCommerce 結帳核心
+  - AtmGateway: PAYUNI\Gateways\Atm 閘道類別（id: payuni-atm）
+  - RequestBuilder: PAYUNI\Gateways\Request 類別
+  - PayUniAPI: PayUni 外部 API 端點（api/atm）
+  - ResponseHandler: PAYUNI\Gateways\Response 類別
+  - ActionScheduler: WordPress Action Scheduler，排程到期檢查
+
+Triggers:
+  - Consumer 在結帳頁選擇「統一金流 PAYUNi ATM」付款方式並點擊下單
+  - PayUni 背景通知轉帳完成（wc-api/payuni_notify_atm）
+  - Action Scheduler 觸發到期檢查（payuni_atm_check）
+
+Flow:
+  【取號流程】
+
+  1. Consumer 在結帳頁看到 ATM 付款選項
+     → 顯示銀行選擇下拉選單（004 台灣銀行、822 中信銀行、013 國泰世華）
+
+  2. Consumer 選擇轉帳銀行並點擊下單
+     → AtmGateway::validate_fields() → ATM 閘道直接 return true（無需卡號驗證）
+
+  3. WooCommerce 呼叫 AtmGateway::process_payment($order_id)
+     → 儲存銀行選擇到訂單 meta（_payuni-atm-bank）
+     → 建立 Request 實例
+
+  4. RequestBuilder::get_transaction_args() 組裝參數
+     → 基本參數：MerID, MerTradeNo, TradeAmt, Timestamp, UsrMail, ProdDesc
+     → Hook: payuni_transaction_args_payuni-atm (apply_filters)
+       → AtmGateway::add_args() 加入：
+         → BankType: 選擇的銀行代碼
+         → NotifyURL: home_url('wc-api/payuni_notify_atm')
+
+  5. RequestBuilder 加密並發送 POST 到 PayUni api/atm
+
+  6. PayUniAPI 回傳虛擬帳號資訊
+
+  7. ResponseHandler::atm_response() 處理取號回應
+     → 解密回應取得：Status, Message, TradeNo, BankType, PayNo, ExpireDate
+     → 銀行名稱轉換：BankType → 銀行中文名稱（004=台灣銀行, 812=台新銀行, 822=中信銀行）
+     → 儲存訂單 meta：
+       → _payuni_resp_status, _payuni_resp_message, _payuni_resp_trade_no
+       → _payuni_resp_bank（銀行代碼+名稱）
+       → _payuni_resp_bank_no（虛擬帳號）
+       → _payuni_resp_bank_expire（轉帳期限）
+     → 訂單備註記錄轉帳資訊
+     → Condition: Status = 'SUCCESS'
+       Yes → 訂單狀態設為 pending（等待轉帳）
+       No → 訂單狀態設為 failed
+     → 排程到期檢查：as_schedule_single_action(bank_expire - 8hr, 'payuni_atm_check', [$order_id])
+     → 清空購物車
+
+  8. Consumer 被導向訂單完成頁面，看到轉帳資訊
+
+  【轉帳完成通知】
+
+  9. Consumer 在繳費期限前完成 ATM 轉帳
+
+  10. PayUni 發送背景通知到 wc-api/payuni_notify_atm
+      → Hook: woocommerce_api_payuni_notify_atm
+      → ResponseHandler::atm_response() 處理背景通知（$_REQUEST 方式）
+      → 解密 EncryptInfo 取得轉帳結果
+      → Condition: 訂單狀態非 completed
+        Yes → 更新訂單狀態為 processing
+      → 訂單備註記錄繳費結果（狀態碼、繳費結果、繳費時間、轉帳後五碼）
+
+  【到期檢查】
+
+  11. Action Scheduler 在轉帳期限時觸發 payuni_atm_check
+      → AtmGateway::atm_expire($order_id)
+      → Condition: 訂單狀態為 pending
+        Yes → 更新訂單狀態為 cancelled
+          → 訂單備註：「超過繳費期限，該訂單已取消！」
+
+Side Effects:
+  - 訂單建立後狀態為 pending，等待消費者轉帳
+  - 轉帳資訊顯示在訂單完成頁面、訂單詳情頁面、Email 中
+  - Action Scheduler 排程到期自動取消（考慮 UTC-8 時差）
+  - ATM 閘道不支援 refunds 和 tokenization（supports 僅含 products）
+  - Email 通知包含轉帳資訊（woocommerce_email_order_meta hook）
+
+Related Features:
+  - payuni-atm.feature

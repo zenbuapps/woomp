@@ -1,0 +1,142 @@
+Activity: 電子發票設定管理
+Description: 透過 WooCommerce 設定頁籤管理三家電子發票服務商（綠界、EZPAY、立吉富）的 API 金鑰、開立/作廢模式、載具類型與捐贈機構等設定。
+
+Actors:
+  - 店家管理員: 在 WooCommerce 設定頁面配置電子發票參數
+
+Triggers:
+  - 管理員進入 WooCommerce > 設定 > 電子發票設定
+
+Flow:
+  1. [WooCommerce] 載入電子發票設定頁籤
+     → Woomp_Setting_Invoice 類別（class-woomp-setting-invoice.php）
+     → 繼承 WC_Settings_Page
+     → 註冊頁籤 ID: woomp_setting_invoice
+     → 頁籤名稱：「電子發票設定」
+     → Hook: woocommerce_settings_tabs_array（優先權 51）
+
+  2. [系統] 載入設定區段（sections）
+     → 三個區段：
+       ecpay — 綠界(好用版)
+       ezpay — 藍新 ezPay
+       paynow — 立吉富
+     → 預設導向：若無區段參數，自動跳轉至 ecpay 區段
+
+  === 綠界設定（ecpay section） ===
+
+  3. [系統] 檢查綠界模組是否啟用
+     → Condition: wc_woomp_enabled_ecpay_invoice = yes
+       Yes → 顯示完整設定
+       No → 顯示「尚未啟用綠界電子發票」並連結至啟用頁面
+
+  4. [設定頁面] 綠界電子發票設定欄位
+     → 一般設定：
+       - wc_woomp_ecpay_invoice_debug_log_enabled（checkbox）：除錯日誌
+       - wc_woomp_ecpay_invoice_order_prefix（text）：訂單編號前綴
+
+     → 發票選項：
+       - wc_woomp_ecpay_invoice_issue_mode（select）：開立模式
+         選項：手動（manual）/ 自動（auto），預設 manual
+       - wc_woomp_ecpay_invoice_issue_at（select）：自動開立觸發狀態
+         選項：所有 WooCommerce 訂單狀態
+       - wc_woomp_ecpay_invoice_invalid_mode（select）：作廢模式
+         選項：手動 / 自動，預設 auto
+       - wc_woomp_ecpay_invoice_invalid_at（select）：自動作廢觸發狀態
+         選項：已退款（wc-refunded）/ 失敗（wc-failed）
+       - wc_woomp_ecpay_invoice_carrier_type（multiselect）：允許的載具類型
+         選項：雲端發票 / 手機條碼 / 自然人憑證 / 紙本發票
+       - wc_woomp_ecpay_invoice_donate_org（textarea）：捐贈機構清單
+         格式：每行一筆「愛心碼|社福團體名稱」
+
+     → 商家資料設定：
+       - wc_woomp_ecpay_invoice_testmode_enabled（checkbox）：測試模式
+       - wc_woomp_ecpay_invoice_merchant_id（text）：商家編號
+       - wc_woomp_ecpay_invoice_hashkey（text）：HashKey
+       - wc_woomp_ecpay_invoice_hashiv（text）：HashIV
+       → 備註：正式模式下若 RY_WEI_ecpay_* 系列選項已設定，將優先使用
+
+  === EZPAY 設定（ezpay section） ===
+
+  5. [系統] 檢查 EZPAY 模組是否啟用
+     → Condition: wc_woomp_enabled_ezpay_invoice = yes
+       Yes → 顯示完整設定
+       No → 顯示「尚未啟用 ezPay 電子發票」
+
+  6. [設定頁面] EZPAY 電子發票設定欄位
+     → 一般設定：
+       - wc_woomp_ezpay_invoice_debug_log_enabled（checkbox）
+       - wc_woomp_ezpay_invoice_order_prefix（text）
+
+     → 發票選項：
+       - wc_woomp_ezpay_invoice_issue_mode（select）：開立模式（手動/自動）
+       - wc_woomp_ezpay_invoice_issue_at（select）：自動開立觸發狀態
+       - wc_woomp_ezpay_invoice_invalid_mode（select）：作廢模式
+       - wc_woomp_ezpay_invoice_invalid_at（select）：自動作廢觸發狀態
+       - wc_woomp_ezpay_invoice_carrier_type（multiselect）：載具類型
+         選項：雲端電子發票載具 / 手機條碼 / 自然人憑證
+       - wc_woomp_ezpay_invoice_donate_org（textarea）：捐贈機構
+
+     → 商家資料設定（測試模式）：
+       - wc_woomp_ezpay_invoice_testmode_enabled（checkbox）
+       - wc_woomp_ezpay_invoice_merchant_id_test（text）
+       - wc_woomp_ezpay_invoice_hashkey_test（text）
+       - wc_woomp_ezpay_invoice_hashiv_test（text）
+       → 測試平台：https://cinv.ezpay.com.tw/
+
+     → 商家資料設定（正式環境）：
+       - wc_woomp_ezpay_invoice_merchant_id（text）
+       - wc_woomp_ezpay_invoice_hashkey（text）
+       - wc_woomp_ezpay_invoice_hashiv（text）
+       → 正式平台：https://inv.ezpay.com.tw/
+
+  === 立吉富設定（paynow section） ===
+
+  7. [系統] 檢查立吉富模組是否啟用
+     → Condition: wc_settings_tab_active_paynow_einvoice = yes
+       Yes → 顯示完整設定
+       No → 顯示「尚未啟用立吉富電子發票」
+
+  8. [設定頁面] 立吉富電子發票設定欄位
+     → 基本設定：
+       - wc_settings_tab_paynow_einvoice_sandbox（checkbox）：測試模式
+       - paynow_einvoice_debug_log_enabled（checkbox）：除錯日誌
+       - wc_settings_tab_mem_cid（text）：商家編號
+       - wc_settings_tab_mem_password（text）：商家密碼
+
+     → 開立設定：
+       - wc_settings_tab_issue_mode（radio）：開立模式（自動/手動）
+       - wc_settings_tab_issue_at（select）：自動開立觸發狀態
+         選項：排除 cancelled, refunded, failed 的所有訂單狀態
+       - wc_settings_tab_tax_type（select）：課稅類別
+         選項：應稅(5%) / 零稅率(0%) / 免稅(0%)
+
+     → 載具設定：
+       - wc_settings_tab_carrier_type_cloud（checkbox）：雲端會員載具
+       - wc_settings_tab_carrier_type_mobile_code（checkbox）：手機條碼
+       - wc_settings_tab_carrier_type_cdc_code（checkbox）：自然人憑證
+       - wc_settings_tab_carrier_type_easycard_code（checkbox）：悠遊卡
+
+     → 捐贈設定：
+       - wc_settings_tab_donate_org（textarea）：捐贈機構
+         格式：每行一筆「愛心碼|社福團體名稱」
+
+  9. [管理員] 儲存設定
+     → Hook: woocommerce_settings_save_woomp_setting_invoice
+     → 使用 WC_Admin_Settings::save_fields() 儲存
+
+Side Effects:
+  - WordPress options 表更新各設定值
+  - 設定值立即影響結帳頁面欄位與自動開立/作廢行為
+
+Related Features:
+  - invoice-settings.feature
+  - ecpay-invoice-issue.feature
+  - ezpay-invoice-issue.feature
+  - paynow-invoice-issue.feature
+  - invoice-carrier.feature
+
+備註:
+  - 設定頁面位於 WooCommerce > 設定 > 電子發票設定
+  - 此頁面是 Woomp 擴充功能的統一入口，整合三家服務商
+  - 立吉富的設定頁面也可從 WooCommerce > 設定 > PayNow 電子發票（WC_Settings_Tab_PayNow_EInvoice）進入
+  - 三家服務商的設定互不影響，但同時只應啟用一家以避免衝突

@@ -1,0 +1,145 @@
+Activity: 後台訂單管理
+Description: WooMP 的訂單管理功能，包含自訂訂單狀態、訂單列表欄位、物流資訊處理、批次操作、排程自動化
+
+Actors:
+  - 管理員: 擁有 edit_shop_orders 權限的後台使用者
+  - WooMP_Order: 後台訂單管理類別 (admin/class-woomp-order.php)
+  - Woomp_Admin: 核心後台類別 (admin/class-woomp-admin.php)
+  - WooMP_Email: 郵件功能類別 (admin/class-woomp-email.php)
+  - Action Scheduler: WordPress 排程系統
+  - WooCommerce: 訂單系統
+
+Triggers:
+  - 管理員進入訂單列表頁
+  - 管理員進入訂單編輯頁
+  - 管理員執行批次操作
+  - 排程事件觸發
+  - 新訂單建立（ATM 付款時）
+
+Flow:
+  1. WooMP_Order::init() 在外掛載入時初始化
+     → Hook: init → add_order_status() 註冊自訂訂單狀態
+       → 'wc-wmp-in-transit' (配送中)
+       → 'wc-wmp-shipped' (已出貨)
+     → Filter: wc_order_statuses → add_order_statuses()
+       → 在 wc-processing 之後插入「配送中」和「已出貨」
+     → Filter: woocommerce_reports_order_statuses → add_order_statuses()
+     → Filter: woocommerce_order_is_paid_statuses → add_report_paid_statuses()
+       → 加入 'wmp-in-transit' 和 'wmp-shipped' 為已付款狀態
+
+  2. 訂單列表欄位自訂
+     → Filter: manage_shop_order_posts_columns → shop_order_columns()
+       → 在 shipping_address 之後插入：
+         - wmp_payment_no (金流單號)
+         - wmp_shipping_no (物流單號)
+     → Action: manage_shop_order_posts_custom_column → shop_order_column()
+       → wmp_payment_no: 顯示 order->get_transaction_id()
+       → wmp_shipping_no: 顯示物流單號
+         → Condition: _ecpay_shipping_info meta 存在且為陣列
+           Yes → 遍歷 shipping_list，根據 LogisticsType 顯示
+             → CVS/HOME: PaymentNo + ValidationNo（或 ID）
+             → POST: BookingNote
+           No → Condition: _paynow_shipping_paymentno meta 存在
+             Yes → 顯示 PayNow 物流單號
+             No → 顯示可編輯的物流單號輸入框（含 AJAX 更新功能）
+       → billing_address / shipping_address:
+         → Condition: wc_woomp_setting_show_phone === 'yes'
+           Yes → 在地址下方顯示電話資訊
+
+  3. 後台訂單地址顯示（Woomp_Admin）
+     → Filter: woocommerce_admin_billing_fields → custom_order_meta()
+       → 新增 'full-address' 欄位（完整地址）
+     → Action: woocommerce_admin_order_data_after_billing_address → add_address_meta()
+       → Condition: wc_woomp_setting_one_line_address === 'yes'
+         Yes → 隱藏原始地址，顯示整併後的帳單姓名和地址
+     → Filter: woocommerce_admin_shipping_fields → custom_order_meta_shipping()
+       → Condition: 物流方式為綠界且不含 'cvs'
+         Yes → 新增 'full-addressShipping' 欄位
+     → Action: woocommerce_admin_order_data_after_shipping_address → add_address_meta_shipping()
+       → 顯示收件人姓名
+       → Condition: 物流方式包含「超商」
+         Yes → 顯示門市編號、門市名稱、門市地址（支援綠界和 PayNow）
+         No → 顯示整併後的運送地址
+
+  4. AJAX 更新物流單號
+     → Action: wp_ajax_update_shipping_number → update_order_shipping_number()
+       → 接收 shippingNo 和 orderId
+       → 更新 post_meta: wmp_shipping_no
+
+  5. AJAX 刪除綠界物流資訊
+     → Action: wp_ajax_delete_shipping_ecpay_cvs → delete_shipping_ecpay_cvs()
+       → 權限檢查: current_user_can('edit_shop_orders')
+       → 從 _ecpay_shipping_info meta 中刪除指定的物流項目
+
+  6. 超商重新選擇功能
+     → Action: woocommerce_admin_order_data_after_shipping_address → add_choose_cvs_btn()
+       → Condition: 綠界物流已啟用 AND 物流方式為 CVS 類型
+         Yes → 顯示「Update convenience store」按鈕
+     → Action: admin_enqueue_scripts → enqueue_choose_cvs_script()
+       → Condition: 訂單編輯頁 AND 物流為 CVS 類型
+         Yes → 載入 choose-cvs.js
+         → Localize: ECPayInfo（postUrl、postData、newStore）
+         → JS 邏輯: 點擊按鈕 → 開啟綠界選擇超商表單 → 回傳後填入門市資訊
+
+  7. 批次操作
+     → Filter: bulk_actions-edit-shop_order → bulk_action()
+       → Condition: 綠界物流已啟用
+         Yes → 新增列印託運單選項（依 CVS_type B2C/C2C 不同）：
+           B2C: 711, 711 Freeze, family, hilife
+           C2C: 711, family, hilife, okmart
+         → 新增: ry_print_ecpay_home_tcat (黑貓託運單)
+       → 新增: mark_wmp-shipped (變更為已出貨)
+       → 新增: mark_wmp-in-transit (變更為配送中)
+       → 新增: wmp_print_hct (HCT CSV 匯出)
+
+     → Filter: handle_bulk_actions-edit-shop_order → print_shipping_note()
+       → Condition: action 包含 'ry_print_ecpay_'
+         Yes → 跳轉至 ry_print_ecpay_shipping 頁面並開新視窗列印
+       → Condition: action === 'wmp_print_hct'
+         Yes → 產生 CSV 檔案下載，欄位：序號、訂單號、收件人姓名、地址、電話、商品數量、代收貨款金額
+
+     → Filter: handle_bulk_actions-edit-shop_order → handle_bulk_order_status_update()
+       → Condition: action 為 'mark_wmp-shipped' 或 'mark_wmp-in-transit'
+         Yes → 批次更新訂單狀態
+
+  8. 排程系統（Woomp_Admin）
+     → Action: init → register_cron_hook()
+       → 註冊每日 10:00 (UTC+8) 的定時任務: wmp_cron_every_morning
+
+     → Action: wmp_cron_every_morning → set_ecpay_cvs_get_remind()
+       → 查詢狀態為 'ry-at-cvs' 且明天到期的訂單
+       → 發送 CVS 取貨到期前一天通知郵件
+
+     → Action: wmp_cron_every_morning → set_ecpay_cvs_get_expired()
+       → 查詢狀態為 'ry-at-cvs' 且今天到期的訂單
+       → 發送 CVS 取貨到期當天通知郵件
+
+  9. ATM 訂單排程（Woomp_Admin）
+     → Action: woocommerce_new_order → set_unpaid_atm_order_cron()
+       → Condition: 付款方式為 'ry_ecpay_atm'
+         Yes → 排程兩個單次任務：
+           a. wmp_cron_atm_deadline: 到期時取消未付款訂單
+           b. wmp_cron_atm_deadline_remind: 到期前一天發送轉帳提醒
+
+     → Action: wmp_cron_atm_deadline → cancel_unpaid_order()
+       → Condition: 訂單狀態為 'pending' 或 'on-hold'
+         Yes → 更新訂單狀態為 'cancelled'
+
+     → Action: wmp_cron_atm_deadline_remind → set_ecpay_atm_transfer_remind()
+       → Condition: 訂單狀態為 'pending' 或 'on-hold'
+         Yes → 發送 ATM 轉帳提醒郵件
+
+  10. 訂單列表 UI 優化
+      → Filter: post_class → disable_order_table_link()
+        → 在 edit-shop_order 頁面加入 'no-link' CSS class
+
+Side Effects:
+  - 自訂訂單狀態 (wmp-in-transit, wmp-shipped) 被列為已付款狀態，影響報表統計
+  - 每日排程可能觸發大量郵件發送
+  - ATM 訂單到期自動取消可能在非預期時間執行（因 UTC 時間計算）
+  - 批次列印會在新視窗開啟
+  - HCT CSV 匯出直接輸出 HTTP Response
+
+Related Features:
+  - admin-order-management.feature
+  - email-notifications.feature

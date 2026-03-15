@@ -1,0 +1,704 @@
+// Woomp Plugin Entity Relationship Model
+// 基於 WordPress/WooCommerce 資料結構
+// 生成日期：2026-03-15
+
+Project woomp {
+  database_type: 'MySQL'
+  Note: 'WooCommerce 好用版擴充 - 資料模型'
+}
+
+// ============================================================
+// WordPress / WooCommerce 核心資料表（參考用）
+// ============================================================
+
+Table wc_orders [note: 'WooCommerce 訂單（HPOS）'] {
+  id bigint [pk, increment, note: '訂單 ID']
+  status varchar [note: '訂單狀態']
+  type varchar [note: '訂單類型（shop_order / shop_subscription）']
+  payment_method varchar [note: '付款方式 ID']
+  customer_id bigint [note: '顧客 ID']
+  total decimal [note: '訂單總金額']
+  date_created_gmt datetime
+  date_updated_gmt datetime
+}
+
+Table wc_orders_meta [note: 'WooCommerce 訂單 Meta（HPOS）'] {
+  id bigint [pk, increment]
+  order_id bigint [ref: > wc_orders.id, note: '訂單 ID']
+  meta_key varchar [note: 'Meta Key']
+  meta_value longtext [note: 'Meta Value']
+}
+
+Table wp_options [note: 'WordPress 選項表'] {
+  option_id bigint [pk, increment]
+  option_name varchar [unique, note: '選項名稱']
+  option_value longtext [note: '選項值']
+  autoload varchar [note: '是否自動載入']
+}
+
+Table wc_payment_tokens [note: 'WooCommerce 付款 Token'] {
+  token_id bigint [pk, increment]
+  gateway_id varchar [note: '閘道 ID']
+  token varchar [note: 'Token 值（CreditHash 或卡號組合）']
+  user_id bigint [note: '使用者 ID']
+  type varchar [note: 'Token 類型（CC）']
+  is_default tinyint [note: '是否為預設']
+}
+
+Table wc_payment_tokenmeta [note: 'WooCommerce 付款 Token Meta'] {
+  meta_id bigint [pk, increment]
+  payment_token_id bigint [ref: > wc_payment_tokens.token_id]
+  meta_key varchar
+  meta_value longtext
+
+  Note: '''
+    PayUni Token Meta：
+    - card_type: visa/mastercard/amex/discover
+    - last4: 卡號末四碼
+    - expiry_month: 有效月份
+    - expiry_year: 有效年份
+  '''
+}
+
+// ============================================================
+// 模組啟用設定（wp_options）
+// ============================================================
+
+Table wp_options_module_activation [note: 'Woomp 模組啟用/停用設定'] {
+  option_name varchar [pk]
+  option_value varchar [note: 'yes/no']
+
+  Note: '''
+    控制各金流/物流/發票模組的啟停。
+    以下為所有模組啟用選項：
+  '''
+}
+
+// --- 模組啟用選項列表 ---
+// wc_woomp_enabled_payuni_gateway     | 統一金流 PAYUNi 金流
+// wc_woomp_enabled_payuni_shipping    | 統一金流 PAYUNi 物流（目前停用）
+// ry_wt_enabled_ecpay_gateway         | 綠界金流（RY_WT::$option_prefix = 'ry_wt_'）
+// ry_wt_enabled_ecpay_shipping        | 綠界物流
+// ry_wt_enabled_newebpay_gateway      | 藍新金流
+// ry_wt_enabled_newebpay_shipping     | 藍新物流
+// ry_wt_enabled_smilepay_gateway      | 速買配金流
+// ry_wt_enabled_smilepay_shipping     | 速買配物流
+// wc_woomp_setting_paynow_gateway     | 立吉富金流
+// wc_woomp_setting_paynow_shipping    | 立吉富物流
+// wc_settings_tab_active_paynow_einvoice | 立吉富電子發票
+// woocommerce_linepay_enabled         | LINE Pay 金流
+// woocommerce_pchomepay_enabled       | 支付連金流
+// wc_woomp_enabled_ecpay_invoice      | 綠界電子發票（好用版）
+// wc_woomp_enabled_ezpay_invoice      | 藍新 ezPay 電子發票
+
+// ============================================================
+// PayUni 金流設定（wp_options）
+// ============================================================
+
+Table wp_options_payuni [note: 'PayUni 統一金流設定選項'] {
+  option_name varchar [pk]
+  option_value varchar
+
+  Note: '''
+    PayUni 金流 API 憑證與功能設定
+  '''
+}
+
+// --- PayUni 選項列表 ---
+// payuni_payment_testmode             | 測試模式（yes/no）
+// payuni_payment_log                  | 除錯日誌（yes/no）
+// payuni_3d_auth                      | 3D 驗證（yes/no）
+// payuni_enable_v3                    | 啟用 v3 Embed（yes/no）
+// payuni_payment_merchant_no_test     | 測試商店代號
+// payuni_payment_hash_key_test        | 測試 HashKey
+// payuni_payment_hash_iv_test         | 測試 HashIV
+// payuni_payment_merchant_no          | 正式商店代號
+// payuni_payment_hash_key             | 正式 HashKey
+// payuni_payment_hash_iv              | 正式 HashIV
+// payuni_shipping_testmode            | 物流測試模式
+// payuni_shipping_MerchantID          | 物流商店代號
+// payuni_shipping_HashKey             | 物流 HashKey
+// payuni_shipping_HashIV              | 物流 HashIV
+// payuni_shipping_log                 | 物流日誌
+// payuni_shipping_order_prefix        | 物流訂單前綴
+// payuni_shipping_sender_name         | 寄件人姓名
+// payuni_shipping_sender_phone        | 寄件人電話
+// payuni_shipping_sender_cellphone    | 寄件人手機
+// payuni_shipping_sender_zipcode      | 寄件人郵遞區號
+// payuni_shipping_sender_address      | 寄件人地址
+
+// ============================================================
+// ECPay 金流/物流設定（wp_options，前綴 ry_wt_）
+// ============================================================
+
+Table wp_options_ecpay [note: '綠界金流/物流設定選項（RY_WT 前綴）'] {
+  option_name varchar [pk]
+  option_value varchar
+
+  Note: '''
+    綠界 API 憑證與設定，選項前綴為 ry_wt_
+    詳細選項由 settings-ecpay-gateway.php 和
+    settings-ecpay-shipping.php 定義
+  '''
+}
+
+// --- ECPay 金流選項列表（前綴 ry_wt_） ---
+// ry_wt_ecpay_gateway_testmode        | 測試模式
+// ry_wt_ecpay_gateway_MerchantID      | 商店代號
+// ry_wt_ecpay_gateway_HashKey         | HashKey
+// ry_wt_ecpay_gateway_HashIV          | HashIV
+// ry_wt_ecpay_gateway_order_prefix    | 訂單編號前綴
+// ry_wt_repay_action                  | 重新付款功能
+// ry_wt_strength_password             | 密碼強度驗證
+// ry_wt_show_unpay_title              | 顯示未付款資訊
+// ry_wt_show_country_select           | 顯示國家選單
+// ry_wt_last_name_first               | 姓氏在前
+// ry_wt_address_zip_first             | 郵遞區號在前
+
+// ============================================================
+// NewebPay 藍新設定（wp_options）
+// ============================================================
+
+Table wp_options_newebpay [note: '藍新金流設定選項'] {
+  option_name varchar [pk]
+  option_value varchar
+
+  Note: '''
+    藍新金流 API 憑證與設定，選項前綴為 ry_wt_
+  '''
+}
+
+// --- NewebPay 選項列表（前綴 ry_wt_） ---
+// ry_wt_newebpay_gateway_testmode     | 測試模式
+// ry_wt_newebpay_gateway_MerchantID   | 商店代號
+// ry_wt_newebpay_gateway_HashKey      | HashKey
+// ry_wt_newebpay_gateway_HashIV       | HashIV
+
+// ============================================================
+// PayNow 立吉富設定（wp_options）
+// ============================================================
+
+Table wp_options_paynow [note: '立吉富金流/物流/發票設定選項'] {
+  option_name varchar [pk]
+  option_value varchar
+
+  Note: '''
+    立吉富 API 憑證與設定
+  '''
+}
+
+// --- PayNow 金流選項 ---
+// paynow_payment_testmode_enabled     | 測試模式
+// paynow_payment_debug_log_enabled    | 除錯日誌
+// paynow_payment_web_no               | WebNo
+// paynow_payment_trans_pwd            | 交易密碼
+// paynow_payment_merchant_name        | 商家名稱
+
+// --- PayNow 物流選項 ---
+// paynow_shipping_testmode_enabled    | 測試模式
+// paynow_shipping_debug_log_enabled   | 除錯日誌
+// paynow_shipping_user_account        | 使用者帳號
+// paynow_shipping_api_code            | API Code
+// paynow_shipping_sender_name         | 寄件人姓名
+// paynow_shipping_sender_address      | 寄件人地址
+// paynow_shipping_sender_phone        | 寄件人電話
+// paynow_shipping_sender_email        | 寄件人 Email
+// paynow_shipping_order_status_at_sender_cvs    | 寄件門市狀態
+// paynow_shipping_order_status_at_receiver_cvs  | 取件門市狀態
+// paynow_shipping_order_status_pickuped         | 已取貨狀態
+// paynow_shipping_order_status_returned         | 退回狀態
+
+// --- PayNow 發票選項 ---
+// wc_settings_tab_paynow_einvoice_sandbox | 測試模式
+// paynow_einvoice_debug_log_enabled       | 除錯日誌
+// wc_settings_tab_mem_cid                 | 商家編號
+// wc_settings_tab_mem_password            | 商家密碼
+// wc_settings_tab_issue_mode              | 開立模式（auto/manual）
+// wc_settings_tab_issue_at                | 自動開立時機
+// wc_settings_tab_tax_type                | 稅別（1=應稅/2=零稅率/3=免稅）
+// wc_settings_tab_carrier_type_cloud      | 雲端載具啟用
+// wc_settings_tab_carrier_type_mobile_code    | 手機條碼啟用
+// wc_settings_tab_carrier_type_cdc_code       | 自然人憑證啟用
+// wc_settings_tab_carrier_type_easycard_code  | 悠遊卡啟用
+// wc_settings_tab_donate_org                  | 捐贈機構列表
+
+// ============================================================
+// LINE Pay 設定（wp_options）
+// ============================================================
+
+Table wp_options_linepay [note: 'LINE Pay 金流設定選項'] {
+  option_name varchar [pk]
+  option_value varchar
+}
+
+// --- LINE Pay 選項 ---
+// linepay_sandbox                     | 沙箱模式
+// linepay_log_enabled                 | 日誌啟用
+// linepay_log_level                   | 日誌等級
+// linepay_sandbox_channel_id          | 沙箱 Channel ID
+// linepay_sandbox_channel_secret      | 沙箱 Channel Secret
+// linepay_channel_id                  | 正式 Channel ID
+// linepay_channel_secret              | 正式 Channel Secret
+// linepay_payment_type                | 付款類型
+// linepay_payment_action              | 付款動作
+// linepay_admin_refund                | 管理員可退款狀態
+// linepay_customer_refund             | 顧客可退款狀態
+// linepay_general_logo_size           | Logo 尺寸
+
+// ============================================================
+// PChomePay 支付連設定（wp_options）
+// ============================================================
+
+Table wp_options_pchomepay [note: '支付連金流設定選項'] {
+  option_name varchar [pk]
+  option_value varchar
+}
+
+// --- PChomePay 選項 ---
+// woomp_pchomepay_test_mode           | 測試模式
+// woomp_pchomepay_app_id              | APP ID
+// woomp_pchomepay_secret              | 正式 Secret
+// woomp_pchomepay_sandbox_secret      | 測試 Secret
+// woomp_pchomepay_debug               | 除錯日誌
+// woomp_pchomepay_payment_methods     | 付款方式（multiselect）
+// woomp_pchomepay_card_installment    | 信用卡分期（multiselect）
+// woomp_pchomepay_atm_expiredate      | ATM 繳費期限（天）
+// woomp_pchomepay_card_last_number    | 記錄卡號末四碼
+// woomp_pchomepay_customize_order_received_text | 訂單成立顯示訊息
+
+// ============================================================
+// ECPay 發票設定（wp_options）
+// ============================================================
+
+Table wp_options_ecpay_invoice [note: '綠界電子發票設定選項'] {
+  option_name varchar [pk]
+  option_value varchar
+}
+
+// --- ECPay 發票選項 ---
+// wc_woomp_ecpay_invoice_debug_log_enabled  | 除錯日誌
+// wc_woomp_ecpay_invoice_order_prefix       | 訂單編號前綴
+// wc_woomp_ecpay_invoice_issue_mode         | 開立模式（manual/auto）
+// wc_woomp_ecpay_invoice_issue_at           | 自動開立時機（訂單狀態）
+// wc_woomp_ecpay_invoice_invalid_mode       | 作廢模式（manual/auto）
+// wc_woomp_ecpay_invoice_invalid_at         | 自動作廢時機
+// wc_woomp_ecpay_invoice_carrier_type       | 載具類型（multiselect array）
+// wc_woomp_ecpay_invoice_donate_org         | 捐贈機構列表
+// wc_woomp_ecpay_invoice_testmode_enabled   | 測試模式
+// wc_woomp_ecpay_invoice_merchant_id        | 商家編號
+// wc_woomp_ecpay_invoice_hashkey            | HashKey
+// wc_woomp_ecpay_invoice_hashiv             | HashIV
+
+// ============================================================
+// EZPay 發票設定（wp_options）
+// ============================================================
+
+Table wp_options_ezpay_invoice [note: 'ezPay 藍新電子發票設定選項'] {
+  option_name varchar [pk]
+  option_value varchar
+}
+
+// --- EZPay 發票選項 ---
+// wc_woomp_ezpay_invoice_debug_log_enabled  | 除錯日誌
+// wc_woomp_ezpay_invoice_order_prefix       | 訂單編號前綴
+// wc_woomp_ezpay_invoice_issue_mode         | 開立模式
+// wc_woomp_ezpay_invoice_issue_at           | 自動開立時機
+// wc_woomp_ezpay_invoice_invalid_mode       | 作廢模式
+// wc_woomp_ezpay_invoice_invalid_at         | 自動作廢時機
+// wc_woomp_ezpay_invoice_carrier_type       | 載具類型
+// wc_woomp_ezpay_invoice_donate_org         | 捐贈機構列表
+// wc_woomp_ezpay_invoice_testmode_enabled   | 測試模式
+// wc_woomp_ezpay_invoice_merchant_id_test   | 測試商家編號
+// wc_woomp_ezpay_invoice_hashkey_test       | 測試 HashKey
+// wc_woomp_ezpay_invoice_hashiv_test        | 測試 HashIV
+// wc_woomp_ezpay_invoice_merchant_id        | 正式商家編號
+// wc_woomp_ezpay_invoice_hashkey            | 正式 HashKey
+// wc_woomp_ezpay_invoice_hashiv             | 正式 HashIV
+
+// ============================================================
+// Woomp 結帳/商品設定（wp_options）
+// ============================================================
+
+Table wp_options_woomp_general [note: 'Woomp 一般設定選項'] {
+  option_name varchar [pk]
+  option_value varchar
+}
+
+// --- 結帳相關 ---
+// wc_woomp_setting_mode                     | 結帳流程（default/onepage/twopage）
+// wc_woomp_setting_mode_twopage_message     | 兩頁式返回購物車文字
+// wc_woomp_setting_billing_country_pos      | 國家欄位置頂
+// wc_woomp_setting_tw_address               | 台灣地址下拉
+// wc_woomp_setting_one_line_address         | 訂單地址整併
+// wc_woomp_setting_show_phone               | 顯示電話資訊
+// wc_woomp_setting_tw_field_valitdate       | 姓名電話驗證
+// wc_woomp_setting_virtual_product_address  | 虛擬商品隱藏地址
+// wc_woomp_setting_cod_payment              | 取代貨到付款
+// wc_woomp_setting_place_order_text         | 結帳按鈕文字
+// wc_woomp_setting_free_shipping_hint       | 免運提示
+// wc_woomp_setting_free_shipping_text_left  | 免運提示文字
+// wc_woomp_setting_free_shipping_text_free_shipping | 已達免運文字
+// wc_woomp_setting_free_shipping_bg_color   | 免運提示背景色
+// wc_woomp_setting_free_shipping_text_color | 免運提示文字色
+
+// --- 商品相關 ---
+// wc_woomp_setting_product_variations_ui               | 可變商品後台介面
+// wc_woomp_setting_product_variations_frontend_ui      | 可變商品前台介面
+// wc_woomp_setting_product_variations_frontend_ui＿default  | 預設標籤式
+// wc_woomp_setting_product_variations_frontend_ui＿bg_color | 標籤背景色
+// wc_woomp_setting_product_variations_frontend_ui＿text_color | 標籤文字色
+// wc_woomp_setting_virtual_product_order_auto_complete  | 虛擬商品自動完成
+
+// ============================================================
+// 訂單 Meta — PayUni 金流
+// ============================================================
+
+Table order_meta_payuni [note: 'PayUni 統一金流訂單 Meta'] {
+  order_id bigint [ref: > wc_orders.id, note: '訂單 ID']
+
+  // --- v1 + v3 共用回應 Meta ---
+  _payuni_resp_status varchar [note: '交易狀態（SUCCESS/錯誤碼）']
+  _payuni_resp_message varchar [note: '交易訊息']
+  _payuni_resp_trade_no varchar [note: 'PAYUNi 交易編號']
+  _payuni_card_number varchar [note: '卡號末四碼']
+
+  // --- v1 信用卡專用 ---
+  _payuni_resp_card_bank varchar [note: '發卡銀行（代碼+名稱）']
+  _payuni_resp_card_inst varchar [note: '分期期數']
+  _payuni_resp_first_amt varchar [note: '首期金額']
+  _payuni_resp_each_amt varchar [note: '每期金額']
+  _payuni_order_suffix int [note: '訂單流水號後綴（用於重送）']
+  _payuni_token_maybe_save varchar [note: '是否儲存卡片（yes/no，v1）']
+  _payuni_is_3d_auth varchar [note: '是否走 3D 驗證（yes/no，v1）']
+  _payuni_token_id varchar [note: '使用的 Token ID']
+  _payuni_card_hash varchar [note: '信用卡 Hash（已棄用，改存 wc_payment_tokens）']
+
+  // --- v1 ATM 專用 ---
+  _payuni_resp_bank varchar [note: '轉帳銀行（代碼+名稱）']
+  _payuni_resp_bank_no varchar [note: '轉帳帳號']
+  _payuni_resp_bank_expire varchar [note: '轉帳期限']
+
+  // --- v3 專用 ---
+  _payuni_v3_resp text [note: 'v3 完整交易回應（序列化陣列）']
+
+  // --- v3 暫存資料（交易完成後刪除） ---
+  sdk_token_tmp varchar [note: 'SDK Token 暫存']
+  payuni_save_card varchar [note: '是否儲存卡片（yes/no）']
+  payuni_installment varchar [note: '分期期數']
+  payuni_use_saved_token varchar [note: '是否使用已存卡片（yes/no）']
+  payuni_saved_token_id varchar [note: '已存卡片 Token ID']
+  payuni_carrier_type varchar [note: '發票載具類型']
+  payuni_carrier_info varchar [note: '發票載具編號']
+  payuni_inv_buyer_name varchar [note: '發票買受人名稱']
+
+  Note: '''
+    PayUni v1（PAYUNI\Gateways\Response）與 v3（J7\Payuni\Infrastructure\Http\TradeHandler）
+    共用 _payuni_resp_* 前綴。v3 額外儲存 _payuni_v3_resp 完整回應。
+    暫存資料（sdk_token_tmp 等）在交易完成後由 OrderUtils::delete_tmp_data() 清除。
+  '''
+}
+
+// ============================================================
+// 訂單 Meta — ECPay 金流
+// ============================================================
+
+Table order_meta_ecpay_payment [note: '綠界金流訂單 Meta'] {
+  order_id bigint [ref: > wc_orders.id]
+
+  // --- ATM 虛擬帳號 ---
+  _ecpay_atm_BankCode varchar [note: '轉帳銀行代碼']
+  _ecpay_atm_vAccount varchar [note: '虛擬帳號']
+  _ecpay_atm_ExpireDate varchar [note: '繳費期限']
+
+  // --- 超商代碼（CVS） ---
+  _ecpay_cvs_PaymentNo varchar [note: '超商繳費代碼']
+  _ecpay_cvs_ExpireDate varchar [note: '超商繳費期限']
+
+  // --- 超商條碼（Barcode） ---
+  _ecpay_barcode_Barcode1 varchar [note: '條碼一']
+  _ecpay_barcode_Barcode2 varchar [note: '條碼二']
+  _ecpay_barcode_Barcode3 varchar [note: '條碼三']
+  _ecpay_barcode_ExpireDate varchar [note: '條碼繳費期限']
+
+  Note: '由 ry-woocommerce-tools 綠界金流模組寫入'
+}
+
+// ============================================================
+// 訂單 Meta — ECPay 物流
+// ============================================================
+
+Table order_meta_ecpay_shipping [note: '綠界物流訂單 Meta'] {
+  order_id bigint [ref: > wc_orders.id]
+  _ecpay_shipping_info text [note: '物流資訊陣列（序列化），包含每筆託運單的 BookingNote、LogisticsType、RtnCode 等']
+  _shipping_cvs_store_ID varchar [note: '超商門市編號']
+  _shipping_cvs_store_name varchar [note: '超商門市名稱']
+  _shipping_cvs_store_address varchar [note: '超商門市地址']
+
+  Note: '''
+    _ecpay_shipping_info 為序列化陣列，每筆託運單包含：
+    BookingNote（託運單號）、LogisticsType（物流類型）、
+    RtnCode（物流狀態碼）、CreateDate（建立日期）等
+  '''
+}
+
+// ============================================================
+// 訂單 Meta — SmilePay 物流
+// ============================================================
+
+Table order_meta_smilepay_shipping [note: '速買配物流訂單 Meta'] {
+  order_id bigint [ref: > wc_orders.id]
+  _smilepay_shipping_info text [note: '物流資訊陣列（序列化）']
+  _shipping_cvs_store_ID varchar [note: '超商門市編號']
+  _shipping_cvs_store_name varchar [note: '超商門市名稱']
+  _shipping_cvs_store_address varchar [note: '超商門市地址']
+  _shipping_phone varchar [note: '收件人電話']
+
+  Note: '由 ry-woocommerce-tools 速買配物流模組寫入'
+}
+
+// ============================================================
+// 訂單 Meta — PayNow 金流
+// ============================================================
+
+Table order_meta_paynow_payment [note: '立吉富金流訂單 Meta'] {
+  order_id bigint [ref: > wc_orders.id]
+
+  Note: '''
+    立吉富金流透過 PayNow API 處理，
+    訂單狀態直接由 WooCommerce 管理。
+    無額外自訂 meta key。
+  '''
+}
+
+// ============================================================
+// 訂單 Meta — PayNow 物流
+// ============================================================
+
+Table order_meta_paynow_shipping [note: '立吉富物流訂單 Meta'] {
+  order_id bigint [ref: > wc_orders.id]
+  _paynow_shipping_logistic_service_id varchar [note: '物流服務 ID（711/FAMI/HILIFE/TCAT）']
+  _paynow_shipping_logistic_service varchar [note: '物流服務名稱']
+  _paynow_shipping_logistic_sno varchar [note: '物流單序號']
+  _shipping_paynow_storeid varchar [note: '超商門市編號']
+  _shipping_paynow_storename varchar [note: '超商門市名稱']
+  _shipping_paynow_storeaddress varchar [note: '超商門市地址']
+  _shipping_paynow_reservedno varchar [note: '保留編號（全家冷凍）']
+  _shipping_paynow_shipdate varchar [note: '預計運送時間']
+  _paynow_shipping_delivery_type varchar [note: '溫層類型（黑貓：常溫/冷藏/冷凍）']
+  _paynow_shipping_logistic_number varchar [note: 'PayNow 物流單號']
+  _paynow_shipping_paymentno varchar [note: '物流商託運單號']
+  _paynow_shipping_validation_no varchar [note: '物流商驗證碼（搭配 ibon 列印）']
+  _paynow_shipping_status varchar [note: '訂單狀態（0=成立中/1=無效）']
+  _paynow_shipping_paynoworderno varchar [note: '重新取號後 PayNow 訂單編號']
+  _paynow_shipping_delivery_status varchar [note: '物流配送狀態']
+  _paynow_shipping_logistic_code varchar [note: 'PayNow 物流代碼']
+  _paynow_shipping_detail_status_desc varchar [note: '物流代碼描述']
+  _paynow_shipping_return_msg varchar [note: '回傳訊息']
+  _paynow_shipping_error_msg varchar [note: '錯誤訊息']
+  _paynow_shipping_status_update_at varchar [note: '狀態更新時間']
+  _paynow_shipping_store_date varchar [note: '到店日期']
+  _paynow_shipping_store_time varchar [note: '到店時間']
+
+  Note: '''
+    Meta key 定義於 class-paynow-shipping-order-meta.php
+    (PayNow_Shipping_Order_Meta 常數類別)
+  '''
+}
+
+// ============================================================
+// 訂單 Meta — LINE Pay
+// ============================================================
+
+Table order_meta_linepay [note: 'LINE Pay 訂單 Meta'] {
+  order_id bigint [ref: > wc_orders.id]
+  _linepay_payment_status varchar [note: 'LINE Pay 付款狀態']
+
+  Note: '由 line-pay-for-woo 模組寫入'
+}
+
+// ============================================================
+// 訂單 Meta — PChomePay 支付連
+// ============================================================
+
+Table order_meta_pchomepay [note: '支付連訂單 Meta'] {
+  order_id bigint [ref: > wc_orders.id]
+  _pchomepay_orderid varchar [note: '支付連訂單 ID']
+  _pchomepay_paytype varchar [note: '付款方式（CARD/ATM/EACH/ACCT/IPL7）']
+  _pchomepay_refundid varchar [note: '退款 ID（多筆以逗號分隔）']
+  _pchomepay_refund_url varchar [note: '退款 URL']
+  _pchomepay_logisticid varchar [note: '支付連物流 ID（7-11 取貨）']
+
+  Note: '由 PChomePay-Cart-for-WooCommerce 模組寫入'
+}
+
+// ============================================================
+// 訂單 Meta — ECPay 電子發票
+// ============================================================
+
+Table order_meta_ecpay_invoice [note: '綠界電子發票訂單 Meta'] {
+  order_id bigint [ref: > wc_orders.id]
+  _ecpay_invoice_data text [note: '發票資料（序列化陣列）']
+  _ecpay_invoice_number varchar [note: '發票號碼']
+  _ecpay_invoice_status varchar [note: '發票狀態（0=未開/1=已開）']
+
+  Note: '''
+    _ecpay_invoice_data 陣列包含：
+    - _invoice_type: 發票類型（personal/company/donate）
+    - _invoice_individual: 載具類型（雲端發票/手機條碼/自然人憑證/紙本發票）
+    - _invoice_carrier: 載具編號
+    - _invoice_company_name: 公司名稱
+    - _invoice_tax_id: 統一編號
+    - _invoice_donate: 捐贈碼
+
+    舊格式相容：
+    - _invoice_type / _invoice_carruer_type / _invoice_carruer_no
+    - _invoice_no / _invoice_donate_no
+    在 Admin.php 中自動遷移至新格式 _ecpay_invoice_data
+  '''
+}
+
+// ============================================================
+// 訂單 Meta — EZPay 電子發票
+// ============================================================
+
+Table order_meta_ezpay_invoice [note: 'ezPay 藍新電子發票訂單 Meta'] {
+  order_id bigint [ref: > wc_orders.id]
+  _ezpay_invoice_data text [note: '發票資料（序列化陣列）']
+  _ezpay_invoice_number varchar [note: '發票號碼']
+  _ezpay_invoice_status varchar [note: '發票狀態（0=未開/1=已開）']
+  _ezpay_invoice_result text [note: '開立結果（成功時為結果資料，失敗時為錯誤訊息）']
+
+  Note: '''
+    _ezpay_invoice_data 陣列結構同 ECPay，包含：
+    _invoice_type, _invoice_individual, _invoice_carrier,
+    _invoice_company_name, _invoice_tax_id, _invoice_donate
+  '''
+}
+
+// ============================================================
+// 訂單 Meta — PayNow 電子發票
+// ============================================================
+
+Table order_meta_paynow_invoice [note: '立吉富電子發票訂單 Meta'] {
+  order_id bigint [ref: > wc_orders.id]
+  _paynow_ei_issued varchar [note: '是否已開立（yes/no）']
+  _paynow_ei_result_invoice_number varchar [note: '發票號碼']
+  _paynow_ei_issue_type varchar [note: '開立類型（personal/company/donate）']
+  _paynow_ei_ubn varchar [note: '統一編號']
+  _paynow_ei_buyer_name varchar [note: '買受人名稱']
+  _paynow_ei_carrier_type varchar [note: '載具類型（cloud/mobile_code/cdc/easycard）']
+  _paynow_ei_carrier_num varchar [note: '載具編號']
+  _paynow_ei_donate_org varchar [note: '捐贈機構愛心碼']
+  _paynow_invoice_url varchar [note: '發票查詢 URL']
+
+  Note: '由 paynow-einvoice 模組寫入'
+}
+
+// ============================================================
+// 訂單 Meta — Woomp 通用
+// ============================================================
+
+Table order_meta_woomp [note: 'Woomp 通用訂單 Meta'] {
+  order_id bigint [ref: > wc_orders.id]
+  wmp_shipping_no varchar [note: '自訂物流追蹤編號（跨服務商通用）']
+  _billing_full_address varchar [note: '帳單完整地址（整併後，key: _billing_full-address）']
+  _shipping_full_addressShipping varchar [note: '運送完整地址（整併後）']
+
+  Note: '由 Woomp 核心模組寫入，跨服務商通用'
+}
+
+// ============================================================
+// 商品 Meta
+// ============================================================
+
+Table product_meta_woomp [note: 'Woomp 商品 Meta'] {
+  product_id bigint [note: '商品/文章 ID']
+  _onepagecheckout varchar [note: '啟用一頁式結帳（yes/no）']
+  _is_active_woomp_ui varchar [note: '啟用好用版規格 UI（yes/no）']
+  attribute_name_type varchar [note: '屬性顯示類型（attribute_{name}_type）']
+
+  Note: '''
+    - _onepagecheckout: 單一商品層級的一頁式結帳控制
+    - _is_active_woomp_ui: 單一商品層級的好用版規格 UI 控制
+    - attribute_{name}_type: 屬性的前台顯示方式（顏色/圖片/標籤等）
+  '''
+}
+
+// ============================================================
+// 訂閱 Meta
+// ============================================================
+
+Table subscription_meta_invoice [note: '訂閱發票 Meta'] {
+  subscription_id bigint [note: '訂閱 ID（WC_Subscription）']
+  _paynow_ei_issue_type varchar [note: '發票類型']
+  _paynow_ei_carrier_type varchar [note: '載具類型']
+  _paynow_ei_carrier_num varchar [note: '載具編號']
+  _paynow_ei_ubn varchar [note: '統一編號']
+  _paynow_ei_buyer_name varchar [note: '買受人名稱']
+  _paynow_ei_donate_org varchar [note: '捐贈機構愛心碼']
+
+  Note: '''
+    訂閱的發票資訊透過 shop_subscription 的 invoice-management
+    模組管理，續約時複製至新訂單。
+    定義於 admin/resources/shop_subscription/invoice-management/
+  '''
+}
+
+// ============================================================
+// Transient 快取
+// ============================================================
+
+Table wp_transients_woomp [note: 'Woomp Transient 快取'] {
+  transient_key varchar [pk, note: 'Transient Key']
+  transient_value longtext [note: 'Transient Value']
+  expiration int [note: '過期時間（秒）']
+
+  Note: '''
+    使用的 Transient：
+    - woomp_temp_{user_id}: 結帳頁自動儲存的使用者填寫資料
+      有效期：12 小時
+      寫入：transient.php → myajax_ajax_handler()
+      讀取：transient.php → myajax_ajax_handler_2()
+  '''
+}
+
+// ============================================================
+// Relationships
+// ============================================================
+
+// PayUni 金流 → 訂單
+Ref: order_meta_payuni.order_id > wc_orders.id
+
+// ECPay 金流 → 訂單
+Ref: order_meta_ecpay_payment.order_id > wc_orders.id
+
+// ECPay 物流 → 訂單
+Ref: order_meta_ecpay_shipping.order_id > wc_orders.id
+
+// SmilePay 物流 → 訂單
+Ref: order_meta_smilepay_shipping.order_id > wc_orders.id
+
+// PayNow 物流 → 訂單
+Ref: order_meta_paynow_shipping.order_id > wc_orders.id
+
+// LINE Pay → 訂單
+Ref: order_meta_linepay.order_id > wc_orders.id
+
+// PChomePay → 訂單
+Ref: order_meta_pchomepay.order_id > wc_orders.id
+
+// ECPay 發票 → 訂單
+Ref: order_meta_ecpay_invoice.order_id > wc_orders.id
+
+// EZPay 發票 → 訂單
+Ref: order_meta_ezpay_invoice.order_id > wc_orders.id
+
+// PayNow 發票 → 訂單
+Ref: order_meta_paynow_invoice.order_id > wc_orders.id
+
+// Woomp 通用 → 訂單
+Ref: order_meta_woomp.order_id > wc_orders.id
+
+// Payment Token → 使用者
+// (wc_payment_tokens.user_id > wp_users.ID)
+// PayUni gateway_id: 'payuni-credit-subscription'（v1）或 'payuni-credit-v3'（v3）

@@ -1,0 +1,68 @@
+Activity: EZPAY 電子發票作廢
+Description: 透過藍新 ezPay API 作廢已開立的電子發票，支援自動與手動兩種模式。
+
+Actors:
+  - 店家管理員: 在後台手動觸發發票作廢或設定自動作廢規則
+  - WooCommerce: 訂單狀態變更時觸發自動作廢
+  - ezPay API: 接收發票作廢請求並回傳結果
+
+Triggers:
+  - 自動模式：訂單狀態變更為管理員設定的指定狀態（wc_woomp_ezpay_invoice_invalid_at）
+  - 手動模式：管理員在訂單列表或訂單編輯頁點擊「作廢發票」按鈕
+
+Flow:
+  1. [WooCommerce] 訂單狀態變更或 [店家管理員] 點擊作廢按鈕
+     → Hook (自動): woocommerce_order_status_{$invoice_invalid_at}
+       → 呼叫 Admin::invalid_invoice($order_id)
+     → Hook (手動): wp_ajax_invalid_invoice_ezpay
+       → 呼叫 Ajax::invalid_invoice()
+
+  2. [系統] 檢查發票是否已開立
+     → Condition (自動): _ezpay_invoice_status === '1'
+       Yes → 繼續
+       No → 中止
+
+  3. [EzPayInvoiceHandler] 呼叫 invalid_invoice($order_id)
+
+  4. [EzPayInvoiceHandler] 取得發票資料
+     → 讀取 _ezpay_invoice_number
+     → 讀取 _ezpay_invoice_result（包含 MerchantOrderNo, InvoiceNumber, RandomNum）
+
+  5. [EzPayInvoiceHandler] 先查詢發票資訊
+     → 呼叫 $this->invoice->info() 傳入：
+       SearchType = 0
+       MerchantOrderNo = 原始訂單號
+       InvoiceNumber = 發票號碼
+       RandomNum = 隨機碼
+
+  6. [EzPayInvoiceHandler] 呼叫 $this->invoice->invalid() 傳入：
+     → InvoiceNumber = 查詢到的發票號碼
+     → InvalidReason = '發票作廢'
+     → RandomNum = 查詢到的隨機碼
+
+  7. [ezPay API] 回傳結果
+
+  8. [EzPayInvoiceHandler] 處理回傳結果
+     → Condition: isOK()
+       Yes → 訂單備註寫入「ezPay電子發票作廢結果」（含發票號碼、作廢時間）
+             清空 _ezpay_invoice_number 與 _ezpay_invoice_result
+       No → 訂單備註寫入錯誤訊息
+            若錯誤碼為 LIB10005 → 仍然清空 _ezpay_invoice_number 與 _ezpay_invoice_result
+
+  9. [Ajax] 回傳 JSON 結果給前端（手動模式）
+     → 前端 admin.js 先彈出確認框「確定要刪除此筆發票」
+     → 確認後送出 AJAX 請求
+     → 顯示結果 alert 並 reload 頁面
+
+Side Effects:
+  - 訂單 meta 清空：_ezpay_invoice_number, _ezpay_invoice_result
+  - 訂單備註新增作廢結果
+
+Related Features:
+  - ezpay-invoice-void.feature
+  - ezpay-invoice-issue.feature
+  - invoice-settings.feature
+
+備註:
+  ezPay 的作廢流程比綠界多一步「查詢發票資訊」（info()），
+  因為作廢時需要 RandomNum 參數，而此參數儲存在 _ezpay_invoice_result 的回傳物件中。

@@ -1,0 +1,122 @@
+Activity: 立吉富物流配送流程
+Description: 透過立吉富（PayNow）物流 API 處理超商取貨（C2C/B2C 7-11、全家、萊爾富）和宅配（黑貓常溫/冷藏/冷凍）的物流單建立、狀態查詢與標籤列印
+
+Actors:
+  - Customer: 結帳的消費者
+  - Admin: 網站管理員
+  - WooCommerce: WordPress 電商系統
+  - PayNow_Shipping: 立吉富物流主類別
+  - PayNow_Shipping_Request: 物流 API 請求處理器
+  - PayNow_Shipping_Response: 物流回調處理器
+  - PayNow_CVS_Map: 立吉富超商選店 API
+
+Triggers:
+  - Customer 在結帳頁面選擇立吉富物流
+  - 訂單狀態變更為 processing
+
+Flow:
+  1. WooCommerce 載入立吉富物流模組
+     → PayNow_Shipping::init() 初始化
+     → 設定來自 WordPress options：user_account, api_code, testmode, 訂單狀態對應
+     → API URL：
+       測試：https://testlogistic.paynow.com.tw
+       正式：https://logistic.paynow.com.tw
+     → CVS 物流方式（9 種）：
+       paynow_shipping_c2c_711（C2C 7-11，LogisticServiceID=01）
+       paynow_shipping_c2c_family（C2C 全家，LogisticServiceID=02）
+       paynow_shipping_c2c_hilife（C2C 萊爾富，LogisticServiceID=03）
+       paynow_shipping_b2c_711（B2C 7-11 大宗）
+       paynow_shipping_b2c_family（B2C 全家大宗）
+       paynow_shipping_b2c_711_frozen（B2C 7-11 冷凍）
+       paynow_shipping_b2c_family_frozen（B2C 全家冷凍）
+       woomp_paynow_shipping_c2c_711_frozen（C2C 7-11 冷凍）
+       woomp_paynow_shipping_c2c_family_frozen（C2C 全家冷凍）
+     → HD 物流方式（3 種）：
+       paynow_shipping_hd_tcat（黑貓常溫，LogisticServiceID=06，DeliveryType=0001）
+       woomp_paynow_shipping_hd_tcat_frozen（黑貓冷凍，DeliveryType=0003）
+       woomp_paynow_shipping_hd_tcat_refrigerated（黑貓冷藏，DeliveryType=0002）
+
+  2. Customer 選擇超商取貨物流
+     → Hook: woocommerce_review_order_after_shipping → paynow_after_shipping_rate()
+     → 載入選擇超商按鈕模板（cart/choose-cvs.php）
+     → 加密 apicode：使用 DES-EDE3-ECB 加密 → Base64 編碼
+     → 透過 JS 呼叫立吉富選店 API：{api_url}/Member/Order/Choselogistics
+     → 回傳 URL 參數：user_account, apicode, Logistic_serviceID, returnUrl
+
+  3. Customer 選擇門市
+     → 門市資訊透過 returnUrl 回調至 WooCommerce
+     → 儲存至前端表單欄位：paynow_storeid, paynow_storename, paynow_storeaddress, paynow_service
+     → 特殊欄位：paynow_reservedno（全家冷凍用預約編號）, paynow_shipdate（出貨日期）
+
+  4. Customer 提交訂單
+     → Hook: woocommerce_checkout_process → paynow_shipping_fields_validation()
+     → 驗證：
+       超商取貨 → paynow_storeid 必填
+       手機格式 → 10-11 位數字，以 0 開頭
+       全家冷凍 → 額外必填 paynow_reservedno, paynow_shipdate
+     → Hook: woocommerce_checkout_create_order（priority 20）→ paynow_save_order_shipping_meta()
+     → 儲存：
+       _paynow_logistic_service_id, _paynow_store_id, _paynow_store_name, _paynow_store_addr
+       黑貓宅配：_paynow_delivery_type（0001/0002/0003）
+
+  5. 訂單狀態變更為 processing 時自動建立物流單
+     → Hook: woocommerce_order_status_processing → PayNow_Shipping_Request::paynow_get_logistic_no()
+     → Condition: 是否已有物流單號（LogisticNumber）
+       無 → create_order()（建立新物流單）
+       有且 Status != 1 → renew_order()（重新取號）
+     → 建立物流單 API：POST {api_url}/api/Orderapi/Add_Order
+       → 參數 JSON 使用 DES-EDE3 加密 → Base64
+       → PassCode：SHA1(user_account + OrderNo + TotalAmount + apicode)
+       → DeliverMode：01（取貨付款/COD）或 02（取貨不付款）
+       → 黑貓宅配額外參數：DeliveryType, Weight=5, Length=5, Width=4, Height=3
+     → 回應成功：儲存 LogisticNumber, PaymentNo, ValidationNo, LogisticService, LogisticServiceID
+     → Hook: paynow_shipping_order_created
+     → 自動查詢物流狀態：paynow_query_shipping_order()
+
+  6. 物流狀態查詢
+     → API：GET {api_url}/api/Orderapi/Get_Order_Info?LogisticNumber={no}&sno=1
+     → 更新 order meta：Status, Delivery_Status, PayNowLogisticCode, Detail_Status_Description, paymentno, validationno
+
+  7. 物流單取消
+     → API：DELETE {api_url}/api/Orderapi/CancelOrder
+     → 參數：LogisticNumber, sno=1, PassCode
+     → 成功後觸發 paynow_shipping_after_order_cancelled → 自動重新查詢狀態
+
+  8. 後台重選超商
+     → Hook: paynow_after_admin_changed_cvs_store → 取消舊物流單 → 自動建立新物流單
+
+  9. 物流標籤列印
+     → AJAX：wp_ajax_paynow_shipping_print_label
+     → 根據 LogisticServiceID 呼叫不同 API：
+       7-11 C2C：GET /api/Order711?orderNumberStr={nos}
+       全家 C2C：GET /api/OrderFamiC2C?orderNumberStr={nos}
+       萊爾富：GET /api/OrderHiLife?orderNumberStr={nos}
+       黑貓：POST /Member/Order/PrintBlackCatLabel（回傳 PDF）
+       7-11 大宗：POST /Member/Order/Print711bulkLabel
+       全家大宗：POST /Member/Order/PrintFamiB2CLabel
+       7-11 冷凍 B2C/C2C：POST /Member/Order/Print711FreezingB2CLabel 或 C2CLabel
+       全家冷凍 B2C/C2C：POST /Member/Order/PrintFamiFreezingB2CLabel 或 C2CLabel
+     → C2C 列印使用重新取號後的訂單編號（RenewOrderNo）
+     → 黑貓/大宗列印使用 LogisticNumber
+
+  10. 前台顯示物流詳情
+      → Hook: woocommerce_order_details_after_order_table
+      → 顯示：LogisticNumber, LogisticService, DetailStatusDesc, PaymentNo+ValidationNo
+      → 超商到店日期/時間
+
+  11. 地址格式自訂
+      → Hook: woocommerce_localisation_address_formats
+      → PNCVS（超商）：門市名稱 + 門市代號 + 地址 + 電話
+      → PNHD（宅配）：郵遞區號 + 縣市 + 地址
+
+Side Effects:
+  - 加密使用 DES-EDE3（Triple DES）和 DES-EDE3-ECB，金鑰固定為 '123456789070828783123456'
+  - PassCode 使用 SHA1 雜湊
+  - 物流資訊儲存在多個獨立 order meta（PayNow_Shipping_Order_Meta 常數）
+  - 黑貓宅配預設使用 s60 規格（Weight=5, Length=5, Width=4, Height=3）
+  - 批量列印支援（paynow_register_shipping_bulk_actions）
+  - woomp-paynow-shipping 模組提供額外的冷凍/冷藏物流方式
+
+Related Features:
+  - paynow-shipping.feature
+  - paynow-payment.activity

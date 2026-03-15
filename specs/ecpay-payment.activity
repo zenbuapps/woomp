@@ -1,0 +1,97 @@
+Activity: 綠界金流付款流程
+Description: 顧客透過綠界科技（ECPay）提供的多種付款方式完成線上付款
+
+Actors:
+  - Customer: 結帳的消費者
+  - WooCommerce: WordPress 電商系統
+  - ECPay_Gateway: 綠界金流閘道（RY_ECPay_Gateway_Base 及其子類別）
+  - ECPay_API: 綠界金流 API 伺服器（payment.ecpay.com.tw / payment-stage.ecpay.com.tw）
+  - ECPay_Response: 綠界回調處理器（RY_ECPay_Gateway_Response）
+
+Triggers:
+  - Customer 在結帳頁面選擇綠界付款方式並提交訂單
+
+Flow:
+  1. Customer 在結帳頁面選擇綠界金流付款方式
+     → Hook: woocommerce_payment_gateways（RY_ECPay_Gateway::add_method 註冊六種閘道）
+     → 可用閘道：ry_ecpay_credit, ry_ecpay_credit_installment, ry_ecpay_webatm, ry_ecpay_atm, ry_ecpay_cvs, ry_ecpay_barcode
+     → 另有獨立分期閘道：wmp_ecpay_credit_installment_3/6/12/18/24（需啟用 wmp_ecpay_credit_installment 選項）
+
+  2. WooCommerce 呼叫閘道的 is_available() 檢查可用性
+     → Condition: 閘道是否啟用且訂單金額符合 min_amount / max_amount 限制
+       Yes → 顯示付款方式
+       No → 隱藏付款方式
+     → 特殊限制：CVS 最低 31 元、BARCODE 最低 16 元
+
+  3. Customer 點擊付款按鈕
+     → 閘道 process_payment() 被呼叫
+     → 動作：新增訂單備註、減少庫存（wc_maybe_reduce_stock_levels）、釋放保留庫存（wc_release_stock_for_order）
+     → 信用卡分期：若為 ry_ecpay_credit_installment，儲存 _ecpay_payment_number_of_periods 至訂單 meta
+     → 回傳 redirect 至 $order->get_checkout_payment_url(true)
+
+  4. WooCommerce 載入收據頁（receipt page），觸發 RY_ECPay_Gateway_Base::receipt_page()
+     → Hook: woocommerce_receipt_{gateway_id}
+     → 呼叫 RY_ECPay_Gateway_Api::checkout_form() 產生自動提交表單
+
+  5. ECPay_API checkout_form() 組建付款參數
+     → 產生 MerchantTradeNo（格式：{prefix}{order_id}TS{rand}{reversed_time}，最長 20 字元）
+     → 計算 CheckMacValue（SHA256 雜湊）
+     → 儲存 _ecpay_MerchantTradeNo 至訂單 meta
+     → 設定 ReturnURL 為 WC API callback 網址（ry_ecpay_callback）
+     → 設定 ClientBackURL / OrderResultURL 為感謝頁網址
+     → 依付款類型加入額外參數：
+       Credit → CreditInstallment（分期期數）
+       ATM → ExpireDate（天數）
+       BARCODE / CVS → StoreExpireDate（分鐘數）
+     → 多語系支援：根據 get_locale() 設定 Language 參數
+     → Hook: ry_ecpay_gateway_checkout（表單送出後觸發）
+
+  6. Customer 瀏覽器自動提交表單至 ECPay API（AioCheckOut/V5）
+     → 測試環境：https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5
+     → 正式環境：https://payment.ecpay.com.tw/Cashier/AioCheckOut/V5
+
+  7. Customer 在 ECPay 頁面完成付款操作
+
+  8. ECPay_API 透過 ReturnURL（背景通知）回調至 WooCommerce
+     → Hook: woocommerce_api_ry_ecpay_callback → RY_ECPay_Gateway_Response::check_callback()
+     → 同時在 order-received 頁面也會處理 POST 回調（透過 wp action 攔截）
+
+  9. ECPay_Response 驗證回調請求
+     → 比對 CheckMacValue（SHA256）
+     → Condition: 驗證是否通過
+       Yes → do_action('valid_ecpay_gateway_request', $ipn_info)
+       No → 回應 '0|'（die_error）
+
+  10. ECPay_Response::doing_callback() 處理回調
+      → 從 MerchantTradeNo 解析出 order_id
+      → 設定交易資訊：_ecpay_payment_type, _ecpay_payment_subtype, transaction_id
+      → ATM 付款：記錄 BankCode, vAccount 並新增訂單備註
+      → 根據 RtnCode 觸發對應 action：
+        RtnCode=1 → ry_ecpay_gateway_response_status_1 → payment_complete()
+        RtnCode=2 → ry_ecpay_gateway_response_status_2 → payment_wait_atm()（設為 on-hold）
+        RtnCode=10100073 → ry_ecpay_gateway_response_status_10100073 → payment_wait_cvs()（設為 on-hold）
+        RtnCode=10100058 → ry_ecpay_gateway_response_status_10100058 → payment_failed()
+      → Hook: ry_ecpay_gateway_response（所有回調最後觸發）
+      → 回應 '1|OK'（die_success）
+
+  11. ATM/CVS/BARCODE 等離線付款：ECPay 在顧客實際付款後再次回調
+      → 回調流程同步驟 8-10
+      → RtnCode=1 時完成付款
+
+  12. WooCommerce 在感謝頁/訂單檢視頁顯示付款資訊
+      → Hook: woocommerce_thankyou / woocommerce_view_order（priority 9）
+      → ATM：顯示銀行代碼、虛擬帳號、付款期限
+      → CVS：顯示繳費代碼、付款期限
+      → BARCODE：顯示三段條碼、付款期限
+
+Side Effects:
+  - 庫存在 process_payment 階段即減少
+  - ATM 付款產生虛擬帳號資訊儲存至 _ecpay_atm_BankCode, _ecpay_atm_vAccount, _ecpay_atm_ExpireDate
+  - CVS 付款產生繳費代碼儲存至 _ecpay_cvs_PaymentNo, _ecpay_cvs_ExpireDate
+  - BARCODE 付款產生條碼資訊儲存至 _ecpay_barcode_Barcode1/2/3, _ecpay_barcode_ExpireDate
+  - 所有交易記錄可透過 WC Logger（source: ry_ecpay_gateway）查看
+  - ATM 提醒郵件類別 RY_ECPay_Shipping_Email_Customer_ATM_Transfer_Remind 被註冊
+
+Related Features:
+  - ecpay-payment.feature
+  - ecpay-shipping.activity

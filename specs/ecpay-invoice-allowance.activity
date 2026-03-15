@@ -1,0 +1,45 @@
+Activity: 綠界電子發票折讓
+Description: 綠界電子發票 SDK 定義了折讓相關的方法常數，但 woomp 外掛目前未實作折讓流程。
+
+Actors:
+  - （無）
+
+Triggers:
+  - （無 — 功能未實作）
+
+Flow:
+  1. 綠界 SDK（EcpayInvoiceSDK.php）定義了以下折讓相關常數：
+     → EcpayInvoiceMethod::ALLOWANCE — 開立折讓
+     → EcpayInvoiceMethod::ALLOWANCE_BY_COLLEGIATE — 線上開立折讓（通知開立）
+     → EcpayInvoiceMethod::ALLOWANCE_VOID — 折讓作廢
+     → EcpayInvoiceMethod::ALLOWANCE_SEARCH — 查詢折讓明細
+     → EcpayInvoiceMethod::ALLOWANCE_VOID_SEARCH — 查詢折讓作廢明細
+
+  2. EcpayInvoice 類別的 Send 陣列中包含折讓相關欄位：
+     → AllowanceNotify — 折讓通知方式
+     → AllowanceAmount — 折讓金額
+     → AllowanceNo — 折讓單號
+     → NotifyMail — 通知信箱
+     → NotifyPhone — 通知電話
+
+  3. EcpayInvoice 類別有 allowanceByCollegiateResponse() 方法框架，
+     但此方法未被任何業務邏輯呼叫。
+
+  4. EcpayInvoiceHandler 中僅實作 generate_invoice() 與 invalid_invoice()，
+     未實作任何折讓相關方法。
+
+  5. 管理後台 UI（Metabox, Admin, Ajax）均未提供折讓操作按鈕或入口。
+
+Side Effects:
+  - （無）
+
+Related Features:
+  - ecpay-invoice-allowance.feature
+  - ecpay-invoice-issue.feature
+
+備註:
+  此功能在 SDK 層有定義但在應用層未實作。如需折讓功能，需新增：
+  - EcpayInvoiceHandler 中的折讓方法
+  - Ajax handler 對應的 AJAX action
+  - Metabox 中的折讓按鈕 UI
+  - Admin 中的自動折讓觸發邏輯（可選）

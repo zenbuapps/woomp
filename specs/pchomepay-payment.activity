@@ -1,0 +1,101 @@
+Activity: 支付連金流付款流程
+Description: 顧客透過 PChomePay 支付連提供的多種付款方式（信用卡、ATM、支付連餘額、銀行支付、7-11 超商、PI 拍錢包）完成線上付款，支援退款與審單機制
+
+Actors:
+  - Customer: 結帳的消費者
+  - Admin: 網站管理員
+  - WooCommerce: WordPress 電商系統
+  - PChomePay_Gateway: 支付連金流閘道（WC_Gateway_PChomePay / WC_PI_Gateway_PChomePay）
+  - PChomePayClient: 支付連 API 客戶端
+  - PChomePay_API: 支付連 API 伺服器
+
+Triggers:
+  - Customer 在結帳頁面選擇支付連付款方式並提交訂單
+
+Flow:
+  1. WooCommerce 載入支付連模組
+     → 條件：woocommerce_pchomepay_enabled = yes
+     → 載入 PChomePayClient, PChomePayGateway, PChomePayPIGateway
+     → 註冊 2 種閘道至 woocommerce_payment_gateways：
+       pchomepay（WC_Gateway_PChomePay）
+       pchomepay_pi（WC_PI_Gateway_PChomePay，PI 拍錢包專用）
+     → 閘道初始化讀取設定：app_id, secret, sandbox_secret, test_mode, payment_methods, card_installment
+     → API 端點：
+       正式：https://api.pchomepay.com.tw
+       沙箱：https://sandbox-api.pchomepay.com.tw
+     → 支援功能：products, refunds
+     → 註冊自訂訂單狀態：wc-awaiting（等待審單）, wc-awaitingforpcpay（等待支付連審單）
+
+  2. Customer 提交訂單
+     → process_payment() 執行
+     → 建立支付連訂單 API：POST /v1/payment
+     → 參數：order_id（格式 AW{Ymd}{order_number}）, pay_type, amount, return_url, notify_url, items, buyer_email, atm_info, card_info
+     → ATM 過期天數：1-5 天
+     → 信用卡分期：3/6/12 期（card_info 參數）
+     → Token 認證：Basic Auth (app_id:secret) → /v1/token → 快取 1800 秒
+     → 訂單建立成功：
+       儲存 _pchomepay_orderid
+       訂單狀態設為 pending
+       重導至 payment_url（支付連付款頁面）
+
+  3. Customer 在支付連完成付款
+
+  4. 支付連透過 notify_url 回調
+     → Hook: woocommerce_api_wc_gateway_pchomepay → receive_response()
+     → 解析 notify_type 和 notify_message（JSON 字串）
+     → 從 order_id 提取 WC 訂單編號（去掉前 10 字元 AW{Ymd}）
+
+  5. 根據 notify_type 處理回調
+     → order_audit（審單通知）：
+       ORDER_PENDING_CLIENT → 訂單狀態設為 awaiting
+       ORDER_PENDING_PCHOMEPAY → 訂單狀態設為 awaitingforpcpay
+     → order_expired（訂單過期/失敗）：
+       訂單狀態設為 failed
+     → order_confirm（付款確認）：
+       訂單狀態設為 processing → payment_complete()
+     → 退款通知（refund_pending/success/fail）：
+       記錄訂單備註
+
+  6. 記錄付款方式
+     → 儲存 _pchomepay_paytype
+     → 付款方式對應：
+       ATM：ATM 付款 + 虛擬帳號資訊
+       CARD：信用卡（顯示分期數、末四碼）
+       ACCT：支付連餘額
+       EACH：銀行支付
+       IPL7：7-11 超商
+       PI：PI 拍錢包
+
+  7. Admin 審單操作
+     → 訂單動作：wc_order_pass（過單）/ wc_order_deny（取消）
+     → 僅在 status=awaiting 且 payment_method=pchomepay 時顯示
+     → 審單 API：POST /v1/payment/audit
+     → 參數：order_id, status（PASS/DENY）
+     → 審單結果：SUCC 或 Error
+
+  8. Admin 退款操作
+     → process_refund() 支援部分退款
+     → 退款 API：POST /v1/refund（IPL7, IPPI）或 /v2/refund（其他）
+     → 退款 ID 格式：RF{order_id}（全額）或 RF{order_id}-{n}（部分退款遞增）
+     → 儲存 _pchomepay_refundid, _pchomepay_refund_url
+     → 支付連可能回傳 redirect_url 供顧客操作
+
+  9. 7-11 超商物流歷程查詢
+     → 僅 pay_type=IPL7 時可用
+     → API：GET /v1/logistic/query/{order_id}/history-page
+     → 回傳 history_url 供顧客查看物流歷程
+     → 儲存 _pchomepay_logisticid
+     → 前台帳戶頁和後台訂單列顯示「物流歷程」連結
+
+Side Effects:
+  - Token 認證有快取機制（FileTokenStorage，1800 秒有效期）
+  - 自訂訂單狀態：wc-awaiting, wc-awaitingforpcpay
+  - 退款支援 v1/v2 兩個版本（依付款方式選擇）
+  - 支付連訂單 ID 格式固定為 AW{Ymd}{wc_order_number}
+  - 退款 ID 支援遞增編號（多次部分退款）
+  - 停用 SSL 驗證（add_filter('https_ssl_verify', '__return_false')）
+  - 回調處理前有 500ms sleep（usleep(500000)）避免競爭條件
+  - order_notes 直接查詢 wp_comments 表（非 WooCommerce API）
+
+Related Features:
+  - pchomepay-payment.feature

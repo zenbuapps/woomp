@@ -1,0 +1,146 @@
+Activity: PayUni 交易通知處理
+Description: PayUni 透過背景通知（webhook）或前景回調（redirect）將交易結果通知商店
+
+Actors:
+  - PayUniAPI: PayUni 外部系統，發送交易結果通知
+  - WooCommerce: WooCommerce API 端點接收通知
+  - ResponseHandler: PAYUNI\Gateways\Response（v1 通知處理）
+  - Bootstrap: J7\Payuni\Bootstrap（v3 通知處理）
+  - TradeHandler: J7\Payuni\Infrastructure\Http\TradeHandler（v3 解密與訂單更新）
+  - PaymentAPI: PAYUNI\APIs\Payment（v1 加解密）
+  - EncryptUtils: J7\Payuni\Shared\Utils\EncryptUtils（v3 加解密）
+  - ActionScheduler: WordPress Action Scheduler（到期檢查排程）
+
+Triggers:
+  - PayUni 交易完成後發送 POST 通知到 NotifyURL / ReturnURL
+  - v1 信用卡 3D 驗證完成後 redirect 到 ReturnURL
+  - v1 ATM / CVS 繳費完成後 PayUni 背景通知
+  - v3 交易完成後 PayUni 背景通知到 wc-api/payuni_notify
+
+Flow:
+  【v1 信用卡通知 — wc-api/payuni_notify_card】
+
+  1. PayUni 發送 POST 通知（3D 驗證完成 或 直接授權回調）
+     → Hook: woocommerce_api_payuni_notify_card
+     → ResponseHandler::card_response() 接收
+
+  2. 解密通知資料
+     → 來源判斷：有 $resp 參數 → 幕後通知；有 $_REQUEST → 前景 redirect
+     → Payment::decrypt($encrypt_info) 解密
+
+  3. 格式化解密資料（get_formatted_decrypted_data）
+     → 從 MerTradeNo 解析 order_id（以 '-' 分割取第一段）
+     → 取得 order 和 user_id
+     → 判斷 is_3d_auth（從訂單 meta 或 URL 欄位判斷）
+     → 格式化欄位：status, message, trade_no, card_bank, card_bank_name, card_4no,
+       card_hash(CreditHash), card_expiry_month/year(CreditLife), card_inst, each_amt, first_amt
+
+  4. 判斷是否為 Hash Request（5 元取 Token）
+     → Condition: TradeAmt = '5' 且 AuthType = '1'
+       Yes → 排程 2 分鐘後取消授權（payuni_cancel_trade_by_trade_no）
+
+  5. 處理交易結果
+     → Condition: Status != 'SUCCESS'
+       Yes → 訂單備註記錄所有回應資料
+         → WC_Subscription → 狀態改為 on-hold
+         → 一般訂單 → 狀態改為 failed
+         → wp_safe_redirect 到 order_received_url → exit
+     → Status = 'SUCCESS'
+       → payment_complete()
+       → 儲存訂單 meta（_payuni_order_suffix, _payuni_resp_* 系列）
+       → 訂單備註記錄交易紀錄
+       → Condition: 需要儲存 Token
+         Yes → save_card_to_payment_method()
+       → 更新訂單狀態：WC_Subscription → active；一般訂單 → processing
+       → 設定已使用的 Token 為 default
+       → 清空購物車
+
+  6. 後續處理
+     → Condition: hash request 且 no_checkout = 'yes'
+       Yes → redirect 到 payment-methods 頁面
+     → Condition: 3D 驗證
+       Yes → redirect 到 order_received_url
+
+  【v1 ATM 通知 — wc-api/payuni_notify_atm】
+
+  7. PayUni ATM 繳費完成通知
+     → Hook: woocommerce_api_payuni_notify_atm
+     → ResponseHandler::atm_response()
+     → 判斷來源：$_REQUEST['Status'] → 背景通知；$resp → 取號回應
+
+  8. 背景通知處理（$_REQUEST 方式）
+     → Condition: Status = 'SUCCESS'
+       Yes → 解密取得 PayTime, Account5No
+         → 訂單狀態更新為 processing（除非已 completed）
+         → 訂單備註記錄繳費結果
+
+  9. 取號回應處理（$resp 方式）
+     → 解密取得虛擬帳號資訊
+     → 儲存訂單 meta（_payuni_resp_bank, _payuni_resp_bank_no, _payuni_resp_bank_expire）
+     → 狀態設為 pending
+     → 排程到期檢查（payuni_atm_check）
+     → 清空購物車
+
+  【v1 CVS 通知 — wc-api/payuni_notify_cvs】
+
+  10. PayUni CVS 繳費完成通知
+      → Hook: woocommerce_api_payuni_notify_cvs
+      → ResponseHandler::cvs_response()
+
+  11. 背景通知處理
+      → Condition: Status = 'SUCCESS'
+        Yes → 訂單狀態更新為 processing
+          → 訂單備註記錄繳費結果
+
+  【v3 交易通知 — wc-api/payuni_notify】
+
+  12. PayUni v3 交易完成通知
+      → Hook: woocommerce_api_payuni_notify
+      → Bootstrap::handle_notify()
+
+  13. 解密驗證通知資料
+      → TradeHandler::process_notify($_POST)
+        → 驗證 EncryptInfo 和 HashInfo 非空
+        → 計算 HashInfo 並比對（EncryptUtils::hash_info）
+        → Condition: Hash 不匹配 → 拋出例外「Hash 驗證失敗」
+        → EncryptUtils::decrypt() 解密
+
+  14. 防重複處理（冪等性）
+      → 取得訂單（從 MerTradeNo）
+      → Condition: incoming TradeNo = existing TradeNo 且訂單已付款
+        Yes → 記錄日誌「Webhook 重複通知，已略過」→ wp_send_json_success → return
+        No → 繼續處理
+
+  15. 更新訂單狀態
+      → TradeHandler::update_order_status($order, $trade_result)
+      → 儲存交易 meta（_payuni_v3_resp, _payuni_resp_*, _payuni_card_number）
+      → Condition: 訂單已付款（冪等性保護）
+        Yes → 僅更新 meta，不重複 payment_complete
+          → 仍檢查是否需要儲存 Token
+      → Condition: Status = 'SUCCESS'
+        Yes → payment_complete($trade_no)
+          → 訂單備註記錄
+          → 檢查並儲存 Token
+      → Condition: Status != 'SUCCESS'
+        Yes → 訂單狀態改為 failed
+      → 清除暫存 meta（OrderUtils::delete_tmp_data）
+
+  16. 回應 PayUni
+      → wp_send_json_success()（成功）
+      → wp_send_json_error()（失敗）
+
+Side Effects:
+  - v1 通知透過 3 個不同的 WooCommerce API 端點（payuni_notify_card, payuni_notify_atm, payuni_notify_cvs）
+  - v3 通知統一透過 wc-api/payuni_notify 端點
+  - v3 通知具備冪等性保護（重複 TradeNo 不重複處理）
+  - v3 通知驗證 HashInfo 確保資料完整性
+  - v1 信用卡 3D 驗證通知會執行 wp_safe_redirect
+  - ATM 取號會排程到期檢查
+  - 所有通知結果記錄在 WC Logger 和訂單備註中
+
+Related Features:
+  - payuni-trade-notification.feature
+  - payuni-credit-card-payment.feature
+  - payuni-credit-v3-embed.feature
+  - payuni-atm.feature
+  - payuni-cvs.feature

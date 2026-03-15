@@ -1,0 +1,93 @@
+Activity: 綠界電子發票開立
+Description: 透過綠界 API 為 WooCommerce 訂單開立電子發票，支援自動與手動兩種模式。
+
+Actors:
+  - 店家管理員: 在後台手動觸發發票開立或設定自動開立規則
+  - WooCommerce: 訂單狀態變更時觸發自動開立
+  - 綠界 API: 接收發票開立請求並回傳結果（Invoice/Issue endpoint）
+  - 顧客: 在結帳頁面選擇發票類型與載具
+
+Triggers:
+  - 自動模式：訂單狀態變更為管理員設定的指定狀態（wc_woomp_ecpay_invoice_issue_at）
+  - 手動模式：管理員在訂單列表或訂單編輯頁點擊「開立發票」按鈕
+
+Flow:
+  1. [WooCommerce] 訂單狀態變更或 [店家管理員] 點擊開立按鈕
+     → Hook (自動): woocommerce_order_status_{$invoice_issue_at}
+       → 呼叫 Admin::issue_invoice($order_id)
+     → Hook (手動/列表): wp_ajax_gen_invoice
+       → 呼叫 Ajax::generate_invoice()
+       → 先透過 Ajax::update_invoice_data() 更新訂單發票 meta
+
+  2. [系統] 檢查發票狀態
+     → Condition: _ecpay_invoice_status === '0' 或 _ecpay_invoice_number === ''
+       Yes → 繼續開立
+       No → 中止（發票已開立）
+
+  3. [系統] 建立 EcpayInvoiceHandler 並呼叫 generate_invoice($order_id)
+
+  4. [EcpayInvoiceHandler] 從訂單讀取發票資料
+     → 透過 EcpayInvoiceFields::get_meta() 讀取 _ecpay_invoice_data
+     → 讀取欄位：type, tax_id, individual, donate, carrier, company_name
+     → 相容舊版：若無 _ecpay_invoice_data 但有 _invoice_type，使用舊格式欄位
+
+  5. [EcpayInvoiceHandler] 檢查訂單金額
+     → Condition: 訂單總額 === '0'
+       Yes → return（不開立零元發票）
+       No → 繼續
+
+  6. [EcpayInvoiceHandler] 計算列印與捐贈標記
+     → 有統一編號（customerIdentifier 不為空）：print = 0，取得公司名稱覆蓋 customerName
+     → 無載具（carruerType 為空）：print = 1（強制列印紙本）
+     → 有捐贈（donation = 1）：print = 0（不列印）
+     → 載具類型為 2（自然人憑證）或 3（手機條碼）：讀取 carruerNum
+
+  7. [EcpayInvoiceHandler] 組裝商品明細
+     → 遍歷 $order->get_items()，計算每項商品的 ItemName、ItemCount、ItemPrice、ItemAmount
+     → 金額計算：ItemAmount = subtotal + subtotal_tax（含稅）
+     → 單價計算：ItemPrice = ItemAmount / ItemCount
+     → ItemWord 固定為「批」，ItemTaxType 固定為 1（應稅）
+     → 運費：若 shipping_total + shipping_tax != 0，加入運費項目（ItemWord = 式）
+     → 費用：若有 fee，加入費用項目
+     → 手動折扣：計算 diff_price = total - subtotal - fee - shipping - tax
+       若 diff_price < 0 且 abs < 2，加入折扣項目
+     → 金額校正：若 items 加總與 order_total 差距在 2 元內，調整 order_total
+
+  8. [EcpayInvoiceHandler] 設定 SDK 參數
+     → RelateNumber: 訂單前綴（wc_woomp_ecpay_invoice_order_prefix）+ 時間戳 YmdHis
+     → 客戶資料：CustomerName, CustomerAddr, CustomerPhone, CustomerEmail
+     → 發票參數：Print, Donation, LoveCode, CarruerType, CarruerNum
+     → 稅務參數：TaxType = 1, InvType = '07', vat = ''
+     → SalesAmount: round(order_total)
+
+  9. [EcpayInvoiceHandler] 寫入日誌
+     → 使用 WC_Logger 記錄送出前資料（source: woomp-ecpay-invoice）
+
+  10. [EcpayInvoiceHandler] 透過 ECPay_Woo_EcpayInvoice 呼叫 Check_Out()
+      → ECPay_Woo_EcpayInvoice 繼承 EcpayInvoice，覆寫 Check_Out() 使用 wp_remote_post
+      → Ecpay_Woo_Invoice_Send::ServerPost() 使用 wp_remote_post（逾時 30 秒）
+      → API URL (測試): https://einvoice-stage.ecpay.com.tw/Invoice/Issue
+      → API URL (正式): https://einvoice.ecpay.com.tw/Invoice/Issue
+
+  11. [綠界 API] 回傳結果
+
+  12. [EcpayInvoiceHandler] 處理回傳結果
+      → 紀錄回傳資料日誌
+      → 在訂單備註寫入開立結果（成功/失敗、時間、發票號碼、訊息）
+      → Condition: RtnCode === 1
+        Yes → 更新 _ecpay_invoice_status = 1, _ecpay_invoice_number = InvoiceNumber
+        No → 僅寫入備註，不更新狀態
+
+  13. [Ajax] 回傳 JSON 結果給前端（手動模式）
+      → 前端 admin.js 顯示 alert 並 reload 頁面
+
+Side Effects:
+  - 訂單 meta 更新：_ecpay_invoice_status, _ecpay_invoice_number
+  - 訂單備註新增開立結果
+  - WC_Logger 寫入日誌（woomp-ecpay-invoice）
+
+Related Features:
+  - ecpay-invoice-issue.feature
+  - ecpay-invoice-void.feature
+  - invoice-carrier.feature
+  - invoice-settings.feature

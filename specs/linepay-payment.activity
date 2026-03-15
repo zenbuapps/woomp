@@ -1,0 +1,94 @@
+Activity: LINE Pay 金流付款流程
+Description: 顧客透過 LINE Pay v3 API 完成線上付款，支援付款、確認、取消、退款完整生命週期
+
+Actors:
+  - Customer: 結帳的消費者
+  - Admin: 網站管理員
+  - WooCommerce: WordPress 電商系統
+  - LINEPay_Gateway: LINE Pay 金流閘道（WC_Gateway_LINEPay）
+  - LINEPay_API: LINE Pay v3 API 伺服器
+  - LINEPay_Handler: LINE Pay 回調處理器（WC_Gateway_LINEPay_Handler）
+
+Triggers:
+  - Customer 在結帳頁面選擇 LINE Pay 並提交訂單
+
+Flow:
+  1. WooCommerce 載入 LINE Pay 模組
+     → WC_Gateway_LINEPay_Handler::init_wc_gateway_linepay_handler() 初始化
+     → 條件：woocommerce_linepay_enabled = yes（需在 WooCommerce Payment Gateway settings 啟用）
+     → 載入常數定義（WC_Gateway_LINEPay_Const）、Logger、Gateway 類別
+     → 閘道 ID：linepay
+     → Hook: woocommerce_payment_gateways → add_gateway()
+
+  2. LINE Pay 閘道初始化（WC_Gateway_LINEPay::__construct）
+     → 設定商店 Channel ID、Channel Secret Key
+     → 環境設定：sandbox 或 real
+       sandbox：https://sandbox-api-pay.line.me
+       real：https://api-pay.line.me
+     → 支援功能：products, refunds
+     → LINE Pay logo 可自訂上傳
+     → 付款動作：authorization（授權）或 authorization/capture（授權+請款）
+
+  3. Customer 提交訂單，process_payment() 執行
+     → 呼叫 process_reserve()：向 LINE Pay 發送 Reserve 請求
+     → Reserve API：POST /v3/payments/request
+     → 請求參數：amount, currency, orderId, packages（商品明細）, redirectUrls（confirm/cancel URL）
+     → 請求簽章：HMAC-SHA256（Channel Secret + URI + JSON Body + Nonce）
+     → Reserve 成功：
+       取得 transactionId → 儲存至 _linepay_reserved_transaction_id
+       設定 payment_status = reserved → 儲存至 _linepay_payment_status
+       取得 payment_url → 重導 Customer 至 LINE Pay 付款頁面
+     → Reserve 失敗：設為 failed
+
+  4. Customer 在 LINE Pay 完成付款授權
+     → LINE Pay 重導至 confirm callback URL
+     → URI：/wc-api/wc_gateway_linepay_handler?request_type=confirm&order_id={id}
+
+  5. LINEPay_Handler::handle_callback() 處理確認回調
+     → 檢查 payment_status = reserved
+     → 呼叫 process_payment_confirm()
+     → Confirm API：POST /v3/payments/{transactionId}/confirm
+     → 參數：amount, currency
+     → Confirm 成功：
+       payment_status → confirmed
+       儲存 _linepay_confirmed_transaction_id
+       呼叫 payment_complete()
+       設定 _linepay_payment_details（付款詳情 JSON）
+     → Confirm 金額不符：自動發起退款（process_refund_after_confirm）
+
+  6. Customer 取消付款
+     → LINE Pay 重導至 cancel callback URL
+     → request_type=cancel → process_payment_cancel()
+     → 訂單狀態設為 failed / cancelled
+     → payment_status → cancelled
+
+  7. Admin 或 Customer 發起退款
+     → Admin 退款：process_refund() → process_refund_request()
+     → Customer 退款（若啟用）：process_refund_by_customer()
+     → Refund API：POST /v3/payments/{transactionId}/refund
+     → 參數：refundAmount
+     → 退款成功：payment_status → refunded
+     → 退款限制：建立後 60 天內可退款
+
+  8. 查詢付款詳情
+     → Details API：GET /v3/payments?transactionId={id}
+     → 取得付款方式、金額、狀態等詳細資訊
+
+  9. Customer 帳戶頁面退款功能
+     → Hook: woocommerce_my_account_my_orders_actions → change_customer_order_action()
+     → 根據 linepay_customer_refund option 設定，在符合的訂單狀態下顯示「Cancel」按鈕
+     → 60 天退款期限檢查
+     → 後台訂單頁超過 60 天：退款按鈕替換為過期提示
+
+Side Effects:
+  - LINE Pay v3 API 使用 HMAC-SHA256 簽章（Auth Algorithm: sha256）
+  - payment_status 生命週期：reserved → confirmed → refunded（或 reserved → cancelled → failed）
+  - transaction_id 分為 reserved 和 confirmed 兩個
+  - LINE Pay logo 支援 6 種尺寸（238x78 ~ 61x20）和泰銖版本
+  - 退款有 60 天時效限制
+  - Customer 退款需建立 WC_Refund 物件並手動處理庫存還原
+  - 日誌系統支援多層級：none, error, debug
+  - 前端載入 customer-refund-action.js 處理消費者退款互動
+
+Related Features:
+  - linepay-payment.feature

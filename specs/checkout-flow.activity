@@ -1,0 +1,200 @@
+Activity: 結帳流程
+Description: Woomp 的結帳流程處理，支援預設、一頁式、兩頁式三種模式，以及台灣地址下拉、超商取貨欄位管理、離島處理、表單驗證等功能
+
+Actors:
+  - 顧客: 前台進行結帳的消費者
+  - WooMP_Checkout: 前台結帳類別 (public/class-woomp-checkout.php)
+  - Woomp_Public: 前台公共類別 (public/class-woomp-public.php)
+  - J7\Woomp\Admin\Resources\Checkout: 虛擬商品地址欄位處理類別
+  - woomp-checkout.js: 前台結帳 JavaScript
+  - twzipcode.js: 台灣地址郵遞區號 jQuery 外掛
+  - form-checkout.php: 自訂結帳模板
+  - cart-errors.php: 購物車錯誤處理模板
+
+Triggers:
+  - 顧客進入結帳頁面
+  - 顧客在結帳頁面互動（選擇物流、填寫欄位、更新購物車）
+  - 顧客提交結帳表單
+
+Flow:
+  1. 前台資源載入（Woomp_Public）
+     → Hook: wp_enqueue_scripts → enqueue_styles()
+       → 載入 woomp-public.css
+       → 載入 admin/css/main.min.css（Tailwind CSS）
+     → Hook: wp_enqueue_scripts → enqueue_scripts()
+       → 載入 twzipcode.js（台灣郵遞區號外掛）
+       → 載入 woomp-public.js（變化類型 radio 同步）
+       → Condition: is_checkout()
+         Yes → 載入 woomp-checkout.js
+           → Localize 參數：
+             - enableWoomp: 是否為 onepage 或 twopage 模式
+             - enableTwoPage: 是否為 twopage 模式
+             - enableTwAddress: 是否啟用台灣地址
+             - enableCountryToTop: 是否國家欄位置頂
+             - enableCheckoutLoginReminder: 結帳登入提示
+             - enableCoupons: 優惠券
+             - wcGetCheckoutUrl: 結帳頁 URL
+             - isUserLoggedIn: 是否已登入
+             - isFreeCart: 購物車是否為 0 元
+
+  2. WooMP_Checkout 腳本初始化
+     → Hook: wp_enqueue_scripts (priority 20) → load_scripts()
+       → Condition: is_checkout()
+         Yes → 載入 wc-cart script（確保在結帳頁有購物車功能）
+
+  3. 結帳模式分歧處理
+
+  === 一頁式結帳 (onepage) ===
+     → Hook: wp_head → redirect_cart_page_to_checkout()
+       → Condition: is_cart() AND 購物車有商品
+         Yes → JavaScript 跳轉至結帳頁
+     → Hook: woocommerce_before_checkout_form → display_cart_in_checkout_page()
+       → 在結帳表單前插入購物車 shortcode [woocommerce_cart]
+     → Filter: woocommerce_checkout_fields (priority 10000) → set_shipping_field()
+     → Action: woocommerce_after_order_notes → set_checkout_field()
+
+  === 兩頁式結帳 (twopage) ===
+     → Filter: woocommerce_checkout_fields (priority 10000) → set_shipping_field()
+     → Action: woocommerce_after_order_notes → set_checkout_field()
+     → 不跳轉購物車頁面，不在結帳頁顯示購物車
+
+  === 預設模式 (default) ===
+     → 不覆寫結帳模板，不新增額外 hooks
+
+  4. 自訂結帳模板 (form-checkout.php)
+     → Condition: wc_woomp_setting_mode === 'twopage'
+       Yes → wc_add_notice() 顯示返回購物車文字
+     → 結帳表單結構:
+       → woocommerce_before_checkout_form
+       → #customer_details > col-1 (billing) + col-2 (shipping)
+       → woocommerce_checkout_before_order_review
+       → #order_review (order review table)
+       → woocommerce_after_order_review
+     → CSS 樣式：
+       → 最大寬度 800px 置中
+       → #order_review 順序 1（置頂），#customer_details 順序 2
+       → 隱藏：coupon 輸入、update_cart 按鈕、proceed-to-checkout、order_review_heading
+       → 自訂 select 下拉箭頭
+       → RWD 手機版調整
+     → 載入主題專用 CSS（根據 wp_get_theme()->name 動態載入）
+
+  5. cart-errors.php 錯誤處理模板
+     → Condition: onepage 或 twopage 模式
+       Yes → 顯示結帳表單（即使有購物車錯誤也繼續）
+       No → 顯示購物車錯誤頁面
+
+  6. 結帳欄位處理（set_shipping_field）
+     → 遍歷所有超商取貨物流方式清單：
+       ry_ecpay_shipping_cvs_711, ry_ecpay_shipping_cvs_711_freeze,
+       ry_ecpay_shipping_cvs_hilife, ry_ecpay_shipping_cvs_family,
+       ry_ecpay_shipping_cvs_okmart, ry_newebpay_shipping_cvs,
+       paynow_shipping_c2c_711, paynow_shipping_c2c_family,
+       paynow_shipping_c2c_hilife, ry_smilepay_shipping_cvs_711,
+       ry_smilepay_shipping_cvs_fami
+     → Condition: 選擇的物流方式為超商取貨
+       Yes → 取消帳單地址欄位（postcode、state、city、address_1）的必填
+       → 取消運送名字、姓氏、電話的必填
+     → Condition: 購物車全為虛擬商品 OR 購物車金額為 0
+       Yes → 同樣取消地址欄位必填
+     → Condition: 有設定台灣離島郵遞區號 AND 非虛擬商品
+       Yes → 新增 billing_island checkbox 欄位「寄送到離島區域」
+
+  7. 離島欄位（set_checkout_field）
+     → 在 order_notes 之後新增隱藏欄位 billing_island_none
+     → 值為逗號分隔的「沒送到的離島縣市」列表
+
+  8. 虛擬商品地址欄位隱藏（J7\Woomp\Admin\Resources\Checkout）
+     → Filter: woocommerce_checkout_fields → hide_shipping_fields_virtual_products()
+     → Condition: wc_woomp_setting_virtual_product_address === 'yes' AND 購物車全為虛擬商品
+       Yes → 移除 billing_address_1、billing_address_2、billing_city、billing_postcode、billing_country、billing_state 欄位
+
+  9. JavaScript 結帳行為（woomp-checkout.js）
+     → Condition: enableWoomp === 'yes'（onepage 或 twopage 模式）
+       a. setBillingShippingFieldsSync()
+          → 同步 billing 的 first_name、last_name、phone 到 shipping 欄位
+          → 即時監聽 input 事件
+       b. setUpdateCart()
+          → 修改購物車表單 action 為結帳頁 URL
+          → 數量變更 1 秒後觸發 update_cart
+          → 更新後重新插入登入提示和優惠券提示
+       c. setCheckoutButtonToBottom()
+          → 建立 #paymentWrap 表格（付款方式標題 + 付款區域）
+          → 將 #payment 移至 #paymentWrap td 內
+          → 建立 #placeOrderWrap 並移入條款和下單按鈕
+          → 每次 updated_checkout 時重新排列
+       d. changeFieldsDisplayByShippingMethod()
+          → CVS 名稱為空時取消勾選 ship-to-different-address
+          → 切換物流方式時自動取消 ship-to-different-address 勾選
+          → CVS 物流方式或無物流方式時隱藏帳單地址欄位
+          → twopage 模式：移動訂單小計到表單前
+       e. setFunctionForTaiwan()
+          → 台灣時顯示離島勾選
+          → 非台灣時隱藏
+       f. setIslandShipping()
+          → 勾選離島時：顯示離島縣市、隱藏本島縣市、設定郵遞區號為 209
+          → 取消勾選時：顯示本島縣市、隱藏離島縣市、設定郵遞區號為 110
+       g. setIslandCvsNotification()
+          → 未勾選離島但選擇金門/澎湖/連江的超商時 → alert 警告
+       h. setFreeCart()
+          → 總金額為 0 時隱藏 #order_review
+
+     → Condition: enableCountryToTop === 'yes'
+       → setCountryToTop()
+         → billing_country_field 移至 #order_review 最前
+         → ship-to-different-address 勾選時隱藏 billing_country，用 shipping_country 取代
+         → 同步 billing 和 shipping 國家欄位
+
+     → Condition: enableTwAddress === 'yes'
+       → setTwAddress()
+         → 初始化 twzipcode jQuery 外掛
+         → 將 county/district/zipcode 欄位移至對應的 WC 欄位容器
+         → 同步 select change 和 input keyup 事件
+         → 隱藏原始的 postcode/state/city 欄位
+         → 切換國家時動態啟用/停用 twzipcode
+       → setTwCountyStatus()
+         → 預設隱藏離島縣市（金門、澎湖、連江）
+
+  10. 結帳按鈕文字自訂
+      → Condition: wc_woomp_setting_place_order_text 非空
+        Yes → Filter: woocommerce_order_button_text → custom_button_text()
+          → 回傳自訂文字
+
+  11. 免運提示
+      → Condition: wc_woomp_setting_free_shipping_hint === 'yes'
+        Yes → Action: woocommerce_after_shipping_rate (priority 99) → display_free_shipping_hint()
+          → 取得物流方式設定中的 min_amount 和 cost_requires
+          → 計算距離免運的差額
+          → Condition: 運費為 0 或已達免運
+            Yes → 顯示「免運」標籤
+            No → 顯示「差 X 元」文字
+          → 樣式：自訂背景色、文字色
+
+  12. 表單驗證（field_validate）
+      → Condition: wc_woomp_setting_tw_field_valitdate === 'yes'
+        Yes → Hook: woocommerce_after_checkout_validation → field_validate()
+      → 驗證規則（僅限台灣 TW）：
+        a. 姓名長度：至少 2 個字（UTF-8）
+        b. 電話長度：必須為 10 碼
+        c. 離島超商檢查：未勾選離島但選擇金門/澎湖/連江超商 → 錯誤
+
+  13. 選填欄位文字移除
+      → Filter: woocommerce_form_field → remove_checkout_optional_fields_label()
+        → 在結帳頁移除「(選填)」文字
+
+  14. Transient 暫存（transient.php）
+      → 結帳頁載入時：
+        → transient-load.js：AJAX 讀取 woomp_temp_{user_id}
+        → transient-save.js：AJAX 寫入結帳欄位到 woomp_temp_{user_id}（12 小時過期）
+      → Nonce 驗證：ajax-my-nonce
+
+Side Effects:
+  - 一頁式模式下購物車頁面被強制跳轉到結帳頁
+  - 結帳表單結構（DOM 順序）被 JS 大幅改變（付款方式位置、按鈕位置）
+  - 台灣地址原始欄位被隱藏，改用 twzipcode 外掛
+  - 離島勾選會動態切換可選縣市
+  - 購物車金額為 0 時隱藏訂單審查區域
+  - Transient 資料 12 小時後自動過期
+
+Related Features:
+  - checkout-flow.feature
+  - frontend-product-display.feature
