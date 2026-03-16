@@ -12,16 +12,16 @@ Woomp（好用版擴充 MorePower Addon for WooCommerce）是一個以**台灣�
 
 ## 技術棧
 
-| 層級 | 技術 | 版本 |
-|------|------|------|
-| 後端 | PHP、WordPress、WooCommerce | 8.0+ / 6.x / 7.1+ |
-| HPOS | WooCommerce High-Performance Order Storage（`woocommerce/src/Features/Orders/CustomOrdersTableController`） | WC 7.1+，需宣告相容 |
-| 前端 | jQuery、ES6 Modules（PayUni v3）、Tailwind CSS | — |
-| 自動載入 | Composer PSR-4（`J7\Payuni\` → `includes/payuni/v3/`）、a7/autoload | — |
-| 程式碼風格 | WordPress Coding Standards（phpcs.xml）、短陣列語法 `[]` | — |
-| 建置 | `node build.mjs`（archiver ZIP 打包） | — |
-| E2E 測試 | Playwright（TypeScript），位於 `e2e/` | — |
-| 依賴套件 | `oberonlai/wp-metabox`、`dennykuo/invoice-porter`、`guzzlehttp/guzzle`、`yahnis-elsts/plugin-update-checker` | ^6.5.8 / ^5.3 |
+| 層級       | 技術                                                                                                         | 版本                |
+| ---------- | ------------------------------------------------------------------------------------------------------------ | ------------------- |
+| 後端       | PHP、WordPress、WooCommerce                                                                                  | 8.0+ / 6.x / 7.1+   |
+| HPOS       | WooCommerce High-Performance Order Storage（`woocommerce/src/Features/Orders/CustomOrdersTableController`）  | WC 7.1+，需宣告相容 |
+| 前端       | jQuery、ES6 Modules（PayUni v3）、Tailwind CSS                                                               | —                   |
+| 自動載入   | Composer PSR-4（`J7\Payuni\` → `includes/payuni/v3/`）、a7/autoload                                          | —                   |
+| 程式碼風格 | WordPress Coding Standards（phpcs.xml）、短陣列語法 `[]`                                                     | —                   |
+| 建置       | `node build.mjs`（archiver ZIP 打包）                                                                        | —                   |
+| E2E 測試   | Playwright（TypeScript），位於 `e2e/`                                                                        | —                   |
+| 依賴套件   | `oberonlai/wp-metabox`、`dennykuo/invoice-porter`、`guzzlehttp/guzzle`、`yahnis-elsts/plugin-update-checker` | ^6.5.8 / ^5.3       |
 
 ## 目錄結構
 
@@ -129,22 +129,22 @@ npm run build
 vendor/bin/phpcs
 
 # 執行 E2E 測試
-cd e2e && npx playwright test
+cd tests/e2e && npx playwright test
 
 # 執行特定 E2E 測試
-cd e2e && npx playwright test payuni-checkout.ts
+cd tests/e2e && npx playwright test payuni-checkout.ts
 
 # 啟動 wp-env 測試環境
 npx @wordpress/env start
 
 # 執行整合測試
-npx @wordpress/env run tests-cli -- bash -c 'cd /var/www/html/wp-content/plugins/woomp && WP_TESTS_DIR=/wordpress-phpunit vendor/bin/phpunit --configuration tests/phpunit/phpunit.xml.dist --no-coverage'
+npx @wordpress/env run tests-cli -- bash -c 'cd /var/www/html/wp-content/plugins/woomp && WP_TESTS_DIR=/wordpress-phpunit vendor/bin/phpunit --configuration tests/phpunit/phpunit.xml.dist --no-coverage --testdox'
 ```
 
 ## 相關文件指引
 
-| 文件 | 用途 |
-|------|------|
-| `.claude/rules/wordpress.rule.md` | WordPress / PHP 編碼規範（自動套用於 `**/*.php`） |
-| `.claude/skills/payuni-embed/SKILL.md` | PayUni Embed 支付整合知識 |
-| `.claude/skills/woomp/SKILL.md` | Woomp 專案開發指引 |
+| 文件                                   | 用途                                              |
+| -------------------------------------- | ------------------------------------------------- |
+| `.claude/rules/wordpress.rule.md`      | WordPress / PHP 編碼規範（自動套用於 `**/*.php`） |
+| `.claude/skills/payuni-embed/SKILL.md` | PayUni Embed 支付整合知識                         |
+| `.claude/skills/woomp/SKILL.md`        | Woomp 專案開發指引                                |
