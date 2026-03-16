@@ -17,6 +17,8 @@
  * HPOS Bug 修復測試類別
  *
  * @covers includes/line-pay-for-woo/
+ * @group hpos
+ * @group hpos-compat
  */
 final class HposBugFixTest extends WP_UnitTestCase {
 

@@ -16,6 +16,9 @@
  *
  * @covers init.php
  * @covers woomp.php
+ * @group hpos
+ * @group hpos-compat
+ * @group smoke
  */
 final class HposDeclarationTest extends WP_UnitTestCase {
 

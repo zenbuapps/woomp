@@ -17,6 +17,8 @@
  * HPOS Helper 測試類別
  *
  * @covers Woomp_HPOS_Helper
+ * @group hpos
+ * @group hpos-compat
  */
 final class HposHelperTest extends WP_UnitTestCase {
 

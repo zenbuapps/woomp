@@ -12,6 +12,8 @@
  * PayUni 加解密測試類別
  *
  * @covers includes/payuni/
+ * @group gateway
+ * @group payuni
  */
 class PayuniEncryptionTest extends WP_UnitTestCase {
 

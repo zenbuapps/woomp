@@ -12,6 +12,8 @@
  *
  * @covers includes/paynow-shipping/
  * @covers includes/woomp-paynow-shipping/
+ * @group shipping
+ * @group paynow
  */
 class ShippingMethodTest extends WP_UnitTestCase {
 

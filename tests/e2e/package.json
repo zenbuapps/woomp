@@ -14,6 +14,18 @@
     "test:error": "npx playwright test tests/C-error/",
     "test:edge": "npx playwright test tests/D-edge-cases/",
     "test:boundary": "npx playwright test tests/E-boundary/",
+    "test:happy-flow": "npx playwright test tests/01-core/ tests/02-checkout/ tests/03-invoice/ tests/04-ecpay/ tests/05-paynow/ tests/A-checkout/ tests/B-invoice/",
+    "test:happy-headed": "npx playwright test --headed tests/01-core/ tests/02-checkout/ tests/03-invoice/ tests/04-ecpay/ tests/05-paynow/ tests/A-checkout/ tests/B-invoice/",
+    "test:happy-ci": "npx playwright test --grep @P0 tests/01-core/ tests/02-checkout/ tests/03-invoice/ tests/04-ecpay/ tests/05-paynow/ tests/A-checkout/ tests/B-invoice/",
+    "test:happy": "npx playwright test --grep @P0 --grep-invert @edge",
+    "test:core": "npx playwright test tests/01-core/",
+    "test:ecpay": "npx playwright test tests/04-ecpay/",
+    "test:paynow": "npx playwright test tests/05-paynow/",
+    "test:admin": "npx playwright test tests/07-admin/",
+    "test:frontend": "npx playwright test tests/08-frontend/",
+    "test:payuni-embed": "npx playwright test --project=payuni-embed",
+    "test:integration": "npx playwright test --project=integration",
+    "test:all": "npx playwright test --project=all",
     "report": "npx playwright show-report"
   },
   "devDependencies": {

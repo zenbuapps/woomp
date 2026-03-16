@@ -45,6 +45,18 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['setup'],
     },
+    // 核心業務 happy flow（01-05 + A-checkout + B-invoice，排除 edge cases）
+    {
+      name: 'happy-flow',
+      testDir: './tests',
+      testMatch: [
+        /\/0[1-5]-.*\/.*\.spec\.ts$/,
+        /\/A-checkout\/.*\.spec\.ts$/,
+        /\/B-invoice\/.*\.spec\.ts$/,
+      ],
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['setup'],
+    },
     // 全部跑（setup + payuni-embed + integration）
     {
       name: 'all',

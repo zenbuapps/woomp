@@ -21,6 +21,8 @@
  *
  * @covers includes/class-woomp.php
  * @covers admin/
+ * @group hpos
+ * @group hpos-compat
  */
 final class HposHookRegistrationTest extends WP_UnitTestCase {
 

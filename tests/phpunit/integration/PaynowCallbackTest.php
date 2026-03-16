@@ -12,6 +12,9 @@
  * 立吉富金流回呼測試類別
  *
  * @covers includes/paynow-payment/
+ * @group gateway
+ * @group paynow
+ * @group order-meta
  */
 class PaynowCallbackTest extends WP_UnitTestCase {
 

@@ -21,6 +21,9 @@
  * @covers includes/woomp-ezpay-invoice/
  * @covers includes/paynow-einvoice/
  * @covers includes/paynow-shipping/
+ * @group hpos
+ * @group hpos-compat
+ * @group order-meta
  */
 final class HposOrderMetaTest extends WP_UnitTestCase {
 

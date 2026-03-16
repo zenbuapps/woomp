@@ -11,6 +11,8 @@
  * 設定持久化測試類別
  *
  * @covers admin/settings/
+ * @group settings
+ * @group core
  */
 class SettingsPersistenceTest extends WP_UnitTestCase {
 

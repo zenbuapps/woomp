@@ -13,6 +13,9 @@
  *
  * @covers includes/payuni/
  * @covers includes/woomp-ecpay-invoice/
+ * @group order-meta
+ * @group gateway
+ * @group payuni
  */
 class OrderMetaTest extends WP_UnitTestCase {
 

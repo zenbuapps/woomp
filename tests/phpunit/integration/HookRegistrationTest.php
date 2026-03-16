@@ -13,6 +13,8 @@
  *
  * @covers Woomp_Loader
  * @covers Woomp
+ * @group core
+ * @group smoke
  */
 class HookRegistrationTest extends WP_UnitTestCase {
 

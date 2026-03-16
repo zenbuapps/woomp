@@ -12,6 +12,9 @@
  * PayUni Webhook 測試類別
  *
  * @covers includes/payuni/
+ * @group gateway
+ * @group payuni
+ * @group order-meta
  */
 class PayuniWebhookTest extends WP_UnitTestCase {
 

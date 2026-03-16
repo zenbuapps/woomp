@@ -13,6 +13,8 @@
  *
  * @covers init.php
  * @covers woomp.php
+ * @group core
+ * @group smoke
  */
 class CoreInitializationTest extends WP_UnitTestCase {
 

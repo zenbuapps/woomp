@@ -12,6 +12,9 @@
  * 綠界金流回呼測試類別
  *
  * @covers includes/ry-woocommerce-tools/
+ * @group gateway
+ * @group ecpay
+ * @group order-meta
  */
 class EcpayCallbackTest extends WP_UnitTestCase {
 

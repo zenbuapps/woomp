@@ -12,6 +12,8 @@
  * 金流閘道註冊測試類別
  *
  * @covers init.php
+ * @group gateway
+ * @group smoke
  */
 class GatewayRegistrationTest extends WP_UnitTestCase {
 

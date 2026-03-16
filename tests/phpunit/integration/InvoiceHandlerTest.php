@@ -14,6 +14,7 @@
  * @covers includes/woomp-ecpay-invoice/
  * @covers includes/woomp-ezpay-invoice/
  * @covers includes/paynow-einvoice/
+ * @group invoice
  */
 class InvoiceHandlerTest extends WP_UnitTestCase {
 

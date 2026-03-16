@@ -12,6 +12,8 @@
  * 電子郵件通知測試類別
  *
  * @covers public/class-woomp-public.php
+ * @group email
+ * @group order-meta
  */
 class EmailNotificationTest extends WP_UnitTestCase {
 
