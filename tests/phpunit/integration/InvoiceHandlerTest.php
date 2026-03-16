@@ -60,6 +60,8 @@ class InvoiceHandlerTest extends WP_UnitTestCase {
 	 * 測試綠界電子發票開立請求格式
 	 *
 	 * 驗證開立請求包含必要欄位。
+	 *
+	 * @testdox 驗證綠界電子發票開立請求包含所有必要欄位
 	 */
 	public function test_ecpay_invoice_issue_request_format() {
 		$request_data = array(
@@ -111,6 +113,8 @@ class InvoiceHandlerTest extends WP_UnitTestCase {
 	 * 測試綠界電子發票作廢請求格式
 	 *
 	 * 驗證作廢請求包含必要欄位。
+	 *
+	 * @testdox 驗證綠界電子發票作廢請求包含必要欄位且發票號碼格式正確
 	 */
 	public function test_ecpay_invoice_void_request_format() {
 		$invoice_no   = 'AA12345678';
@@ -137,6 +141,8 @@ class InvoiceHandlerTest extends WP_UnitTestCase {
 	 * 測試 EZPAY 電子發票開立請求格式
 	 *
 	 * 驗證 EZPAY 發票開立請求包含必要欄位。
+	 *
+	 * @testdox 驗證 EZPAY 電子發票開立請求包含所有必要欄位
 	 */
 	public function test_ezpay_invoice_issue_request_format() {
 		$request_data = array(
@@ -187,6 +193,8 @@ class InvoiceHandlerTest extends WP_UnitTestCase {
 	 * 測試立吉富電子發票開立請求格式
 	 *
 	 * 驗證立吉富發票開立請求包含必要欄位。
+	 *
+	 * @testdox 驗證立吉富電子發票開立請求包含所有必要欄位
 	 */
 	public function test_paynow_invoice_issue_request_format() {
 		$request_data = array(

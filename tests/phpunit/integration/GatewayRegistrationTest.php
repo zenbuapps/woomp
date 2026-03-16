@@ -56,6 +56,7 @@ class GatewayRegistrationTest extends WP_UnitTestCase {
 	 * 測試 PayUni 金流閘道已註冊
 	 *
 	 * @covers includes/payuni/
+	 * @testdox 確認至少一個 PayUni 金流閘道已註冊
 	 */
 	public function test_payuni_gateways_registered() {
 		$payuni_gateway_ids = array(
@@ -84,6 +85,7 @@ class GatewayRegistrationTest extends WP_UnitTestCase {
 	 * 測試綠界金流閘道已註冊
 	 *
 	 * @covers includes/ry-woocommerce-tools/
+	 * @testdox 確認至少一個綠界金流閘道已註冊
 	 */
 	public function test_ecpay_gateways_registered() {
 		$ecpay_gateway_ids = array(
@@ -113,6 +115,7 @@ class GatewayRegistrationTest extends WP_UnitTestCase {
 	 * 測試藍新金流閘道已註冊
 	 *
 	 * @covers includes/ry-woocommerce-tools/
+	 * @testdox 確認至少一個藍新金流閘道已註冊
 	 */
 	public function test_newebpay_gateways_registered() {
 		$newebpay_gateway_ids = array(
@@ -138,6 +141,7 @@ class GatewayRegistrationTest extends WP_UnitTestCase {
 	 * 測試速買配金流閘道已註冊
 	 *
 	 * @covers includes/ry-woocommerce-tools/
+	 * @testdox 確認至少一個速買配金流閘道已註冊
 	 */
 	public function test_smilepay_gateways_registered() {
 		$smilepay_gateway_ids = array(
@@ -163,6 +167,7 @@ class GatewayRegistrationTest extends WP_UnitTestCase {
 	 * 測試立吉富金流閘道已註冊（僅在選項啟用時）
 	 *
 	 * @covers includes/paynow-payment/
+	 * @testdox 驗證立吉富金流閘道依選項啟用狀態正確註冊
 	 */
 	public function test_paynow_gateways_registered() {
 		$paynow_gateway_ids = array(
@@ -201,6 +206,7 @@ class GatewayRegistrationTest extends WP_UnitTestCase {
 	 * 測試 LINE Pay 金流閘道已註冊
 	 *
 	 * @covers includes/line-pay-for-woo/
+	 * @testdox 檢查 LINE Pay 金流閘道註冊狀態
 	 */
 	public function test_linepay_gateway_registered() {
 		$has_linepay = isset( $this->registered_gateways['linepay'] );
@@ -216,6 +222,7 @@ class GatewayRegistrationTest extends WP_UnitTestCase {
 	 * 測試支付連金流閘道已註冊
 	 *
 	 * @covers includes/PChomePay-Cart-for-WooCommerce/
+	 * @testdox 檢查支付連金流閘道註冊狀態
 	 */
 	public function test_pchomepay_gateway_registered() {
 		$has_pchomepay = isset( $this->registered_gateways['pchomepay'] );
@@ -231,6 +238,7 @@ class GatewayRegistrationTest extends WP_UnitTestCase {
 	 * 測試所有閘道都繼承自 WC_Payment_Gateway
 	 *
 	 * @covers WC_Payment_Gateway
+	 * @testdox 確認所有已註冊閘道都繼承自 WC_Payment_Gateway
 	 */
 	public function test_gateway_extends_wc_payment_gateway() {
 		$gateways = WC()->payment_gateways()->payment_gateways();

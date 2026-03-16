@@ -34,6 +34,8 @@ final class HposDeclarationTest extends WP_UnitTestCase {
 	 * 測試 FeaturesUtil 類別在 WC 7.1+ 中可用
 	 *
 	 * 根據已決策：WC 最低版本 7.1+，直接使用 FeaturesUtil，不需 class_exists 防禦。
+	 *
+	 * @testdox 確認 FeaturesUtil 類別在 WooCommerce 7.1+ 中可用
 	 */
 	public function test_features_util_class_available() {
 		$this->assertTrue(
@@ -47,6 +49,8 @@ final class HposDeclarationTest extends WP_UnitTestCase {
 	 *
 	 * 規格：「當 WordPress 觸發 before_woocommerce_init hook，
 	 *       Woomp 呼叫 FeaturesUtil::declare_compatibility('custom_order_tables', __FILE__)」
+	 *
+	 * @testdox 確認 before_woocommerce_init hook 已註冊 HPOS 相容性宣告
 	 */
 	public function test_hpos_compatibility_declared_on_before_woocommerce_init() {
 		// before_woocommerce_init 應該已經被觸發過（在外掛載入時）。
@@ -63,6 +67,8 @@ final class HposDeclarationTest extends WP_UnitTestCase {
 	 * 測試 Woomp 在 HPOS 相容性清單中顯示為相容
 	 *
 	 * 規格：「WooCommerce 的 HPOS 相容性頁面顯示 Woomp 為相容」
+	 *
+	 * @testdox 確認 Woomp 在 HPOS 相容性清單中顯示為相容
 	 */
 	public function test_woomp_listed_as_hpos_compatible() {
 		if ( ! class_exists( '\Automattic\WooCommerce\Utilities\FeaturesUtil' ) ) {
@@ -108,6 +114,8 @@ final class HposDeclarationTest extends WP_UnitTestCase {
 	 * 測試 Woomp 主檔案中包含 declare_compatibility 呼叫（靜態掃描）
 	 *
 	 * 掃描 woomp.php 和 init.php，確認包含 FeaturesUtil::declare_compatibility。
+	 *
+	 * @testdox 掃描確認原始碼中包含 FeaturesUtil::declare_compatibility 呼叫
 	 */
 	public function test_declare_compatibility_call_exists_in_source() {
 		$files_to_check = [
@@ -140,6 +148,8 @@ final class HposDeclarationTest extends WP_UnitTestCase {
 	 * 測試 HPOS 相容性宣告使用正確的 feature ID
 	 *
 	 * 確保宣告使用的是 'custom_order_tables' 而不是其他字串。
+	 *
+	 * @testdox 確認 HPOS 相容性宣告使用正確的 feature ID（custom_order_tables）
 	 */
 	public function test_declare_compatibility_uses_correct_feature_id() {
 		$files_to_check = [

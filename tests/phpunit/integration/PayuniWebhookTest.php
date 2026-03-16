@@ -55,6 +55,8 @@ class PayuniWebhookTest extends WP_UnitTestCase {
 	 * 測試有效的 webhook 通知更新訂單狀態
 	 *
 	 * 模擬 PayUni 成功付款通知，驗證訂單狀態變更為 processing。
+	 *
+	 * @testdox 驗證 PayUni 有效 webhook 將訂單狀態更新為 processing/completed
 	 */
 	public function test_valid_webhook_updates_order_status() {
 		// 模擬成功付款後直接更新訂單狀態。
@@ -74,6 +76,8 @@ class PayuniWebhookTest extends WP_UnitTestCase {
 	 * 測試無效的雜湊值應拒絕 webhook
 	 *
 	 * 驗證當 Hash 驗證失敗時，訂單狀態不會變更。
+	 *
+	 * @testdox 驗證 PayUni Hash 驗證失敗時訂單狀態不變更
 	 */
 	public function test_invalid_hash_rejects_webhook() {
 		$original_status = $this->order->get_status();
@@ -101,6 +105,8 @@ class PayuniWebhookTest extends WP_UnitTestCase {
 	 * 測試重複的 webhook 通知具有冪等性
 	 *
 	 * 驗證多次收到相同的成功通知不會重複處理。
+	 *
+	 * @testdox 驗證重複的 PayUni webhook 通知具有冪等性
 	 */
 	public function test_duplicate_webhook_idempotent() {
 		// 第一次付款完成。
@@ -124,6 +130,8 @@ class PayuniWebhookTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試 webhook 儲存交易資訊至訂單 meta
+	 *
+	 * @testdox 驗證 PayUni webhook 正確儲存交易編號與金額 meta
 	 */
 	public function test_webhook_stores_trade_info_meta() {
 		$trade_no = 'PAYUNI_TRADE_003';
@@ -150,6 +158,8 @@ class PayuniWebhookTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試失敗的付款 webhook 將訂單設為 failed 狀態
+	 *
+	 * @testdox 驗證 PayUni 付款失敗 webhook 將訂單狀態設為 failed
 	 */
 	public function test_failed_payment_webhook_sets_failed_status() {
 		// 模擬付款失敗。

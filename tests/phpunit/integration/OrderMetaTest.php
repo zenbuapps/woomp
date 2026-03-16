@@ -60,6 +60,8 @@ class OrderMetaTest extends WP_UnitTestCase {
 	 * 測試付款完成後儲存交易 meta 資料
 	 *
 	 * 驗證金流回呼後正確儲存交易相關的 meta。
+	 *
+	 * @testdox 驗證付款完成後交易 meta 資料正確儲存與讀取
 	 */
 	public function test_order_meta_stored_on_payment() {
 		$trade_no     = 'PAYUNI_META_001';
@@ -110,6 +112,8 @@ class OrderMetaTest extends WP_UnitTestCase {
 	 * 測試訂單 meta 可透過 API 存取
 	 *
 	 * 驗證儲存的 meta 資料可透過 WC_Order API 正確讀取。
+	 *
+	 * @testdox 驗證訂單 meta 可透過 WC_Order API 正確存取
 	 */
 	public function test_order_meta_accessible_via_api() {
 		$custom_meta = array(
@@ -158,6 +162,8 @@ class OrderMetaTest extends WP_UnitTestCase {
 	 * 測試電子發票 meta 資料儲存
 	 *
 	 * 驗證電子發票相關 meta 正確儲存至訂單。
+	 *
+	 * @testdox 驗證電子發票相關 meta 正確儲存且發票號碼格式正確
 	 */
 	public function test_invoice_meta_stored() {
 		$invoice_data = array(

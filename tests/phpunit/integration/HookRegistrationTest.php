@@ -21,6 +21,7 @@ class HookRegistrationTest extends WP_UnitTestCase {
 	 *
 	 * @covers Woomp_Loader::add_action
 	 * @covers Woomp_Loader::run
+	 * @testdox 確認 Woomp_Loader 類別存在且可被實例化
 	 */
 	public function test_woomp_loader_registers_actions() {
 		$this->assertTrue(
@@ -40,6 +41,8 @@ class HookRegistrationTest extends WP_UnitTestCase {
 	 * 測試後台 hooks 已正確註冊
 	 *
 	 * 驗證 admin_enqueue_scripts 等後台相關 hook 已註冊。
+	 *
+	 * @testdox 確認後台相關 hook（admin_enqueue_scripts 等）已正確註冊
 	 */
 	public function test_admin_hooks_registered() {
 		$this->assertGreaterThan(
@@ -63,6 +66,8 @@ class HookRegistrationTest extends WP_UnitTestCase {
 	 * 測試前台 hooks 已正確註冊
 	 *
 	 * 驗證 wp_enqueue_scripts 等前台相關 hook 已註冊。
+	 *
+	 * @testdox 確認前台 wp_enqueue_scripts hook 已正確註冊
 	 */
 	public function test_public_hooks_registered() {
 		$this->assertGreaterThan(
@@ -76,6 +81,8 @@ class HookRegistrationTest extends WP_UnitTestCase {
 	 * 測試結帳欄位 filter hook 優先順序
 	 *
 	 * 驗證 woocommerce_checkout_fields filter 已正確註冊。
+	 *
+	 * @testdox 檢查 woocommerce_checkout_fields filter 註冊狀態
 	 */
 	public function test_checkout_hooks_priority() {
 		$priority = has_filter( 'woocommerce_checkout_fields' );
@@ -91,6 +98,8 @@ class HookRegistrationTest extends WP_UnitTestCase {
 	 * 測試模板覆寫 filter 已註冊
 	 *
 	 * 驗證 wc_get_template 或 woocommerce_locate_template filter 已註冊。
+	 *
+	 * @testdox 確認模板覆寫 filter 已註冊或原始碼中已定義
 	 */
 	public function test_template_override_filter() {
 		$has_get_template    = has_filter( 'wc_get_template' );

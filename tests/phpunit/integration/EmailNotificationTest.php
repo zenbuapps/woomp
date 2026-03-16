@@ -56,6 +56,8 @@ class EmailNotificationTest extends WP_UnitTestCase {
 	 * 測試自訂郵件內容包含付款資訊
 	 *
 	 * 驗證訂單郵件中包含正確的付款方式資訊。
+	 *
+	 * @testdox 驗證訂單郵件可存取付款方式與交易編號資訊
 	 */
 	public function test_custom_email_content_includes_payment_info() {
 		// 設定付款相關 meta。
@@ -95,6 +97,8 @@ class EmailNotificationTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試郵件包含物流追蹤資訊
+	 *
+	 * @testdox 驗證訂單郵件可存取物流追蹤編號與物流公司資訊
 	 */
 	public function test_email_includes_shipping_tracking() {
 		$tracking_no = 'TRACK20240101001';

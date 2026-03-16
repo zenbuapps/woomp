@@ -59,6 +59,8 @@ class PaynowCallbackTest extends WP_UnitTestCase {
 	 * 測試 Passcode 驗證
 	 *
 	 * 驗證使用正確金鑰產生的 Passcode 可通過驗證。
+	 *
+	 * @testdox 驗證立吉富 Passcode 產生格式正確且具有一致性
 	 */
 	public function test_passcode_validation() {
 		$order_no    = 'PN' . $this->order->get_id();
@@ -92,6 +94,8 @@ class PaynowCallbackTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試有效的回呼完成訂單
+	 *
+	 * @testdox 驗證立吉富有效回呼完成訂單付款
 	 */
 	public function test_valid_callback_completes_order() {
 		// 模擬有效的回呼處理完成付款。
@@ -113,6 +117,8 @@ class PaynowCallbackTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試無效的回呼被拒絕
+	 *
+	 * @testdox 驗證立吉富無效回呼不改變訂單狀態
 	 */
 	public function test_invalid_callback_rejected() {
 		$original_status = $this->order->get_status();

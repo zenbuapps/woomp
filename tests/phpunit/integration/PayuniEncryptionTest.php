@@ -52,6 +52,8 @@ class PayuniEncryptionTest extends WP_UnitTestCase {
 	 * 測試加解密往返
 	 *
 	 * 加密後再解密應回傳原始資料。
+	 *
+	 * @testdox 驗證 AES-256-CBC 加密後解密可還原原始資料
 	 */
 	public function test_encrypt_decrypt_roundtrip() {
 		$original_data = 'MerOrderNo=TEST123&MerTradeNo=TRADE456&TradeAmt=1000';
@@ -86,6 +88,8 @@ class PayuniEncryptionTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試使用錯誤金鑰解密時失敗
+	 *
+	 * @testdox 驗證使用錯誤金鑰解密時無法還原原始資料
 	 */
 	public function test_decrypt_with_wrong_key_fails() {
 		$original_data = 'TestData=123';
@@ -118,6 +122,8 @@ class PayuniEncryptionTest extends WP_UnitTestCase {
 	 * 測試加密結果具有隨機性（使用不同 IV）
 	 *
 	 * 相同明文使用不同 IV 應產生不同密文。
+	 *
+	 * @testdox 驗證使用不同 IV 加密相同資料會產生不同的密文
 	 */
 	public function test_encrypt_produces_different_output_each_time() {
 		$original_data = 'SameDataForBothEncryptions';
@@ -149,6 +155,8 @@ class PayuniEncryptionTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試解密無效資料時回傳 false
+	 *
+	 * @testdox 驗證解密無效資料時回傳 false
 	 */
 	public function test_decrypt_invalid_data_returns_false() {
 		$invalid_data = 'this_is_not_valid_encrypted_data!!!';
@@ -171,6 +179,8 @@ class PayuniEncryptionTest extends WP_UnitTestCase {
 	 * 測試 HashID 產生
 	 *
 	 * 驗證 SHA256 雜湊值產生與格式。
+	 *
+	 * @testdox 驗證 PayUni HashID 產生格式正確（64 碼大寫十六進位）
 	 */
 	public function test_hash_id_generation() {
 		$merchant_id = 'TEST_MERCHANT';

@@ -20,6 +20,7 @@ class CoreInitializationTest extends WP_UnitTestCase {
 	 * 測試外掛常數已正確定義
 	 *
 	 * @covers ::define_constants
+	 * @testdox 驗證外掛核心常數（WOOMP_VERSION 等）已正確定義且非空
 	 */
 	public function test_plugin_constants_defined() {
 		$this->assertTrue( defined( 'WOOMP_VERSION' ), 'WOOMP_VERSION 常數應已定義' );
@@ -37,6 +38,8 @@ class CoreInitializationTest extends WP_UnitTestCase {
 	 * 測試 Composer 自動載入器已載入
 	 *
 	 * 驗證 J7\Payuni 命名空間可透過 PSR-4 自動載入。
+	 *
+	 * @testdox 確認 Composer autoload.php 存在於外掛目錄中
 	 */
 	public function test_composer_autoloader_loaded() {
 		$this->assertTrue(
@@ -47,6 +50,8 @@ class CoreInitializationTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試 Woomp 主類別存在
+	 *
+	 * @testdox 確認 Woomp 主類別已載入
 	 */
 	public function test_woomp_class_exists() {
 		$this->assertTrue(
@@ -59,6 +64,7 @@ class CoreInitializationTest extends WP_UnitTestCase {
 	 * 測試啟用外掛時設定預設選項值
 	 *
 	 * @covers ::activate_woomp
+	 * @testdox 驗證啟用外掛時設定模式選項可正常讀取
 	 */
 	public function test_default_options_set_on_activation() {
 		// 清除測試用選項。
@@ -78,6 +84,7 @@ class CoreInitializationTest extends WP_UnitTestCase {
 	 * 測試啟用外掛時不會覆寫已存在的選項
 	 *
 	 * @covers ::activate_woomp
+	 * @testdox 驗證啟用外掛時不會覆寫已存在的選項值
 	 */
 	public function test_activation_does_not_overwrite_existing_options() {
 		$existing_value = 'custom_value';
@@ -97,6 +104,8 @@ class CoreInitializationTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試文字域已正確載入
+	 *
+	 * @testdox 確認語系目錄存在或文字域已正確載入
 	 */
 	public function test_text_domains_loaded() {
 		$loaded = is_textdomain_loaded( 'woomp' );
@@ -110,6 +119,8 @@ class CoreInitializationTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試 Plugin Update Checker 已註冊
+	 *
+	 * @testdox 確認 Plugin Update Checker 類別已載入
 	 */
 	public function test_plugin_update_checker_registered() {
 		$this->assertTrue(
@@ -123,6 +134,8 @@ class CoreInitializationTest extends WP_UnitTestCase {
 	 * 測試 WooCommerce 依賴檢查
 	 *
 	 * 當 WooCommerce 未啟用時，外掛不應完全初始化。
+	 *
+	 * @testdox 確認 WooCommerce 存在時外掛已正常初始化
 	 */
 	public function test_wc_dependency_check() {
 		// 確認 WooCommerce 已載入（在測試環境中）。

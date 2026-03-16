@@ -66,6 +66,8 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 	 * 測試 PayNow 金流回調 meta 透過 WC_Order API 正確寫入
 	 *
 	 * 規格：PayNow 金流回調觸發，寫入 _paynow_tran_no meta。
+	 *
+	 * @testdox 驗證 PayNow 交易編號 meta 透過 WC_Order API 正確寫入與讀取
 	 */
 	public function test_paynow_meta_write_via_order_api() {
 		$meta_key   = '_paynow_tran_no';
@@ -88,6 +90,8 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 	 * 測試 LINE Pay 金流回調 meta 透過 WC_Order API 正確寫入
 	 *
 	 * 規格：LINE Pay 金流回調觸發，寫入 _linepay_transaction_id meta。
+	 *
+	 * @testdox 驗證 LINE Pay 交易 ID meta 透過 WC_Order API 正確寫入與讀取
 	 */
 	public function test_linepay_meta_write_via_order_api() {
 		$meta_key   = '_linepay_transaction_id';
@@ -109,6 +113,8 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 	 * 測試 PChomePay 金流回調 meta 透過 WC_Order API 正確寫入
 	 *
 	 * 規格：PChomePay 金流回調觸發，寫入 _pchomepay_transaction_id meta。
+	 *
+	 * @testdox 驗證 PChomePay 交易 ID meta 透過 WC_Order API 正確寫入與讀取
 	 */
 	public function test_pchomepay_meta_write_via_order_api() {
 		$meta_key   = '_pchomepay_transaction_id';
@@ -134,6 +140,8 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 	 * 測試綠界發票號碼 meta 透過 WC_Order API 正確寫入
 	 *
 	 * 規格：綠界發票 API 回傳成功，_ecpay_invoice_number 透過 $order->update_meta_data() 儲存。
+	 *
+	 * @testdox 驗證綠界發票號碼 meta 透過 WC_Order API 正確寫入且格式正確
 	 */
 	public function test_ecpay_invoice_meta_write_via_order_api() {
 		$meta_key   = '_ecpay_invoice_number';
@@ -160,6 +168,8 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試 EZPAY 發票 meta 透過 WC_Order API 正確寫入
+	 *
+	 * @testdox 驗證 EZPAY 發票相關 meta 透過 WC_Order API 正確寫入與讀取
 	 */
 	public function test_ezpay_invoice_meta_write_via_order_api() {
 		$invoice_meta = [
@@ -188,6 +198,8 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 	 * 測試立吉富發票載具資訊 meta 透過 WC_Order API 正確讀取
 	 *
 	 * 規格：使用 $order->get_meta('_paynow_ei_carrier_type') 取得 "phone_barcode"。
+	 *
+	 * @testdox 驗證立吉富發票載具類型 meta 透過 WC_Order API 正確讀取
 	 */
 	public function test_paynow_invoice_carrier_meta_read_via_order_api() {
 		$meta_key   = '_paynow_ei_carrier_type';
@@ -207,6 +219,8 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試立吉富發票完整 meta 資料透過 WC_Order API 讀寫
+	 *
+	 * @testdox 驗證立吉富發票完整 meta 資料（載具、捐贈碼、統編、發票號碼）透過 WC_Order API 讀寫
 	 */
 	public function test_paynow_invoice_full_meta_via_order_api() {
 		$invoice_meta = [
@@ -242,6 +256,8 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 	 *
 	 * 規格：使用 $order->update_meta_data('wmp_shipping_no', 'TRACK001') + $order->save()，
 	 *       非使用 update_post_meta()。
+	 *
+	 * @testdox 驗證物流單號 meta 透過 WC_Order API 正確寫入
 	 */
 	public function test_shipping_tracking_meta_write_via_order_api() {
 		$meta_key   = 'wmp_shipping_no';
@@ -261,6 +277,8 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試綠界物流 meta 透過 WC_Order API 讀寫
+	 *
+	 * @testdox 驗證綠界物流 meta（單號、類型、門市代號）透過 WC_Order API 正確讀寫
 	 */
 	public function test_ecpay_shipping_meta_via_order_api() {
 		$shipping_meta = [
@@ -296,6 +314,8 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 	 *       非使用 delete_post_meta($subscription_id, '_schedule_cancelled')。
 	 *
 	 * 注意：在沒有 WC_Subscriptions 的環境中，使用一般訂單模擬此行為。
+	 *
+	 * @testdox 驗證訂閱 meta 透過物件 API delete_meta_data() 正確刪除
 	 */
 	public function test_subscription_meta_delete_via_object_api() {
 		// 在測試環境中模擬：使用訂單的 delete_meta_data 驗證 API 行為。
@@ -329,6 +349,8 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 	 *
 	 * 規格：管理員在訂閱編輯頁的發票管理 Metabox 中讀取或寫入發票欄位 meta，
 	 *       使用 $subscription->get_meta() / $subscription->update_meta_data()。
+	 *
+	 * @testdox 驗證訂閱發票 meta 透過物件 API 正確讀寫
 	 */
 	public function test_subscription_invoice_meta_via_object_api() {
 		$invoice_meta = [
@@ -361,6 +383,8 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 	 * 測試多個不同模組的 meta 在同一訂單上的寫入與讀取一致性
 	 *
 	 * 邊緣案例：同一訂單同時有金流、發票、物流 meta，確保不會互相覆蓋。
+	 *
+	 * @testdox 驗證多模組 meta（金流、發票、物流）在同一訂單上共存不互相覆蓋
 	 */
 	public function test_multiple_module_meta_coexistence() {
 		$all_meta = [
@@ -395,6 +419,8 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 	 * 測試 meta 值覆寫行為正確
 	 *
 	 * 邊緣案例：同一 meta key 被更新多次，只保留最後一次的值。
+	 *
+	 * @testdox 驗證同一 meta key 多次更新後只保留最後一次的值
 	 */
 	public function test_meta_overwrite_keeps_latest_value() {
 		$meta_key = '_paynow_tran_no';
@@ -417,6 +443,47 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 	}
 
 	// ========================================================================
+	// Rule: 掃描測試 — 確認 Compatibility.php 中 _paynow_ei_* meta key 存在
+	// ========================================================================
+
+	/**
+	 * 掃描測試：確認 Compatibility.php 中 _paynow_ei_* meta key 存在
+	 *
+	 * 驗證 Compatibility.php 的 delete_post_meta() 方法中包含
+	 * _paynow_ei_* 系列 meta key 的靜態程式碼定義。
+	 *
+	 * @testdox 掃描確認 Compatibility.php 中定義 _paynow_ei_* meta key
+	 */
+	public function test_paynow_ei_meta_keys_exist_in_compatibility() {
+		$plugin_dir = defined( 'WOOMP_PLUGIN_DIR' ) ? WOOMP_PLUGIN_DIR : dirname( dirname( dirname( __DIR__ ) ) ) . '/';
+
+		$compatibility_file = $plugin_dir . 'Compatibility.php';
+
+		if ( ! file_exists( $compatibility_file ) ) {
+			$this->markTestSkipped( 'Compatibility.php 檔案不存在' );
+		}
+
+		$content = file_get_contents( $compatibility_file );
+
+		$expected_meta_keys = [
+			'_paynow_ei_issue_type',
+			'_paynow_ei_carrier_type',
+			'_paynow_ei_buyer_name',
+			'_paynow_ei_ubn',
+			'_paynow_ei_carrier_num',
+			'_paynow_ei_donate_org',
+		];
+
+		foreach ( $expected_meta_keys as $meta_key ) {
+			$this->assertStringContainsString(
+				$meta_key,
+				$content,
+				"Compatibility.php 應包含 meta key: {$meta_key}"
+			);
+		}
+	}
+
+	// ========================================================================
 	// Rule: 掃描測試 — 確認全專案無 get_post_meta 用於訂單 context
 	// ========================================================================
 
@@ -429,6 +496,8 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 	 *
 	 * 排除目錄：vendor/、tests/、payuni/v3/（已 HPOS 相容）
 	 * 排除情境：商品 (product) context 的 meta 操作（不受 HPOS 影響）
+	 *
+	 * @testdox 掃描確認全專案無 post meta 函式用於訂單 context
 	 */
 	public function test_no_post_meta_functions_for_order_context() {
 		$plugin_dir = defined( 'WOOMP_PLUGIN_DIR' ) ? WOOMP_PLUGIN_DIR : dirname( dirname( dirname( __DIR__ ) ) ) . '/';
@@ -552,6 +621,8 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 	 *
 	 * 邊緣案例：除了 PHP 函式外，也要檢查是否有直接 SQL 操作 postmeta 表。
 	 * 排除：Compatibility.php 和 class.ry-wt.update.php（已決定保留不動）。
+	 *
+	 * @testdox 掃描確認全專案無直接 SQL 操作訂單 postmeta 表
 	 */
 	public function test_no_direct_sql_for_order_meta() {
 		$plugin_dir = defined( 'WOOMP_PLUGIN_DIR' ) ? WOOMP_PLUGIN_DIR : dirname( dirname( dirname( __DIR__ ) ) ) . '/';

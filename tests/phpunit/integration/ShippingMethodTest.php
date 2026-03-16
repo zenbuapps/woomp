@@ -33,6 +33,8 @@ class ShippingMethodTest extends WP_UnitTestCase {
 	 * 測試立吉富物流方式已註冊
 	 *
 	 * 驗證 WooCommerce 物流方式清單中包含立吉富物流。
+	 *
+	 * @testdox 檢查立吉富物流方式註冊狀態
 	 */
 	public function test_paynow_shipping_methods_registered() {
 		$shipping_methods = WC()->shipping()->get_shipping_methods();
@@ -59,6 +61,8 @@ class ShippingMethodTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試超商取貨物流具有正確的運送區域
+	 *
+	 * @testdox 驗證可建立台灣運送區域供超商取貨使用
 	 */
 	public function test_cvs_shipping_has_correct_zone() {
 		// 建立測試用運送區域。
@@ -84,6 +88,8 @@ class ShippingMethodTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試所有物流方式都繼承自 WC_Shipping_Method
+	 *
+	 * @testdox 確認所有已註冊物流方式都繼承自 WC_Shipping_Method
 	 */
 	public function test_shipping_method_extends_wc_shipping_method() {
 		$shipping_methods = WC()->shipping()->get_shipping_methods();

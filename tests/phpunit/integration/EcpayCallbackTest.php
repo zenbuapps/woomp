@@ -94,6 +94,8 @@ class EcpayCallbackTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試有效的 CheckMacValue 驗證
+	 *
+	 * @testdox 驗證綠界 CheckMacValue 產生格式正確且具有一致性
 	 */
 	public function test_check_mac_value_valid() {
 		$params = array(
@@ -125,6 +127,8 @@ class EcpayCallbackTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試無效的 CheckMacValue 回傳錯誤
+	 *
+	 * @testdox 驗證無效的 CheckMacValue 與有效值不相符
 	 */
 	public function test_check_mac_value_invalid_returns_error() {
 		$params = array(
@@ -145,6 +149,8 @@ class EcpayCallbackTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試信用卡回呼完成付款
+	 *
+	 * @testdox 驗證綠界信用卡回呼成功後訂單變為已付款狀態
 	 */
 	public function test_credit_callback_completes_payment() {
 		// 模擬信用卡付款成功回呼。
@@ -159,6 +165,8 @@ class EcpayCallbackTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試 ATM 回呼儲存銀行資訊
+	 *
+	 * @testdox 驗證綠界 ATM 回呼正確儲存銀行代碼與虛擬帳號
 	 */
 	public function test_atm_callback_stores_bank_info() {
 		$bank_code  = '012';
@@ -192,6 +200,8 @@ class EcpayCallbackTest extends WP_UnitTestCase {
 
 	/**
 	 * 測試失敗的回呼將訂單設為 failed 狀態
+	 *
+	 * @testdox 驗證綠界付款失敗回呼將訂單狀態設為 failed
 	 */
 	public function test_failed_callback_sets_failed_status() {
 		$this->order->update_status( 'failed', '綠界回報付款失敗' );

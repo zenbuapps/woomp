@@ -29,6 +29,8 @@ class SettingsPersistenceTest extends WP_UnitTestCase {
 	 * 測試設定值的儲存與讀取往返
 	 *
 	 * 驗證 update_option 後可透過 get_option 正確讀取。
+	 *
+	 * @testdox 驗證外掛設定值儲存後可正確讀取
 	 */
 	public function test_settings_save_and_retrieve() {
 		$test_settings = array(
@@ -67,6 +69,8 @@ class SettingsPersistenceTest extends WP_UnitTestCase {
 	 * 測試預設結帳模式
 	 *
 	 * 驗證未設定結帳模式時的預設值。
+	 *
+	 * @testdox 驗證未設定結帳模式時預設值為 default 且可更新
 	 */
 	public function test_default_checkout_mode() {
 		// 確保選項不存在。
