@@ -73,9 +73,16 @@ export async function setInputValue(page: Page, fieldId: string, value: string):
   await input.fill(value);
 }
 
-/** 點擊儲存按鈕並等待成功通知 */
+/** 點擊儲存按鈕並等待成功通知（若按鈕已 disabled 代表無變動，直接跳過）*/
 export async function saveSettings(page: Page): Promise<void> {
   const saveBtn = page.locator('.woocommerce-save-button, button[name="save"]').first();
+
+  // 若按鈕已 disabled（無任何變動），直接跳過儲存
+  const isDisabled = await saveBtn.isDisabled().catch(() => false);
+  if (isDisabled) {
+    return;
+  }
+
   await saveBtn.click();
   await page.waitForLoadState('networkidle');
 

@@ -93,6 +93,11 @@ export async function fillBillingFields(page: Page, overrides?: Partial<typeof B
   await setFieldValue(page, 'input[name="billing_phone"]', data.phone);
   await setFieldValue(page, SELECTORS.billingEmail, data.email);
   await setFieldValue(page, 'input[name="billing_email"]', data.email);
+
+  // 重置發票類型：避免前次測試殘留「手機條碼」等需要載具的類型，導致驗證失敗
+  // ecpay: 選項值為「雲端發票」、ezpay: 選項值為「雲端電子發票載具」
+  await setFieldValue(page, 'select[name="individual-invoice"]', '雲端發票');
+  await setFieldValue(page, 'select[name="ezpay-individual-invoice"]', '雲端電子發票載具');
 }
 
 /** 選擇 PayUni v3 信用卡付款方式，並等待 iframe 載入 */

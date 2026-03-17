@@ -16,7 +16,7 @@ test.describe('環境初始化 @setup', () => {
     await page.waitForLoadState('networkidle');
 
     // 確認頁面載入到正確的設定頁籤
-    await expect(page.locator('.nav-tab-active, .nav-tab-wrapper')).toBeAttached({ timeout: 10_000 });
+    await expect(page.locator('.nav-tab-wrapper').first()).toBeAttached({ timeout: 10_000 });
 
     // 使用 helper 啟用所有模組
     await enableAllModules(page);

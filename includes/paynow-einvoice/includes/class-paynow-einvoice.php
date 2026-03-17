@@ -772,7 +772,7 @@ class Paynow_Einvoice {
 			if ( ! $buyer_name || ! $buyer_ubn ) {
 				\wc_add_notice( __( 'Please input the company name and Unified Business NO', 'paynow-einvoice' ), 'error' );
 			}
-		} elseif ( $issue_type == 'b2c' && '' !== $_POST['paynow_ei_carrier_type'] ) {
+		} elseif ( $issue_type == 'b2c' && ! empty( $_POST['paynow_ei_carrier_type'] ) ) {
 			$carrier_num = $_POST['paynow_ei_carrier_num'];
 			if ( ! $carrier_num ) {
 				\wc_add_notice( __( 'Please input the carrier number', 'paynow-einvoice' ), 'error' );
