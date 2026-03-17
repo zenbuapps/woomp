@@ -1,6 +1,7 @@
 ---
 name: payuni-embed
 description: "PAYUNi UNi Embed 免跳轉支付元件開發參考。涵蓋 SDK 整合、API 規格、AES-256-GCM 加解密、信用卡記憶（Tokenization）、發票載具、分期付款。當開發、除錯或擴充 PAYUNi 支付功能時使用此 SKILL。"
+user-invocable: false
 ---
 
 # PAYUNi UNi Embed 免跳轉支付元件
@@ -63,38 +64,6 @@ sequenceDiagram
     Gateway->>Server: 14. 傳送交易NOTIFY
 ```
 
-```json
-{
-  "title": "免跳轉支付（3D 驗證）時序圖",
-  "participants": [
-    { "id": "Merchant", "label": "收款商店網頁" },
-    { "id": "Server", "label": "商店 Server" },
-    { "id": "SDK", "label": "PAYUNi SDK" },
-    { "id": "Gateway", "label": "統一金流" },
-    { "id": "Bank", "label": "收單銀行" }
-  ],
-  "steps": [
-    { "step": "1",    "from": "Server",   "to": "Gateway",  "label": "傳送商店資訊，取得交易TOKEN",          "type": "request" },
-    { "step": "2",    "from": "Gateway",  "to": "Server",   "label": "回傳交易TOKEN",                      "type": "response" },
-    { "step": "3",    "from": "Server",   "to": "Merchant", "label": "傳送交易TOKEN",                      "type": "request" },
-    { "step": "4",    "from": "Merchant", "to": "Server",   "label": "使用交易TOKEN 載入免跳轉SDK",          "type": "request" },
-    { "step": "5",    "from": "SDK",      "to": "Gateway",  "label": "驗證交易TOKEN",                      "type": "request" },
-    { "step": "6",    "from": "Gateway",  "to": "SDK",      "label": "回傳驗證結果",                        "type": "response" },
-    { "step": "7",    "from": "SDK",      "to": "Server",   "label": "顯示付款欄位",                        "type": "request" },
-    { "step": "8-1",  "from": "Merchant", "to": "Server",   "label": "輸入信用卡資訊",                      "type": "request" },
-    { "step": "8-2",  "from": "Server",   "to": "SDK",      "label": "回傳信用卡資訊，綁定TOKEN結果",         "type": "request" },
-    { "step": "9",    "from": "SDK",      "to": "Gateway",  "label": "使用相同TOKEN 進行幕後交易",           "type": "request" },
-    { "step": "10-1", "from": "Gateway",  "to": "SDK",      "label": "回傳3D驗證URL",                      "type": "response" },
-    { "step": "10-2", "from": "SDK",      "to": "Server",   "label": "接收3D驗證URL",                      "type": "request" },
-    { "step": "11",   "from": "Server",   "to": "Merchant", "label": "跳轉3D驗證頁面，進行3D驗證",           "type": "request", "note": "測試區無此步驟" },
-    { "step": "12",   "from": "Bank",     "to": "Gateway",  "label": "回傳付款結果",                        "type": "response" },
-    { "step": "13-1", "from": "Gateway",  "to": "SDK",      "label": "回傳付款結果",                        "type": "response" },
-    { "step": "13-2", "from": "Server",   "to": "Merchant", "label": "顯示付款結果",                        "type": "request" },
-    { "step": "14",   "from": "Gateway",  "to": "Server",   "label": "傳送交易NOTIFY",                     "type": "async" }
-  ]
-}
-```
-
 ### 免跳轉支付（非 3D）時序圖
 
 ```mermaid
@@ -120,36 +89,6 @@ sequenceDiagram
     Gateway-->>SDK: 12-1. 回傳付款結果
     Server->>Merchant: 12-2. 顯示付款結果
     Gateway->>Server: 13. 傳送交易NOTIFY
-```
-
-```json
-{
-  "title": "免跳轉支付（非 3D）時序圖",
-  "participants": [
-    { "id": "Merchant", "label": "收款商店網頁" },
-    { "id": "Server", "label": "商店 Server" },
-    { "id": "SDK", "label": "PAYUNi SDK" },
-    { "id": "Gateway", "label": "統一金流" },
-    { "id": "Bank", "label": "收單銀行" }
-  ],
-  "steps": [
-    { "step": "1",    "from": "Server",   "to": "Gateway",  "label": "傳送商店資訊，取得交易TOKEN",          "type": "request" },
-    { "step": "2",    "from": "Gateway",  "to": "Server",   "label": "回傳交易TOKEN",                      "type": "response" },
-    { "step": "3",    "from": "Server",   "to": "Merchant", "label": "傳送交易TOKEN",                      "type": "request" },
-    { "step": "4",    "from": "Merchant", "to": "Server",   "label": "使用交易TOKEN 載入免跳轉SDK",          "type": "request" },
-    { "step": "5",    "from": "SDK",      "to": "Gateway",  "label": "驗證交易TOKEN",                      "type": "request" },
-    { "step": "6",    "from": "Gateway",  "to": "SDK",      "label": "回傳驗證結果",                        "type": "response" },
-    { "step": "7",    "from": "SDK",      "to": "Server",   "label": "顯示付款欄位",                        "type": "request" },
-    { "step": "8-1",  "from": "Merchant", "to": "Server",   "label": "輸入信用卡資訊",                      "type": "request" },
-    { "step": "8-2",  "from": "Server",   "to": "SDK",      "label": "回傳信用卡資訊，綁定TOKEN結果",         "type": "request" },
-    { "step": "9",    "from": "SDK",      "to": "Gateway",  "label": "使用相同TOKEN 進行幕後交易",           "type": "request" },
-    { "step": "10",   "from": "Gateway",  "to": "Bank",     "label": "進行付款驗證",                        "type": "request" },
-    { "step": "11",   "from": "Bank",     "to": "Gateway",  "label": "回傳付款結果",                        "type": "response" },
-    { "step": "12-1", "from": "Gateway",  "to": "SDK",      "label": "回傳付款結果",                        "type": "response" },
-    { "step": "12-2", "from": "Server",   "to": "Merchant", "label": "顯示付款結果",                        "type": "request" },
-    { "step": "13",   "from": "Gateway",  "to": "Server",   "label": "傳送交易NOTIFY",                     "type": "async" }
-  ]
-}
 ```
 
 ## 環境 URLs

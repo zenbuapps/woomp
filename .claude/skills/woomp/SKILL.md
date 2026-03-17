@@ -1,6 +1,7 @@
 ---
 name: woomp
-description: WooCommerce 台灣在地化外掛開發指引，涵蓋 PayUni/綠界/藍新/立吉富金流、超商物流、電子發票整合架構與模組載入機制
+description: "Woomp WooCommerce 台灣在地化外掛開發指引。涵蓋 PayUni/綠界/藍新/立吉富金流、超商物流、電子發票整合架構與模組載入機制。開發、除錯或擴充 woomp 外掛任何模組時使用。"
+user-invocable: false
 ---
 
 # Woomp 開發指引 SKILL
@@ -401,7 +402,7 @@ PayUni v3 支援信用卡記憶卡號：
 
 ## E2E 測試（Playwright）
 
-### 設定（`e2e/playwright.config.ts`）
+### 設定（`tests/e2e/playwright.config.ts`）
 - **基本 URL**：`https://payuni-test.powerhouse.tw`（沙箱環境）
 - **瀏覽器**：Chromium，非無頭模式
 - **Workers**：1（序列執行，避免 PayUni 沙箱並發衝突）
@@ -417,7 +418,7 @@ PayUni v3 支援信用卡記憶卡號：
 
 ### 執行測試
 ```bash
-cd e2e
+cd tests/e2e
 npm install
 npx playwright test                          # 執行所有測試
 npx playwright test payuni-checkout.ts       # 執行特定測試
@@ -446,9 +447,9 @@ vendor/bin/phpcbf                    # 自動修正
 # 建置發佈用 ZIP
 npm run build                        # 使用 build.mjs 搭配 archiver
 
-# E2E 測試
-cd e2e && npx playwright test
-cd e2e && npx playwright test --ui   # 互動式 UI 模式
+# E2E 測試（詳細指令見 references/testing.md）
+cd tests/e2e && npx playwright test
+cd tests/e2e && npx playwright test --ui   # 互動式 UI 模式
 
 # 外掛更新
 # 透過 GitHub Releases 自動更新（master 分支）
@@ -468,3 +469,11 @@ cd e2e && npx playwright test --ui   # 互動式 UI 模式
 | ES6 模組系統 | 原生模組搭配 `type="module"` | `includes/payuni/v3/Applications/assets/js/` |
 | DTO 模式 | 型別化資料物件用於 API 通訊 | `includes/payuni/v3/Contracts/DTOs/` |
 | 模板覆寫 | `wc_get_template` 過濾器用於結帳頁 | `init.php` + `woocommerce/checkout/` |
+
+---
+
+## Reference 導航
+
+| 檔案 | 何時使用 |
+|------|---------|
+| [testing.md](references/testing.md) | 需要完整 PHPUnit testsuite / group 參數、E2E npm scripts 完整清單時 |
