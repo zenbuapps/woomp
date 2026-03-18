@@ -172,13 +172,12 @@ if ( ! class_exists( 'WooMP_Checkout' ) ) {
 		 */
 		public function field_validate( $fields, $errors ) {
 
-			// 確保國家欄位有啟用
-			if ( ! array_key_exists( 'shipping_country', $fields ) ) {
-				return;
-			}
+			// 台灣限定：優先使用 shipping_country，若為空（未勾選寄送到不同地址）則 fallback 至 billing_country
+			$shipping_country = $fields['shipping_country'] ?? '';
+			$billing_country  = $fields['billing_country'] ?? '';
+			$country          = ! empty( $shipping_country ) ? $shipping_country : $billing_country;
 
-			// 台灣限定
-			if ( 'TW' !== $fields['shipping_country'] ) {
+			if ( 'TW' !== $country ) {
 				return;
 			}
 
@@ -470,7 +469,7 @@ if ( get_option( 'wc_woomp_setting_mode', 1 ) === 'onepage' ) {
 	add_action( 'woocommerce_after_order_notes', [ $checkout, 'set_checkout_field' ] );
 }
 
-if ( 'yes' === get_option( 'wc_woomp_setting_tw_field_valitdate', 1 ) ) {
+if ( 'yes' === get_option( 'wc_woomp_setting_tw_field_valitdate', 'yes' ) ) {
 	add_action( 'woocommerce_after_checkout_validation', [ $checkout, 'field_validate' ], 10, 2 );
 }
 
@@ -478,7 +477,7 @@ if ( ! empty( get_option( ' wc_woomp_setting_place_order_text' ) ) ) {
 	add_filter( 'woocommerce_order_button_text', [ $checkout, 'custom_button_text' ], 99, 1 );
 }
 
-if ( 'yes' === \get_option( ' wc_woomp_setting_free_shipping_hint' ) ) {
+if ( 'yes' === \get_option( 'wc_woomp_setting_free_shipping_hint' ) ) {
 	\add_action( 'woocommerce_after_shipping_rate', [ $checkout, 'display_free_shipping_hint' ], 99, 2 );
 }
 

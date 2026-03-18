@@ -34,7 +34,7 @@ class PayNow_Payment_Order_Meta_Boxes {
 	public static function init() {
 		self::get_instance();
 
-		add_action( 'add_meta_boxes', [ self::get_instance(), 'paynow_add_meta_boxes' ] );
+		add_action( 'add_meta_boxes', [ self::get_instance(), 'paynow_add_meta_boxes' ], 10, 2 );
 	}
 
 	/**
