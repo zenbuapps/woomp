@@ -13,7 +13,7 @@ use J7\Payuni\Shared\Utils\EncryptUtils;
  * @see https://docs.payuni.com.tw/web/#/29/383
  */
 final class HttpClient {
-    
+
     /** @var array<string, string> 錯誤代碼, 訊息 */
     public static array $error_mapper = [
         "1000"       => "尚未設定連動相關 div ID (請參考 基本教學 中 Step 2 initOption 的 elements)",
@@ -34,14 +34,14 @@ final class HttpClient {
         "OBJ01005"   => "未有訂單資料",
         "OBJ01006"   => "未有任何支付工具可使用",
         'TOKEN00000' => '系統異常',
-        
+
         'TOKEN01001' => '未有商店代號',
         'TOKEN01002' => '資料 HASH 比對不符合',
         'TOKEN01003' => '資料解密失敗',
         'TOKEN01004' => '解密資料不存在',
         'TOKEN01005' => '查無符合商店(代理商)資料',
         'TOKEN01006' => '已存在相同商店訂單編號',
-        
+
         'TOKEN02000' => 'Token設定失敗',
         'TOKEN02001' => 'AesType，格式錯誤',
         'TOKEN02002' => '商店未有設定AesType',
@@ -79,7 +79,7 @@ final class HttpClient {
         'TOKEN02034' => '商店不提供捐贈發票選項',
         'TOKEN02035' => '此捐贈碼不在商店提供範圍內',
         'TOKEN02036' => '手機條碼不正確',
-        
+
         'TOKEN03001' => '未有商店資料',
         'TOKEN03002' => '確認支付工具異常',
         'TOKEN03003' => '商店資料異常',
@@ -88,9 +88,9 @@ final class HttpClient {
         'TOKEN03006' => '設定允許幕後IP不符合',
         'TOKEN03007' => '代理商未開啟撥款指示功能',
         'TOKEN03008' => '商店未提供約定信用卡交易',
-        
+
         'TOKEN04001' => '買方會員資料取得(驗證)失敗',
-        
+
         "IFTRADE00000" => "系統異常",
         "IFTRADE01001" => "未有商店代號",
         "IFTRADE01002" => "資料 HASH 比對不符合",
@@ -170,15 +170,15 @@ final class HttpClient {
         "API00009"     => "已有相同資料處理中",
         "API00010"     => "EncryptInfo 格式錯誤",
         "API00011"     => "HashInfo 格式錯誤",
-        
+
         "API01001" => "執行幕後3D，未有訂單編號",
         "API01002" => "執行幕後3D，未有暫存資訊",
         "API01003" => "執行幕後3D，已超過允許時間",
         "API01004" => "執行幕後3D，解析資料失敗",
-        
+
         "API02001" => "SamsungPay處理異常(RefID)",
         "API02002" => "SamsungPay處理異常(SendDT)",
-        
+
         "DEF01001" => "未有商店代號",
         "DEF01002" => "資料解密失敗",
         "DEF01003" => "代理商不存在",
@@ -187,17 +187,17 @@ final class HttpClient {
         "DEF01006" => "商店狀態不符合",
         "DEF01007" => "Hash比對不符合",
     ];
-    
+
     private const TIMEOUT = 60;
     private const USER_AGENT = 'payuni';
     private const VERSION = '3.0';
-    
+
     /** @var int 如使用代理商金鑰串接時，需增加請求參數 IsPlatForm=1 且與 MerID Version EncryptInfo HashInfo 同層 */
     private const IS_PLATFORM = 1;
-    
+
     /** Construct */
     public function __construct() {}
-    
+
     /**
      * 取得交易 SDK TOKEN
      *
@@ -224,23 +224,19 @@ final class HttpClient {
             ) ?: $current_user->user_email;
             $encrypt_info['CreditTokenType'] = 1;
         }
-        
-        
+
+
         return $this->post( '/iframe/token_get', $this->get_auth_body_params( $encrypt_info ) );
     }
-    
+
     #region 內部方法
-    
-    
+
+
     /** 取得 IFrameDomain，因為不能使用 .local 的本地網域  */
     private static function get_site_url(): string {
-        if( 'local' === \wp_get_environment_type() ) {
-            return 'https://payuni-test.powerhouse.tw';
-        }
-        
         return \untrailingslashit( \site_url() );
     }
-    
+
     /** 發起 Post 請求 */
     private function post( string $endpoint, array $request_body = [] ): array {
         try {
@@ -250,26 +246,26 @@ final class HttpClient {
                 'timeout'    => self::TIMEOUT,
                 'user-agent' => self::USER_AGENT,
             ];
-            
+
             $setting = SettingDTO::instance();
             $api_url = $setting->mode->base_api_url() . $endpoint;
-            
+
             $response = \wp_remote_post( $api_url, $options );
             if( \is_wp_error( $response ) ) {
                 throw new \Exception( $response->get_error_message() );
             }
             /** @var array<string, mixed>|array{code: int, msg: string} $response_body */
             $response_body = \json_decode( \wp_remote_retrieve_body( $response ), true );
-            
+
             \do_action( 'woomp_payuni_log', 'info', "{$endpoint} API 發送結果", [
                 'endpoint' => $api_url,
                 'body'     => $request_body,
                 'result'   => $response_body
             ] );
-            
-            
+
+
             self::ensure_response_success( $response_body );
-            
+
             return $response_body;
         }
         catch ( \Throwable $e ) {
@@ -277,25 +273,25 @@ final class HttpClient {
             throw $e;
         }
     }
-    
+
     /** 確保回應 OK */
     private static function ensure_response_success( array $result ): void {
         if( 'SUCCESS' !== $result['Status'] ) {
             throw new \Exception( self::get_error_msg( $result['Status'] ) );
         }
     }
-    
+
     /** 取得錯誤訊息 */
     private static function get_error_msg( string $code ): string {
         $msg = self::$error_mapper[$code] ?? null;
-        
+
         if( !$msg ) {
             return "{$code}: 未知錯誤";
         }
-        
+
         return "{$code}: {$msg}";
     }
-    
+
     /**
      * 取得加密請求體的方法
      *
@@ -315,9 +311,9 @@ final class HttpClient {
         $parameter['HashInfo'] = EncryptUtils::hash_info( $parameter['EncryptInfo'] );
         // $parameter['IsPlatForm'] = self::IS_PLATFORM;
         return $parameter;
-        
+
     }
-    
+
     /**
      * 查詢單筆交易狀態
      *
@@ -328,21 +324,21 @@ final class HttpClient {
      */
     public function query_trade( string $trade_no ): array {
         $setting = SettingDTO::instance();
-        
+
         $encrypt_info = [
             'MerID'     => $setting->merchant_id,
             'TradeNo'   => $trade_no,
             'Timestamp' => \time(),
         ];
-        
+
         $request_body            = $this->get_auth_body_params( $encrypt_info );
         $request_body['Version'] = '2.0';
-        
+
         $response = $this->post( '/api/trade/query', $request_body );
-        
+
         return EncryptUtils::decrypt( $response['EncryptInfo'] ?? '' );
     }
-    
+
     /**
      * 取消交易授權
      *
@@ -353,20 +349,20 @@ final class HttpClient {
      */
     public function cancel_trade( string $trade_no ): array {
         $setting = SettingDTO::instance();
-        
+
         $encrypt_info = [
             'MerID'     => $setting->merchant_id,
             'TradeNo'   => $trade_no,
             'Timestamp' => \time(),
         ];
-        
+
         $request_body = $this->get_auth_body_params( $encrypt_info );
-        
+
         $response = $this->post( '/api/trade/cancel', $request_body );
-        
+
         return EncryptUtils::decrypt( $response['EncryptInfo'] ?? '' );
     }
-    
+
     /**
      * 退款（請款取消）
      *
@@ -378,7 +374,7 @@ final class HttpClient {
      */
     public function refund( string $trade_no, int $amount ): array {
         $setting = SettingDTO::instance();
-        
+
         $encrypt_info = [
             'MerID'     => $setting->merchant_id,
             'TradeNo'   => $trade_no,
@@ -386,13 +382,13 @@ final class HttpClient {
             'Timestamp' => \time(),
             'CloseType' => 2,
         ];
-        
+
         $request_body = $this->get_auth_body_params( $encrypt_info );
-        
+
         $response = $this->post( '/api/trade/close', $request_body );
-        
+
         return EncryptUtils::decrypt( $response['EncryptInfo'] ?? '' );
     }
-    
+
     #endregion 內部方法
 }
