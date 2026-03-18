@@ -23,7 +23,7 @@ test.describe('Free Shipping Hint Labels @checkout @free-shipping-hint', () => {
 		}
 
 		// 啟用免運提示
-		await setSelectValue(page, 'wc_woomp_setting_free_shipping_hint', 'yes');
+		await toggleSetting(page, 'wc_woomp_setting_free_shipping_hint', 'yes');
 		await saveSettings(page);
 
 		// 加入單一低價商品到購物車（預期低於免運門檻）
@@ -87,7 +87,7 @@ test.describe('Free Shipping Hint Labels @checkout @free-shipping-hint', () => {
 		}
 
 		// 確保免運提示已啟用
-		await setSelectValue(page, 'wc_woomp_setting_free_shipping_hint', 'yes');
+		await toggleSetting(page, 'wc_woomp_setting_free_shipping_hint', 'yes');
 		await saveSettings(page);
 
 		// 加入多個商品到購物車以達到免運門檻

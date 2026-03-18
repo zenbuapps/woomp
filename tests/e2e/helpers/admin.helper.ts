@@ -1,16 +1,30 @@
 import { Page, expect } from '@playwright/test';
 import { loginAdmin } from './auth.helper';
 
-/** 前往後台訂單列表（HPOS 相容） */
+/** 前往後台訂單列表（HPOS 相容，自動偵測 HPOS 或傳統 post_type 模式） */
 export async function goToAdminOrders(page: Page): Promise<void> {
-  await page.goto('/wp-admin/admin.php?page=wc-orders');
-  await page.waitForLoadState('networkidle');
+  // 優先嘗試 HPOS 訂單列表 URL
+  await page.goto('/wp-admin/admin.php?page=wc-orders', { waitUntil: 'commit', timeout: 120_000 });
+
+  // 若被重導向到 Dashboard（page=wc-orders 不存在 → 表示未啟用 HPOS），
+  // 改用傳統訂單列表 URL（edit.php?post_type=shop_order）
+  const currentUrl = page.url();
+  const isOnDashboard =
+    currentUrl.includes('/wp-admin/index.php') ||
+    currentUrl.endsWith('/wp-admin/') ||
+    (!currentUrl.includes('wc-orders') && !currentUrl.includes('shop_order'));
+
+  if (isOnDashboard) {
+    await page.goto('/wp-admin/edit.php?post_type=shop_order', { waitUntil: 'commit', timeout: 120_000 });
+  }
+
+  await page.waitForSelector('table.wp-list-table, .wc-orders-list-table, #the-list, .no-items', { timeout: 60_000 });
 }
 
 /** 前往特定訂單的後台編輯頁（HPOS 相容） */
 export async function goToAdminOrder(page: Page, orderId: string): Promise<void> {
-  await page.goto(`/wp-admin/admin.php?page=wc-orders&action=edit&id=${orderId}`);
-  await page.waitForLoadState('networkidle');
+  await page.goto(`/wp-admin/admin.php?page=wc-orders&action=edit&id=${orderId}`, { waitUntil: 'commit', timeout: 120_000 });
+  await page.waitForSelector('#order_status, .wc-order-status, .order_status', { timeout: 60_000 });
 }
 
 /** 從 order-received URL 擷取訂單 ID */

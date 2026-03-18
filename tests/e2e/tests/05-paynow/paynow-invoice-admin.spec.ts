@@ -37,10 +37,10 @@ test.describe('PayNow 電子發票後台管理', () => {
 			await orderLinkAlt.click();
 		}
 
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 驗證電子發票 metabox 存在
-		const invoiceExists = await verifyInvoiceMetaboxExists(page);
+		const invoiceExists = await verifyInvoiceMetaboxExists(page, 'paynow');
 
 		// 若此訂單非使用 PayNow 付款則可能沒有發票 metabox
 		test.skip(!invoiceExists, '此訂單可能非 PayNow 付款或發票模組未啟用，跳過');
@@ -68,10 +68,10 @@ test.describe('PayNow 電子發票後台管理', () => {
 			await orderLinkAlt.click();
 		}
 
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 檢查發票 metabox 是否存在
-		const invoiceExists = await verifyInvoiceMetaboxExists(page);
+		const invoiceExists = await verifyInvoiceMetaboxExists(page, 'paynow');
 		test.skip(!invoiceExists, '發票 metabox 不存在，跳過開立發票按鈕測試');
 
 		// 檢查開立發票按鈕

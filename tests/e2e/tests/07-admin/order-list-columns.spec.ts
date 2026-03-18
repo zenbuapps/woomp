@@ -18,7 +18,7 @@ test.describe('後台訂單列表自訂欄位', () => {
 
 	test('訂單列表應有自訂欄位', async ({ page }) => {
 		await goToAdminOrders(page);
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 檢查表頭欄位
 		const headerRow = page.locator('table.wp-list-table thead tr').first();
@@ -47,7 +47,7 @@ test.describe('後台訂單列表自訂欄位', () => {
 
 	test('付款方式欄位應顯示閘道名稱', async ({ page }) => {
 		await goToAdminOrders(page);
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 檢查是否有訂單資料
 		const orderRows = page.locator('table.wp-list-table tbody tr').filter({
@@ -97,7 +97,7 @@ test.describe('後台訂單列表自訂欄位', () => {
 
 	test('欄位排序功能應正常運作', async ({ page }) => {
 		await goToAdminOrders(page);
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 檢查是否有可排序的欄位
 		const sortableColumns = page.locator(
@@ -118,7 +118,7 @@ test.describe('後台訂單列表自訂欄位', () => {
 
 			// 點擊排序
 			await sortLink.click();
-			await page.waitForLoadState('domcontentloaded');
+			await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 			// 驗證 URL 包含排序參數
 			const newUrl = page.url();

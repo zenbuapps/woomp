@@ -17,7 +17,6 @@ test.describe('ECPay 電子發票後台 @ecpay @invoice @admin', () => {
     // 取得第一筆訂單的 ID
     if (!testOrderId) {
       await goToAdminOrders(page);
-      await page.waitForLoadState('networkidle');
 
       // HPOS 格式的訂單連結
       const orderLink = page.locator(

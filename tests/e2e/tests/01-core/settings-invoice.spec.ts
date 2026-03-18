@@ -15,8 +15,8 @@ test.describe('電子發票設定子頁籤 @settings @core', () => {
 
   test('電子發票設定頁預設導向 ECPay 區段 @P0', async ({ page }) => {
     // 直接前往電子發票設定（不帶 section 參數）
-    await page.goto(ADMIN_URLS.woompInvoice);
-    await page.waitForLoadState('networkidle');
+    await page.goto(ADMIN_URLS.woompInvoice, { waitUntil: 'commit', timeout: 120_000 });
+    await page.waitForSelector('.nav-tab-wrapper, #woocommerce-settings-form, .subsubsub', { timeout: 60_000 });
 
     // 應在電子發票設定頁面
     const currentUrl = page.url();

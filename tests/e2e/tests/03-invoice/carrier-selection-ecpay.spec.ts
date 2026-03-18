@@ -115,8 +115,10 @@ test.describe('ECPay 發票載具選擇 UI @invoice @ecpay', () => {
     await carrierSelect.selectOption({ label: ECPAY_CARRIER_TYPES.donate.label });
     await page.waitForTimeout(500);
 
-    // 驗證捐贈碼（愛心碼）輸入框出現
+    // 驗證捐贈碼（愛心碼）欄位出現
+    // woomp ECPay invoice 使用 #donate-number_field 作為捐贈碼欄位 wrapper，#donate-number 為 selectWoo 隱藏 select
     const loveCodeInput = page.locator(
+      '#donate-number_field, #donate-number, select[name="donate-number"], input[name="donate-number"], ' +
       'input.ecpay-love-code, input[name*="ecpay"][name*="love_code"], input[name*="ecpay"][name*="donate"]'
     ).first();
 

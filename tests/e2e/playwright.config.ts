@@ -1,12 +1,14 @@
 import { defineConfig, devices } from '@playwright/test';
 import * as dotenv from 'dotenv';
+import * as path from 'path';
 
-dotenv.config();
+// 從專案根目錄讀取 .env（不論從哪個目錄執行 playwright）
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 export default defineConfig({
   testDir: './tests',
-  timeout: 120_000,
-  expect: { timeout: 10_000 },
+  timeout: 300_000,       // 5 分鐘：WC admin 頁面含 Query Monitor 需大量 DB 查詢
+  expect: { timeout: 15_000 },
   fullyParallel: false,
   workers: 1,
   retries: 1,
@@ -15,12 +17,13 @@ export default defineConfig({
     ['list'],
   ],
   use: {
-    baseURL: process.env.BASE_URL || 'https://payuni-test.powerhouse.tw',
+    baseURL: process.env.TEST_SITE_URL || 'https://payuni-test.powerhouse.tw',
     headless: process.env.CI === 'true',
     screenshot: 'only-on-failure',
     trace: 'on-first-retry',
-    actionTimeout: 15_000,
-    navigationTimeout: 30_000,
+    ignoreHTTPSErrors: true,    // Local by Flywheel 自簽憑證
+    actionTimeout: 30_000,
+    navigationTimeout: 120_000,  // 2 分鐘：WC settings 頁面 PHP 執行極慢
   },
   projects: [
     // 原有 PayUni Embed 測試（A-checkout ~ H-sdk）

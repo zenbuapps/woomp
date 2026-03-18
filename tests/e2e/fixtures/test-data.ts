@@ -4,8 +4,8 @@
  */
 
 export const CREDENTIALS = {
-  username: process.env.WP_USERNAME || 'test',
-  password: process.env.WP_PASSWORD || 'test',
+  username: process.env.TEST_USERNAME || 'test',
+  password: process.env.TEST_PASSWORD || 'test',
 };
 
 export const PRODUCT = {

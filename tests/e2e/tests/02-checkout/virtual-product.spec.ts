@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { CREDENTIALS, PRODUCT, BILLING, SELECTORS, URLS } from '../../fixtures/test-data';
 import { ADMIN_URLS } from '../../fixtures/admin-urls';
 import { ensureLoggedIn, loginAdmin } from '../../helpers/auth.helper';
-import { addToCartAndCheckout, addProductToCart, goToCheckout } from '../../helpers/cart.helper';
+import { addToCartAndCheckout, addProductToCart, goToCheckout, clearCart } from '../../helpers/cart.helper';
 import { fillBillingFields, clickPlaceOrder, waitForCheckoutUpdate, verifyOrderReceived } from '../../helpers/checkout.helper';
 import { goToWoompSettings, toggleSetting, saveSettings, setSelectValue, setInputValue } from '../../helpers/settings.helper';
 
@@ -23,13 +23,13 @@ test.describe('Virtual Product Checkout @checkout @virtual-product', () => {
 			return;
 		}
 
-		await setSelectValue(page, 'wc_woomp_setting_virtual_product_address', 'yes');
+		await toggleSetting(page, 'wc_woomp_setting_virtual_product_address', 'yes');
 		await saveSettings(page);
 
 		// 嘗試將虛擬商品加入購物車
 		// 先尋找虛擬商品（通常 URL 含有特定 product slug 或 ID）
-		await page.goto(URLS.SHOP || `${page.url().split('/wp-admin')[0]}/shop/`);
-		await page.waitForLoadState('networkidle');
+		await page.goto(URLS.shop || `${page.url().split('/wp-admin')[0]}/shop/`, { waitUntil: 'commit' });
+		await page.waitForLoadState('load', { timeout: 60_000 });
 
 		// 尋找有虛擬商品標記的商品，或嘗試使用已知的虛擬商品
 		// 虛擬商品通常不會顯示在一般商品列表中有特殊標記
@@ -54,10 +54,13 @@ test.describe('Virtual Product Checkout @checkout @virtual-product', () => {
 			return;
 		}
 
+		// 加入虛擬商品前先清空購物車（避免前一個測試遺留的實體商品干擾）
+		await clearCart(page);
+
 		// 使用 WC 加入購物車 URL 直接加入虛擬商品
-		const baseUrl = page.url().split('/wp-admin')[0];
-		await page.goto(`${baseUrl}?add-to-cart=${virtualProductResponse.id}`);
-		await page.waitForLoadState('networkidle');
+		const baseUrl = page.url().split('/cart')[0].split('/wp-admin')[0];
+		await page.goto(`${baseUrl}?add-to-cart=${virtualProductResponse.id}`, { waitUntil: 'commit' });
+		await page.waitForLoadState('load', { timeout: 60_000 });
 
 		// 前往結帳頁
 		await goToCheckout(page);

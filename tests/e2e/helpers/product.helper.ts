@@ -7,21 +7,23 @@ import { ADMIN_URLS } from '../fixtures/admin-urls';
  */
 
 /** 前往商品頁面 */
-export async function goToProduct(page: Page, productId: number | string): Promise<void> {
-  await page.goto(`/?p=${productId}`);
-  await page.waitForLoadState('networkidle');
+export async function goToProduct(page: Page, productId?: number | string): Promise<void> {
+  const url = productId != null ? `/?p=${productId}` : '/shop/';
+  await page.goto(url, { waitUntil: 'commit' });
+  await page.waitForLoadState('load', { timeout: 60_000 });
 }
 
 /** 前往商品編輯頁面 (後台) */
 export async function goToProductEdit(page: Page, productId: number | string): Promise<void> {
-  await page.goto(ADMIN_URLS.productEdit(productId));
-  await page.waitForLoadState('networkidle');
+  // 使用 commit 避免 admin 頁面因 Query Monitor 背景請求導致 networkidle 無法達成
+  await page.goto(ADMIN_URLS.productEdit(productId), { waitUntil: 'commit', timeout: 120_000 });
+  await page.waitForSelector('#woocommerce-product-data, .postbox, #post', { timeout: 60_000 });
 }
 
 /** 前往商品列表 (前台) */
 export async function goToShop(page: Page): Promise<void> {
-  await page.goto('/shop/');
-  await page.waitForLoadState('networkidle');
+  await page.goto('/shop/', { waitUntil: 'commit' });
+  await page.waitForLoadState('load', { timeout: 60_000 });
 }
 
 /** 驗證可變商品的屬性類型選擇器 (後台) */
@@ -53,7 +55,7 @@ export async function verifyVariationRadioUI(page: Page): Promise<boolean> {
 }
 
 /** 在前台選擇特定的商品變體 */
-export async function selectVariation(page: Page, attributeName: string, value: string): Promise<void> {
+export async function selectVariation(page: Page, attributeName?: string, value?: string): Promise<void> {
   // 嘗試 select 下拉 (原版 WC)
   const select = page.locator(`select#${attributeName}, select[name="attribute_${attributeName}"]`);
   if (await select.isVisible().catch(() => false)) {

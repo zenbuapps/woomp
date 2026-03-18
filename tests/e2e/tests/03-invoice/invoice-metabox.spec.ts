@@ -18,7 +18,6 @@ test.describe('發票 Metabox 後台 UI @invoice @admin', () => {
     // 如果尚未取得訂單 ID，先到訂單列表取得第一筆
     if (!firstOrderId) {
       await goToAdminOrders(page);
-      await page.waitForLoadState('networkidle');
 
       // 嘗試取得第一筆訂單的連結（HPOS 格式）
       const orderLink = page.locator(

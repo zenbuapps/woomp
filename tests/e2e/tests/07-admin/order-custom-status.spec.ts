@@ -18,7 +18,7 @@ test.describe('自訂訂單狀態', () => {
 
 	test('訂單列表篩選應包含自訂狀態', async ({ page }) => {
 		await goToAdminOrders(page);
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 檢查訂單狀態篩選列（subsubsub）
 		const statusFilters = page.locator('ul.subsubsub li a, .wp-header-end ~ .subsubsub a');
@@ -52,7 +52,7 @@ test.describe('自訂訂單狀態', () => {
 
 	test('訂單詳情頁狀態下拉選單應包含自訂狀態', async ({ page }) => {
 		await goToAdminOrders(page);
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 取得第一筆訂單
 		const orderLink = page.locator(
@@ -74,7 +74,7 @@ test.describe('自訂訂單狀態', () => {
 		} else {
 			await orderLinkAlt.click();
 		}
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 尋找訂單狀態下拉選單
 		const statusSelect = page.locator(
@@ -120,7 +120,7 @@ test.describe('自訂訂單狀態', () => {
 
 	test('變更訂單為自訂狀態並儲存', async ({ page }) => {
 		await goToAdminOrders(page);
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 取得第一筆訂單
 		const orderLink = page.locator(
@@ -142,7 +142,7 @@ test.describe('自訂訂單狀態', () => {
 		} else {
 			await orderLinkAlt.click();
 		}
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 尋找訂單狀態下拉選單
 		const statusSelect = page.locator(
@@ -194,7 +194,7 @@ test.describe('自訂訂單狀態', () => {
 
 		if (hasUpdateButton) {
 			await updateButton.click();
-			await page.waitForLoadState('domcontentloaded');
+			await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 			// 驗證儲存成功（頁面不應有錯誤訊息）
 			const errorMessage = page.locator('.notice-error, .error');
@@ -219,7 +219,7 @@ test.describe('自訂訂單狀態', () => {
 				if (await statusSelectAgain.isVisible().catch(() => false)) {
 					await statusSelectAgain.selectOption(originalStatus);
 					await updateButton.click();
-					await page.waitForLoadState('domcontentloaded');
+					await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 				}
 			}
 		}

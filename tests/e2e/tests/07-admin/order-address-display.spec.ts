@@ -18,7 +18,7 @@ test.describe('訂單地址顯示', () => {
 
 	test('訂單詳情頁：帳單地址應正確顯示', async ({ page }) => {
 		await goToAdminOrders(page);
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 取得第一筆訂單
 		const orderLink = page.locator(
@@ -40,7 +40,7 @@ test.describe('訂單地址顯示', () => {
 		} else {
 			await orderLinkAlt.click();
 		}
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 檢查帳單地址區塊
 		const billingAddress = page.locator(
@@ -72,7 +72,7 @@ test.describe('訂單地址顯示', () => {
 
 	test('單行地址格式顯示（若已設定）', async ({ page }) => {
 		await goToAdminOrders(page);
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 取得第一筆訂單
 		const orderLink = page.locator(
@@ -94,7 +94,7 @@ test.describe('訂單地址顯示', () => {
 		} else {
 			await orderLinkAlt.click();
 		}
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 檢查帳單地址區塊的格式
 		// Woomp 的 wc_woomp_setting_one_line_address 設定會影響地址顯示格式
@@ -123,7 +123,7 @@ test.describe('訂單地址顯示', () => {
 
 	test('超商取貨訂單應顯示店舖資訊', async ({ page }) => {
 		await goToAdminOrders(page);
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 尋找可能的超商訂單（透過訂單列表中的物流標記）
 		const orderRows = page.locator('table.wp-list-table tbody tr').filter({
@@ -146,7 +146,7 @@ test.describe('訂單地址顯示', () => {
 		} else {
 			await orderLinkAlt.click();
 		}
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 檢查是否有超商取貨相關的資訊區塊
 		const cvsSelectors = [

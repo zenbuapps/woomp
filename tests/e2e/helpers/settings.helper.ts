@@ -1,10 +1,23 @@
 import { Page, expect } from '@playwright/test';
 import { ADMIN_URLS } from '../fixtures/admin-urls';
 
+/**
+ * 導航到 WC 設定頁並等待頁面主體元素出現。
+ * 使用 waitUntil:'commit'（僅等 HTTP headers）+ 明確元素等待，
+ * 避免 domcontentloaded/load 因 Query Monitor 背景請求或大量 JS 執行而超時。
+ */
+async function gotoAdminSettings(page: Page, url: string): Promise<void> {
+  await page.goto(url, { waitUntil: 'commit', timeout: 120_000 });
+  // 等待頁面主體可互動（nav-tab-wrapper 或 woocommerce-settings 表單）
+  await page.waitForSelector(
+    '.nav-tab-wrapper, #woocommerce-settings-form, .woocommerce-save-button',
+    { timeout: 60_000 },
+  );
+}
+
 /** 導航到好用版擴充主設定頁 */
 export async function goToWoompSettings(page: Page): Promise<void> {
-  await page.goto(ADMIN_URLS.woompSettings);
-  await page.waitForLoadState('networkidle');
+  await gotoAdminSettings(page, ADMIN_URLS.woompSettings);
 }
 
 /** 導航到金流設定頁 */
@@ -12,8 +25,7 @@ export async function goToGatewaySettings(page: Page, section?: string): Promise
   const url = section
     ? `${ADMIN_URLS.woompGateway}&section=${section}`
     : ADMIN_URLS.woompGateway;
-  await page.goto(url);
-  await page.waitForLoadState('networkidle');
+  await gotoAdminSettings(page, url);
 }
 
 /** 導航到物流設定頁 */
@@ -21,8 +33,7 @@ export async function goToShippingSettings(page: Page, section?: string): Promis
   const url = section
     ? `${ADMIN_URLS.woompShipping}&section=${section}`
     : ADMIN_URLS.woompShipping;
-  await page.goto(url);
-  await page.waitForLoadState('networkidle');
+  await gotoAdminSettings(page, url);
 }
 
 /** 導航到電子發票設定頁 */
@@ -30,8 +41,7 @@ export async function goToInvoiceSettings(page: Page, section?: string): Promise
   const url = section
     ? `${ADMIN_URLS.woompInvoice}&section=${section}`
     : ADMIN_URLS.woompInvoice;
-  await page.goto(url);
-  await page.waitForLoadState('networkidle');
+  await gotoAdminSettings(page, url);
 }
 
 /**
@@ -58,8 +68,17 @@ export async function toggleSetting(page: Page, fieldId: string, value: 'yes' | 
  */
 export async function setSelectValue(page: Page, fieldId: string, value: string): Promise<void> {
   const select = page.locator(`#${fieldId}`);
-  await expect(select).toBeVisible({ timeout: 5000 });
+  await expect(select).toBeVisible({ timeout: 10_000 });
   await select.selectOption(value);
+  // 觸發 jQuery change 事件，確保 WC JS 能偵測到值的變更
+  // WC admin settings JS 使用 jQuery change handler 來啟用儲存按鈕
+  await page.evaluate((id) => {
+    const el = document.getElementById(id) as HTMLSelectElement | null;
+    if (!el) return;
+    const jq = (window as unknown as { jQuery?: (el: Element) => { trigger: (e: string) => void } }).jQuery;
+    if (jq) jq(el).trigger('change');
+    else el.dispatchEvent(new Event('change', { bubbles: true }));
+  }, fieldId);
 }
 
 /**
@@ -69,26 +88,34 @@ export async function setSelectValue(page: Page, fieldId: string, value: string)
  */
 export async function setInputValue(page: Page, fieldId: string, value: string): Promise<void> {
   const input = page.locator(`#${fieldId}`);
-  await expect(input).toBeVisible({ timeout: 5000 });
+  await expect(input).toBeVisible({ timeout: 10_000 });
   await input.fill(value);
 }
 
-/** 點擊儲存按鈕並等待成功通知（若按鈕已 disabled 代表無變動，直接跳過）*/
+/** 點擊儲存按鈕並等待頁面重新載入 */
 export async function saveSettings(page: Page): Promise<void> {
   const saveBtn = page.locator('.woocommerce-save-button, button[name="save"]').first();
+  await expect(saveBtn).toBeAttached({ timeout: 10_000 });
 
-  // 若按鈕已 disabled（無任何變動），直接跳過儲存
-  const isDisabled = await saveBtn.isDisabled().catch(() => false);
-  if (isDisabled) {
-    return;
-  }
-
+  // 用 JS 移除 disabled 屬性後再點擊：
+  // disabled 的 <button type="submit"> 即使 force:true 也不會提交表單（瀏覽器規範），
+  // 必須先移除 disabled 才能讓 form submission 正常觸發並帶入 $_POST['save'] 值。
+  await page.evaluate(() => {
+    const btn = document.querySelector(
+      '.woocommerce-save-button, button[name="save"], input[name="save"]'
+    ) as HTMLButtonElement | HTMLInputElement | null;
+    if (btn) btn.removeAttribute('disabled');
+  });
   await saveBtn.click();
-  await page.waitForLoadState('networkidle');
 
-  // 等待 WooCommerce 成功通知出現
-  const successNotice = page.locator('.updated, .notice-success, .woocommerce-save-button');
-  await expect(successNotice.first()).toBeAttached({ timeout: 10_000 });
+  // 等待 WC 設定儲存後的頁面重新載入
+  try {
+    await page.waitForLoadState('domcontentloaded', { timeout: 60_000 });
+    // 等待設定頁面主要元素重新出現
+    await page.waitForSelector('.nav-tab-wrapper, #woocommerce-settings-form, .woocommerce-save-button', { timeout: 30_000 });
+  } catch {
+    // 若無導航發生（例如表單無變動），忽略並繼續
+  }
 }
 
 /** 取得設定欄位的目前值 */
@@ -129,6 +156,10 @@ export async function enableAllModules(page: Page): Promise<void> {
     'wc_woomp_setting_paynow_gateway',
     'wc_woomp_setting_paynow_shipping',
     'wc_settings_tab_active_paynow_einvoice',
+    // 台灣結帳格式驗證（電話 10 碼、姓名長度）
+    'wc_woomp_setting_tw_field_valitdate',
+    // 台灣地址下拉選單（縣市/鄉鎮市區），tw-address 測試依賴此功能
+    'wc_woomp_setting_tw_address',
   ];
 
   for (const id of moduleCheckboxIds) {

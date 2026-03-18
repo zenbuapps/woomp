@@ -18,7 +18,7 @@ test.describe('訂單批次操作', () => {
 
 	test('批次操作下拉選單應有自訂選項', async ({ page }) => {
 		await goToAdminOrders(page);
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 尋找批次操作下拉選單
 		const bulkActionSelect = page.locator(
@@ -75,7 +75,7 @@ test.describe('訂單批次操作', () => {
 
 	test('列印相關批次操作應存在（若已啟用）', async ({ page }) => {
 		await goToAdminOrders(page);
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 		// 尋找批次操作下拉選單
 		const bulkActionSelect = page.locator(

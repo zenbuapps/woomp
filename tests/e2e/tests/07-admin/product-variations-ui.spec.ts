@@ -18,8 +18,9 @@ test.describe('後台商品變化款式 UI', () => {
 	test('前往可變商品編輯頁', async ({ page }) => {
 		// 前往商品列表頁
 		await page.goto('/wp-admin/edit.php?post_type=product', {
-			waitUntil: 'domcontentloaded',
+			waitUntil: 'commit',
 		});
+		await page.waitForSelector('table.wp-list-table, .no-items, #message', { timeout: 30_000 }).catch(() => {});
 
 		// 尋找可變商品（Variable product）
 		// 可能有 "可變" 或 "variable" 標記
@@ -44,7 +45,7 @@ test.describe('後台商品變化款式 UI', () => {
 				);
 				if (await filterButton.isVisible().catch(() => false)) {
 					await filterButton.click();
-					await page.waitForLoadState('domcontentloaded');
+					await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 				}
 			}
 		}
@@ -59,19 +60,25 @@ test.describe('後台商品變化款式 UI', () => {
 
 		// 點擊進入商品編輯頁
 		await productLink.click();
-		await page.waitForLoadState('domcontentloaded');
+		// 等待商品資料面板或任一可靠的產品頁面元素（WC 商品頁 JS 很慢）
+		await page.waitForSelector(
+			'#woocommerce-product-data, a[href="#general_product_data"], ul.wc-tabs, #post-body, h1.wp-heading-inline',
+			{ timeout: 60_000 }
+		).catch(() => {});
 
-		// 驗證是商品編輯頁
-		const productDataMetabox = page.locator('#woocommerce-product-data, .product_data');
-		const hasMetabox = await productDataMetabox.isVisible().catch(() => false);
-		expect(hasMetabox, '應在商品編輯頁面').toBeTruthy();
+		// 驗證是商品編輯頁（使用更廣泛的 selector 避免 WC 版本差異）
+		const isOnProductPage = await page.locator(
+			'#woocommerce-product-data, a[href="#general_product_data"], ul.wc-tabs, h1:has-text("Edit product"), h1:has-text("Add new product")'
+		).first().isVisible({ timeout: 30_000 }).catch(() => false);
+		expect(isOnProductPage, '應在商品編輯頁面').toBeTruthy();
 	});
 
 	test('Woomp 變化款式 UI 功能檢查', async ({ page }) => {
 		// 前往商品列表頁
 		await page.goto('/wp-admin/edit.php?post_type=product', {
-			waitUntil: 'domcontentloaded',
+			waitUntil: 'commit',
 		});
+		await page.waitForSelector('table.wp-list-table, .no-items, #message', { timeout: 30_000 }).catch(() => {});
 
 		// 篩選可變商品
 		const productTypeFilter = page.locator(
@@ -100,7 +107,7 @@ test.describe('後台商品變化款式 UI', () => {
 				);
 				if (await filterButton.isVisible().catch(() => false)) {
 					await filterButton.click();
-					await page.waitForLoadState('domcontentloaded');
+					await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 				}
 			}
 		}
@@ -114,7 +121,7 @@ test.describe('後台商品變化款式 UI', () => {
 		test.skip(!hasProduct, '找不到可變商品，跳過此測試');
 
 		await productLink.click();
-		await page.waitForLoadState('domcontentloaded');
+		await page.waitForSelector('#woocommerce-product-data, .product_data, select#product-type', { timeout: 30_000 }).catch(() => {});
 
 		// 檢查是否為可變商品
 		const productTypeSelect = page.locator('select#product-type');
@@ -130,7 +137,7 @@ test.describe('後台商品變化款式 UI', () => {
 
 		if (hasAttributesTab) {
 			await attributesTab.click();
-			await page.waitForLoadState('domcontentloaded');
+			await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 			// 檢查 Woomp 是否有新增屬性類型選擇器
 			// Woomp 可能提供 color, image, button 等屬性顯示類型
@@ -160,7 +167,7 @@ test.describe('後台商品變化款式 UI', () => {
 
 		if (hasVariationsTab) {
 			await variationsTab.click();
-			await page.waitForLoadState('domcontentloaded');
+			await page.waitForLoadState('domcontentloaded', { timeout: 15_000 }).catch(() => {});
 
 			// 檢查變化款式列表
 			const variations = page.locator(
@@ -174,8 +181,9 @@ test.describe('後台商品變化款式 UI', () => {
 	test('屬性類型選擇器選項檢查', async ({ page }) => {
 		// 前往 WooCommerce 屬性管理頁面
 		await page.goto('/wp-admin/edit.php?post_type=product&page=product_attributes', {
-			waitUntil: 'domcontentloaded',
+			waitUntil: 'commit',
 		});
+		await page.waitForSelector('table.widefat, table.wp-list-table, #attribute_type, .wrap h1', { timeout: 30_000 }).catch(() => {});
 
 		// 檢查屬性列表
 		const attributeTable = page.locator('table.widefat, table.wp-list-table');

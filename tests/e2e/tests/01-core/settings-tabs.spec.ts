@@ -9,8 +9,8 @@ test.describe('設定頁籤結構 @settings @core', () => {
   });
 
   test('WooCommerce 設定頁有好用版擴充相關頁籤 @P0', async ({ page }) => {
-    await page.goto(ADMIN_URLS.wcSettings);
-    await page.waitForLoadState('networkidle');
+    await page.goto(ADMIN_URLS.wcSettings, { waitUntil: 'commit', timeout: 120_000 });
+    await page.waitForSelector('.nav-tab-wrapper, #woocommerce-settings-form', { timeout: 60_000 });
 
     // 驗證 WooCommerce 設定頁有四個好用版擴充相關頁籤
     const expectedTabs = ['好用版擴充', '金流設定', '物流設定', '電子發票設定'];
@@ -26,8 +26,8 @@ test.describe('設定頁籤結構 @settings @core', () => {
 
   test('WooCommerce 子選單有好用版擴充設定連結 @P1', async ({ page }) => {
     // 前往 WooCommerce admin 頁面，展開左側選單
-    await page.goto('/wp-admin/admin.php?page=wc-admin');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/wp-admin/admin.php?page=wc-admin', { waitUntil: 'commit', timeout: 120_000 });
+    await page.waitForSelector('#toplevel_page_woocommerce, #adminmenu', { timeout: 60_000 });
 
     // WooCommerce 子選單中應包含「設定」連結
     const wcSubmenu = page.locator('#toplevel_page_woocommerce .wp-submenu');
@@ -39,8 +39,8 @@ test.describe('設定頁籤結構 @settings @core', () => {
   });
 
   test('外掛列表頁有 Settings/金流/物流/發票 快捷連結 @P1', async ({ page }) => {
-    await page.goto(ADMIN_URLS.plugins);
-    await page.waitForLoadState('networkidle');
+    await page.goto(ADMIN_URLS.plugins, { waitUntil: 'commit', timeout: 120_000 });
+    await page.waitForSelector('#the-list, .plugins-php', { timeout: 60_000 });
 
     // 找到 woomp 外掛列（透過外掛檔名）
     const woompRow = page.locator('tr[data-plugin*="woomp"], tr[data-slug="woomp"]').first();
@@ -63,8 +63,8 @@ test.describe('設定頁籤結構 @settings @core', () => {
   });
 
   test('Toggle checkbox 顯示為開關樣式 @P2', async ({ page }) => {
-    await page.goto(ADMIN_URLS.woompSettings);
-    await page.waitForLoadState('networkidle');
+    await page.goto(ADMIN_URLS.woompSettings, { waitUntil: 'commit', timeout: 120_000 });
+    await page.waitForSelector('.nav-tab-wrapper, #woocommerce-settings-form', { timeout: 60_000 });
 
     // 好用版擴充設定頁中的 toggle checkbox 應顯示為 toggle switch 樣式
     // 通常透過 CSS class 或 wrapper 實現視覺效果
@@ -79,6 +79,7 @@ test.describe('設定頁籤結構 @settings @core', () => {
     await expect(firstToggle).toBeAttached();
 
     // 驗證 toggle checkbox 可以互動（click 切換）
+    await firstToggle.scrollIntoViewIfNeeded();
     const wasChecked = await firstToggle.isChecked();
     await firstToggle.click({ force: true });
     const isNowChecked = await firstToggle.isChecked();
@@ -86,6 +87,7 @@ test.describe('設定頁籤結構 @settings @core', () => {
     expect(isNowChecked).not.toBe(wasChecked);
 
     // 恢復原始狀態
+    await firstToggle.scrollIntoViewIfNeeded();
     await firstToggle.click({ force: true });
   });
 });

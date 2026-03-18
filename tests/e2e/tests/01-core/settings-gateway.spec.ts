@@ -16,8 +16,8 @@ test.describe('金流設定子頁籤 @settings @core', () => {
 
   test('金流設定頁預設導向 PayUni 區段 @P0', async ({ page }) => {
     // 直接前往金流設定（不帶 section 參數）
-    await page.goto(ADMIN_URLS.woompGateway);
-    await page.waitForLoadState('networkidle');
+    await page.goto(ADMIN_URLS.woompGateway, { waitUntil: 'commit', timeout: 120_000 });
+    await page.waitForSelector('.nav-tab-wrapper, #woocommerce-settings-form, form.woocommerce-save-button', { timeout: 60_000 });
 
     // 應自動導向 PayUni 區段或預設第一個區段
     const currentUrl = page.url();

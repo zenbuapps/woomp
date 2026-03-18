@@ -18,7 +18,6 @@ test.describe('ECPay 電子發票作廢 @ecpay @invoice @admin', () => {
     // 尋找一筆已開立發票的訂單
     if (!issuedOrderId) {
       await goToAdminOrders(page);
-      await page.waitForLoadState('networkidle');
 
       // 取得訂單列表中的訂單 IDs（最多檢查前 5 筆）
       const orderLinks = page.locator(
@@ -26,10 +25,14 @@ test.describe('ECPay 電子發票作廢 @ecpay @invoice @admin', () => {
       );
       const linkCount = Math.min(await orderLinks.count(), 5);
 
+      // 先收集所有 hrefs，避免在迴圈中導航後 locator 失效
+      const hrefsToCheck: string[] = [];
       for (let i = 0; i < linkCount; i++) {
         const href = await orderLinks.nth(i).getAttribute('href');
-        if (!href) continue;
+        if (href) hrefsToCheck.push(href);
+      }
 
+      for (const href of hrefsToCheck) {
         const hposMatch = href.match(/[?&]id=(\d+)/);
         const classicMatch = href.match(/post=(\d+)/);
         const orderId = hposMatch?.[1] || classicMatch?.[1];

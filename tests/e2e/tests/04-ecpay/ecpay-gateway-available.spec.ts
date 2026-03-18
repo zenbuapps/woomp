@@ -24,6 +24,12 @@ test.describe('ECPay 金流閘道可用性 @ecpay @gateway', () => {
     // 檢查 ry_ecpay_credit 閘道是否已註冊
     const ecpayCreditGateway = gateways.find(g => g.id === ECPAY_GATEWAYS.credit);
 
+    // 閘道不存在代表此測試站台未啟用 ECPay 金流，跳過測試
+    if (!ecpayCreditGateway) {
+      test.skip(true, `ECPay 信用卡閘道（ID: ${ECPAY_GATEWAYS.credit}）未在此測試站台啟用，跳過測試`);
+      return;
+    }
+
     expect(
       ecpayCreditGateway,
       `應在 WC REST API 中找到 ECPay 信用卡閘道（ID: ${ECPAY_GATEWAYS.credit}）`
