@@ -166,7 +166,7 @@ final class TradeHandler
 			// Notify 補傳：若顧客要求記憶卡號，仍須儲存 Token
 			if ('SUCCESS' === $status) {
 				if ($is_webhook) {
-					$order->add_order_note('PayUni Webhook: Payment successful');
+					$order->add_order_note( $this->build_order_note_html( '統一金流 PAYUNi 交易紀錄（Webhook）', $trade_result ) );
 				}
 				$should_save_card = \wc_string_to_bool($order->get_meta('payuni_save_card', true));
 				$user_id = $order->get_customer_id();
@@ -192,9 +192,9 @@ final class TradeHandler
 			// 交易成功
 			$order->payment_complete($trade_no);
 			if ($is_webhook) {
-				$order->add_order_note('PayUni Webhook: Payment successful');
+				$order->add_order_note( $this->build_order_note_html( '統一金流 PAYUNi 交易紀錄（Webhook）', $trade_result ) );
 			} else {
-				$order->add_order_note('統一金流 PAYUNi 信用卡付款成功（幕後授權）');
+				$order->add_order_note( $this->build_order_note_html( '統一金流 PAYUNi 交易紀錄（前景授權）', $trade_result ) );
 			}
 
 			// 檢查是否需要儲存卡片
@@ -207,14 +207,53 @@ final class TradeHandler
 			}
 		} else {
 			// 交易失敗
-			$order->update_status(
-				'failed',
-				\sprintf('統一金流 PAYUNi 信用卡付款失敗。狀態: %s, 訊息: %s', $status, $message)
-			);
+			$note_html = $this->build_order_note_html( '統一金流 PAYUNi 信用卡付款失敗', $trade_result );
+			$order->update_status( 'failed', $note_html );
 		}
 
 		$order->save();
 		OrderUtils::delete_tmp_data($order);
+	}
+
+	/**
+	 * 建構訂單備註 HTML
+	 *
+	 * @param string $title        備註標題（如「統一金流 PAYUNi 交易紀錄（Webhook）」）
+	 * @param array  $trade_result 解密後的交易結果陣列
+	 *
+	 * @return string 格式化的 HTML 備註字串
+	 */
+	private function build_order_note_html( string $title, array $trade_result ): string {
+		$html = '<strong>' . \esc_html( $title ) . '</strong>';
+
+		// 基本欄位（必定顯示）
+		$fields = [
+			'狀態碼'     => $trade_result['Status'] ?? '',
+			'交易訊息'   => $trade_result['Message'] ?? '',
+			'交易編號'   => $trade_result['TradeNo'] ?? '',
+			'卡號末四碼' => $trade_result['Card4No'] ?? '',
+			'授權碼'     => $trade_result['AuthCode'] ?? '',
+		];
+
+		foreach ( $fields as $label => $value ) {
+			$html .= '<br>' . \esc_html( $label ) . '：' . \esc_html( (string) $value );
+		}
+
+		// 分期欄位（條件顯示：CardInst 大於 1 才是真正的分期）
+		$card_inst = $trade_result['CardInst'] ?? '';
+		if ( ! empty( $card_inst ) && (int) $card_inst > 1 ) {
+			$installment_fields = [
+				'分期期數' => $card_inst,
+				'首期金額' => $trade_result['FirstAmt'] ?? '',
+				'每期金額' => $trade_result['EachAmt'] ?? '',
+			];
+
+			foreach ( $installment_fields as $label => $value ) {
+				$html .= '<br>' . \esc_html( $label ) . '：' . \esc_html( (string) $value );
+			}
+		}
+
+		return $html;
 	}
 
 	/**
