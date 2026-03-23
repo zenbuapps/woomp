@@ -136,7 +136,7 @@ final class TradeHandler
 	 *
 	 * @return void
 	 */
-	public function update_order_status(\WC_Order $order, array $trade_result): void
+	public function update_order_status(\WC_Order $order, array $trade_result, bool $is_webhook = false): void
 	{
 		$status = $trade_result['Status'] ?? '';
 		$message = $trade_result['Message'] ?? '';
@@ -165,6 +165,9 @@ final class TradeHandler
 			]);
 			// Notify 補傳：若顧客要求記憶卡號，仍須儲存 Token
 			if ('SUCCESS' === $status) {
+				if ($is_webhook) {
+					$order->add_order_note('PayUni Webhook: Payment successful');
+				}
 				$should_save_card = \wc_string_to_bool($order->get_meta('payuni_save_card', true));
 				$user_id = $order->get_customer_id();
 				\do_action('woomp_payuni_log', 'info', "[DEBUG] #{$order->get_id()} 路徑B token 儲存條件檢查", [
@@ -188,9 +191,11 @@ final class TradeHandler
 		if ('SUCCESS' === $status) {
 			// 交易成功
 			$order->payment_complete($trade_no);
-			$order->add_order_note(
-				\sprintf('統一金流 PAYUNi 信用卡付款成功。交易編號: %s', $trade_no)
-			);
+			if ($is_webhook) {
+				$order->add_order_note('PayUni Webhook: Payment successful');
+			} else {
+				$order->add_order_note('統一金流 PAYUNi 信用卡付款成功（幕後授權）');
+			}
 
 			// 檢查是否需要儲存卡片
 			$should_save_card = \wc_string_to_bool($order->get_meta('payuni_save_card', true));
