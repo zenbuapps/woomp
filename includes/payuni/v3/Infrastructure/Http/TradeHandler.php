@@ -17,8 +17,42 @@ use J7\Payuni\Shared\Utils\OrderUtils;
 final class TradeHandler
 {
 
-	private const TIMEOUT = 60;
+	private const TIMEOUT    = 60;
 	private const USER_AGENT = 'payuni';
+
+	/**
+	 * PayUni 交易結果欄位 → 中文 label 映射表
+	 *
+	 * @var array<string, string>
+	 */
+	private const LABEL_MAP = [
+		'Status'       => '狀態碼',
+		'Message'      => '交易訊息',
+		'MerID'        => '商店代號',
+		'MerTradeNo'   => '商店訂單編號',
+		'Gateway'      => '付款方式',
+		'TradeNo'      => '交易編號',
+		'TradeAmt'     => '交易金額',
+		'TradeStatus'  => '交易狀態',
+		'PaymentType'  => '付款類型',
+		'CardBank'     => '發卡銀行代碼',
+		'Card6No'      => '卡號前六碼',
+		'Card4No'      => '卡號末四碼',
+		'CardInst'     => '分期期數',
+		'FirstAmt'     => '首期金額',
+		'EachAmt'      => '每期金額',
+		'ResCode'      => '回應碼',
+		'ResCodeMsg'   => '回應訊息',
+		'AuthCode'     => '授權碼',
+		'AuthBank'     => '收單銀行代碼',
+		'AuthBankName' => '收單銀行名稱',
+		'AuthType'     => '授權類型',
+		'AuthDay'      => '授權日期',
+		'AuthTime'     => '授權時間',
+		'CreditHash'   => '信用卡 Hash',
+		'CreditLife'   => '有效期限',
+		'CoBrandCode'  => '聯名卡代碼',
+	];
 
 	/**
 	 * 執行幕後信用卡交易授權
@@ -226,31 +260,41 @@ final class TradeHandler
 	private function build_order_note_html( string $title, array $trade_result ): string {
 		$html = '<strong>' . \esc_html( $title ) . '</strong>';
 
-		// 基本欄位（必定顯示）
-		$fields = [
-			'狀態碼'     => $trade_result['Status'] ?? '',
-			'交易訊息'   => $trade_result['Message'] ?? '',
-			'交易編號'   => $trade_result['TradeNo'] ?? '',
-			'卡號末四碼' => $trade_result['Card4No'] ?? '',
-			'授權碼'     => $trade_result['AuthCode'] ?? '',
-		];
+		// 判斷是否為分期交易（CardInst > 1 才是真正的分期）
+		$card_inst        = $trade_result['CardInst'] ?? '';
+		$is_installment   = '' !== $card_inst && (int) $card_inst > 1;
+		$installment_keys = [ 'CardInst', 'FirstAmt', 'EachAmt' ];
 
-		foreach ( $fields as $label => $value ) {
+		// Phase 1: 按 LABEL_MAP 定義順序印出已知欄位
+		$processed_keys = [];
+		foreach ( self::LABEL_MAP as $key => $label ) {
+			$processed_keys[] = $key;
+
+			// 分期群組欄位：非分期交易時跳過
+			if ( \in_array( $key, $installment_keys, true ) && ! $is_installment ) {
+				continue;
+			}
+
+			$value = $trade_result[ $key ] ?? null;
+
+			if ( ! isset( $value ) || '' === $value ) {
+				continue;
+			}
+
 			$html .= '<br>' . \esc_html( $label ) . '：' . \esc_html( (string) $value );
 		}
 
-		// 分期欄位（條件顯示：CardInst 大於 1 才是真正的分期）
-		$card_inst = $trade_result['CardInst'] ?? '';
-		if ( ! empty( $card_inst ) && (int) $card_inst > 1 ) {
-			$installment_fields = [
-				'分期期數' => $card_inst,
-				'首期金額' => $trade_result['FirstAmt'] ?? '',
-				'每期金額' => $trade_result['EachAmt'] ?? '',
-			];
-
-			foreach ( $installment_fields as $label => $value ) {
-				$html .= '<br>' . \esc_html( $label ) . '：' . \esc_html( (string) $value );
+		// Phase 2: 印出不在 LABEL_MAP 中的未知 key（按 trade_result 原始順序）
+		foreach ( $trade_result as $key => $value ) {
+			if ( \in_array( $key, $processed_keys, true ) ) {
+				continue;
 			}
+
+			if ( ! isset( $value ) || '' === $value ) {
+				continue;
+			}
+
+			$html .= '<br>' . \esc_html( $key ) . '：' . \esc_html( (string) $value );
 		}
 
 		return $html;

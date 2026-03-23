@@ -201,7 +201,7 @@ final class Bootstrap
 			$incoming_trade_no = $trade_result['TradeNo'] ?? '';
 			$existing_trade_no = $order->get_meta('_payuni_resp_trade_no', true);
 			if ($incoming_trade_no && $existing_trade_no === $incoming_trade_no && $order->is_paid()) {
-				$order->add_order_note('PayUni Webhook: Payment successful');
+				$order->add_order_note( 'PayUni Webhook：重複通知，已略過' );
 				\do_action('woomp_payuni_log', 'info', "#{$order->get_id()} Webhook 重複通知，已略過", [
 					'order_id' => $order->get_id(),
 					'trade_no' => $incoming_trade_no,
