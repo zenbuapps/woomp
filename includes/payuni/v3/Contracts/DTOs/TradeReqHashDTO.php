@@ -177,7 +177,7 @@ final class TradeReqHashDTO
 	private static function get_notify_url(): string
 	{
 		if ('local' === \wp_get_environment_type()) {
-			return 'https://payuni-test.powerhouse.tw/wc-api/payuni_notify';
+			return 'https://local-turbo.powerhouse.tw/wc-api/payuni_notify';
 		}
 		return \home_url('/wc-api/payuni_notify');
 	}
