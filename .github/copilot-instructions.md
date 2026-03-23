@@ -65,12 +65,11 @@ woomp/
 ```
 
 ## 測試環境
-請使用 playwright MCP 登入 https://payuni-test.powerhouse.tw/ 測試
-登入網址: https://payuni-test.powerhouse.tw/wp-admin
-帳號: test
-密碼: test
+請使用 playwright MCP 登入 https://local-turbo.powerhouse.tw/ 測試
+登入網址: https://local-turbo.powerhouse.tw/wp-admin
+登入憑證請參照專案根目錄 `.env` 檔案（格式見 `.env.example`，不進版本控制）
 
-https://payuni-test.powerhouse.tw 透過 cloudflare tunnel 連線到本地測試伺服器，**若無法連線請提請開發者開啟測試伺服器**
+https://local-turbo.powerhouse.tw 透過 cloudflare tunnel 連線到本地測試伺服器，**若無法連線請提請開發者開啟測試伺服器**
 
 ## Git 工作流程
 

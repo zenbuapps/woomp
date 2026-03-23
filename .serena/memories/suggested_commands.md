@@ -34,7 +34,7 @@ cd tests/e2e && npx playwright test <spec-file>  # 執行特定測試
 ```
 
 ## 測試環境
-- URL: https://payuni-test.powerhouse.tw/
-- 後台: https://payuni-test.powerhouse.tw/wp-admin
-- 帳號: test / 密碼: test
+- URL: https://local-turbo.powerhouse.tw/
+- 後台: https://local-turbo.powerhouse.tw/wp-admin
+- 登入憑證請參照專案根目錄 `.env` 檔案
 - 透過 Cloudflare Tunnel 連線本地測試伺服器

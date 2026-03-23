@@ -403,7 +403,7 @@ PayUni v3 支援信用卡記憶卡號：
 ## E2E 測試（Playwright）
 
 ### 設定（`tests/e2e/playwright.config.ts`）
-- **基本 URL**：`https://payuni-test.powerhouse.tw`（沙箱環境）
+- **基本 URL**：`https://local-turbo.powerhouse.tw`（本地測試環境）
 - **瀏覽器**：Chromium，非無頭模式
 - **Workers**：1（序列執行，避免 PayUni 沙箱並發衝突）
 - **逾時**：每個測試 60 秒、每個動作 15 秒

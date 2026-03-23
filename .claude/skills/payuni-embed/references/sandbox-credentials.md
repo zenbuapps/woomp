@@ -45,6 +45,6 @@
 
 本專案使用 Cloudflare Tunnel 將本地環境暴露給 PAYUNi：
 
-- **本地測試域名**：`https://payuni-test.powerhouse.tw`
-- **Webhook 通知 URL**（本地）：`https://payuni-test.powerhouse.tw/wc-api/payuni_notify`
+- **本地測試域名**：`https://local-turbo.powerhouse.tw`
+- **Webhook 通知 URL**（本地）：`https://local-turbo.powerhouse.tw/wc-api/payuni_notify`
 - 當 `IFrameDomain` 偵測到本地環境時，自動替換為上述域名
