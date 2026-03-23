@@ -108,18 +108,20 @@ Flow:
   14. 防重複處理（冪等性）
       → 取得訂單（從 MerTradeNo）
       → Condition: incoming TradeNo = existing TradeNo 且訂單已付款
-        Yes → 記錄日誌「Webhook 重複通知，已略過」→ wp_send_json_success → return
+        Yes → 訂單備註記錄「PayUni Webhook: Payment successful」
+          → 記錄日誌「Webhook 重複通知，已略過」→ wp_send_json_success → return
         No → 繼續處理
 
   15. 更新訂單狀態
       → TradeHandler::update_order_status($order, $trade_result)
       → 儲存交易 meta（_payuni_v3_resp, _payuni_resp_*, _payuni_card_number）
       → Condition: 訂單已付款（冪等性保護）
-        Yes → 僅更新 meta，不重複 payment_complete
+        Yes → 訂單備註記錄「PayUni Webhook: Payment successful」
+          → 僅更新 meta，不重複 payment_complete
           → 仍檢查是否需要儲存 Token
       → Condition: Status = 'SUCCESS'
         Yes → payment_complete($trade_no)
-          → 訂單備註記錄
+          → 訂單備註記錄「PayUni Webhook: Payment successful」
           → 檢查並儲存 Token
       → Condition: Status != 'SUCCESS'
         Yes → 訂單狀態改為 failed

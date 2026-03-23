@@ -85,11 +85,12 @@ Flow:
         Yes → TradeHandler::process_notify() 驗證 HashInfo 並解密
         No → 使用 raw response（3D 流程由 webhook 補傳）
 
-  11. TradeHandler::update_order_status() 更新訂單
+  11. TradeHandler::update_order_status() 更新訂單（幕後授權路徑）
       → 儲存 _payuni_v3_resp（完整解密陣列）
       → 儲存 _payuni_resp_status, _payuni_resp_message, _payuni_resp_trade_no, _payuni_card_number
       → Condition: Status = 'SUCCESS'
         Yes → $order->payment_complete($trade_no)
+          → 訂單備註記錄「統一金流 PAYUNi 信用卡付款成功（幕後授權）」（注意：幕後授權回應不含 TradeNo）
           → Condition: 需要儲存卡號（payuni_save_card meta 且有 card_hash）
             Yes → save_payment_token() 建立 WC_Payment_Token_CC
         No → $order->update_status('failed')
@@ -110,8 +111,10 @@ Flow:
       → POST 到 wc-api/payuni_notify
       → Bootstrap::handle_notify()
         → TradeHandler::process_notify() 解密驗證
-        → 防重複檢查（相同 TradeNo 且已付款則略過）
-        → TradeHandler::update_order_status() 更新訂單
+        → 防重複檢查（相同 TradeNo 且已付款）
+          → 是 → 訂單備註記錄「PayUni Webhook: Payment successful」→ 略過後續處理
+          → 否 → TradeHandler::update_order_status() 更新訂單
+            → 成功時訂單備註記錄「PayUni Webhook: Payment successful」
 
 Side Effects:
   - 訂單 meta 暫存前端資料（sdk_token_tmp, payuni_save_card 等），交易完成後清除

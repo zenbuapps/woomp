@@ -2,7 +2,7 @@
 
 基於 specs/payuni-embed 規格產出，使用 Playwright + PayUni Sandbox 環境。
 
-**測試環境**：`https://payuni-test.powerhouse.tw`
+**測試環境**：`https://local-turbo.powerhouse.tw`
 **測試卡號**：`4147631000000001`（Visa sandbox）
 **到期日**：`1228`
 **CVC**：`123`

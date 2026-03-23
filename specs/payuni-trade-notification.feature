@@ -64,6 +64,7 @@ Feature: PayUni 交易通知處理
       Then TradeHandler 驗證 HashInfo 完整性
       And 使用 AES-256-GCM 解密取得交易結果
       And 訂單狀態更新為 processing
+      And 訂單備註包含「PayUni Webhook: Payment successful」
       And 回應 wp_send_json_success()
 
     Scenario: v3 Hash 驗證失敗
@@ -77,6 +78,7 @@ Feature: PayUni 交易通知處理
       And 訂單 meta _payuni_resp_trade_no = 'TRD123456'
       When PayUni 再次發送相同 TradeNo = 'TRD123456' 的通知
       Then 系統識別為重複通知
+      And 訂單備註包含「PayUni Webhook: Payment successful」
       And 記錄日誌「Webhook 重複通知，已略過」
       And 回應 wp_send_json_success()
       And 不重複呼叫 payment_complete()
@@ -85,7 +87,8 @@ Feature: PayUni 交易通知處理
       Given 訂單在 process_payment 中已呼叫 payment_complete
       And 消費者要求記憶卡號
       When 後續 webhook 通知到達（含 CreditHash）
-      Then 系統僅更新交易細節 meta
+      Then 訂單備註包含「PayUni Webhook: Payment successful」
+      And 系統僅更新交易細節 meta
       And 儲存 Payment Token（若尚未存在）
       And 不重複執行付款完成動作
 
