@@ -144,32 +144,44 @@ async function resetSelect2Field(page: Page, selectName: string, targetLabel: st
 
 /** 選擇 PayUni v3 信用卡付款方式，並等待 iframe 載入 */
 export async function selectPayuniPayment(page: Page): Promise<void> {
-  // 確保 WC AJAX 完成（blockUI 清除）再操作
-  try {
-    await page.waitForSelector('.blockUI.blockOverlay', { state: 'hidden', timeout: 30_000 });
-  } catch {
-    // blockUI 不存在或已消失
+  // 確保先前所有 AJAX 完成再操作
+  await waitForCheckoutStable(page);
+
+  const paymentBox = page.locator(SELECTORS.payuniPaymentBox);
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // 透過 jQuery 直接選擇付款方式（繞過 CSS overlay / hidden radio 等 DOM 問題）
+    await page.evaluate(() => {
+      const $ = (window as unknown as { jQuery?: any }).jQuery;
+      if (!$) return;
+      const $radio = $('input#payment_method_payuni-credit-v3');
+      if (!$radio.length) return;
+      $radio.prop('checked', true).trigger('click').trigger('change');
+      $(document.body).trigger('payment_method_selected');
+    });
+
+    // 等待 WC 處理付款方式切換的 AJAX
+    try {
+      await page.waitForResponse(
+        (resp: { url: () => string }) => resp.url().includes('wc-ajax=update_order_review'),
+        { timeout: 10_000 },
+      );
+    } catch {
+      // AJAX 可能不觸發（如果付款方式已選中）
+    }
+
+    // 等待 blockUI 清除
+    await waitForCheckoutStable(page);
+
+    // 驗證 payment box 是否可見（代表 PayUni 被正確選中且內容區展開）
+    const isBoxVisible = await paymentBox.isVisible().catch(() => false);
+    if (isBoxVisible) break;
+
+    // 未成功，等一下再試
+    await page.waitForTimeout(500);
   }
 
-  const label = page.locator(SELECTORS.payuniLabel);
-  const radio = page.locator(SELECTORS.payuniRadio);
-
-  // 用 force: true 繞過 blockUI overlay 的 pointer-events 攔截
-  if (await label.isVisible().catch(() => false)) {
-    await label.scrollIntoViewIfNeeded();
-    await label.click({ force: true });
-  } else {
-    await radio.check({ force: true });
-  }
-
-  // 等待 WC 處理選擇付款方式的 AJAX（update_order_review）
-  try {
-    await page.waitForSelector('.blockUI.blockOverlay', { state: 'hidden', timeout: 30_000 });
-  } catch {
-    // overlay 可能被其他閘道的 AJAX 卡住，忽略即可
-  }
-
-  // 等待付款區域展開 + iframe 開始載入
+  // 等待 iframe 開始載入
   await page.waitForTimeout(1500);
 }
 
@@ -183,16 +195,20 @@ export async function selectInstallment(page: Page, periods: number): Promise<vo
 
 /** 點擊下單按鈕 */
 export async function clickPlaceOrder(page: Page): Promise<void> {
-  // 確保 WC AJAX 完成（blockUI 清除）再點擊，避免 blockOverlay 攔截 pointer events
+  // 確保 WC AJAX 完成（blockUI 清除）再點擊；若卡住則強制移除
   try {
     await page.waitForSelector('.blockUI.blockOverlay', { state: 'hidden', timeout: 15_000 });
   } catch {
-    // blockUI 不存在或已消失
+    // blockUI 卡住了，強制移除
+    await page.evaluate(() => {
+      document.querySelectorAll('.blockUI').forEach(el => el.remove());
+    });
+    await page.waitForTimeout(300);
   }
   const btn = page.locator(SELECTORS.placeOrderBtn);
   await btn.waitFor({ state: 'visible', timeout: 60_000 });
   await btn.scrollIntoViewIfNeeded();
-  await btn.click();
+  await btn.click({ force: true });
 }
 
 /** 驗證訂單成功頁面 */
@@ -211,19 +227,52 @@ export async function verifyErrorDisplayed(page: Page, messagePattern?: string |
   }
 }
 
+/**
+ * 等待 blockUI overlay 完全穩定（不再出現新的 overlay）。
+ * 處理 fillBillingFields 觸發級聯 AJAX 的情況（billing_country → billing_state → 再次 update_order_review）。
+ * 與 waitForCheckoutUpdate 不同，此函式會循環等待直到沒有新的 blockUI 出現。
+ */
+async function waitForCheckoutStable(page: Page): Promise<void> {
+  const maxWait = 30_000;
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWait) {
+    // 如果 blockUI 目前可見，等它消失
+    const hasOverlay = await page.locator('.blockUI.blockOverlay').isVisible().catch(() => false);
+    if (hasOverlay) {
+      try {
+        await page.waitForSelector('.blockUI.blockOverlay', { state: 'hidden', timeout: 15_000 });
+      } catch {
+        break; // timeout，放棄
+      }
+      // 消失後再等一下看有沒有新的
+      await page.waitForTimeout(500);
+      continue;
+    }
+
+    // 沒有 overlay，等最多 2s 看會不會出現新的
+    try {
+      await page.waitForSelector('.blockUI.blockOverlay', { state: 'attached', timeout: 2_000 });
+      // 出現了，等它消失後再循環
+      try {
+        await page.waitForSelector('.blockUI.blockOverlay', { state: 'hidden', timeout: 15_000 });
+      } catch {
+        break;
+      }
+      await page.waitForTimeout(500);
+    } catch {
+      // 2s 內沒有新 overlay — checkout 穩定了
+      break;
+    }
+  }
+}
+
 /** 等待結帳表單 ajax 更新完成（WC blockUI overlay）
- * 策略：先等 blockUI 出現（最多 3s），若出現則等它消失；若 3s 未出現則繼續。
- * 處理 fillBillingFields 觸發多次 AJAX 的競態條件。
+ * 策略：先等 500ms 讓 AJAX 啟動，然後循環等待直到 blockUI 不再出現。
+ * 處理 fillBillingFields 觸發多次級聯 AJAX 的競態條件。
  */
 export async function waitForCheckoutUpdate(page: Page): Promise<void> {
   await page.waitForTimeout(500);
-  try {
-    // 等待 blockUI 出現（代表 AJAX 開始）
-    await page.waitForSelector('.blockUI.blockOverlay', { state: 'attached', timeout: 3_000 });
-    // 等待 blockUI 消失（代表 AJAX 完成）
-    await page.waitForSelector('.blockUI.blockOverlay', { state: 'hidden', timeout: 15_000 });
-  } catch {
-    // blockUI 沒有出現或已完成，直接繼續
-  }
+  await waitForCheckoutStable(page);
   await page.waitForTimeout(300);
 }

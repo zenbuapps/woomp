@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { CARDS, SELECTORS } from '../../fixtures/test-data';
 import { addToCartAndCheckout } from '../../helpers/cart.helper';
-import { fillBillingFields, selectPayuniPayment, clickPlaceOrder, verifyOrderReceived } from '../../helpers/checkout.helper';
+import { fillBillingFields, selectPayuniPayment, waitForCheckoutUpdate, clickPlaceOrder, verifyOrderReceived } from '../../helpers/checkout.helper';
 import { fillNewCard, fillCvcOnly, waitForIframes } from '../../helpers/iframe.helper';
 import { ensureLoggedIn } from '../../helpers/auth.helper';
 
@@ -10,6 +10,7 @@ test.describe.serial('A2 - 已存卡付款 @checkout', () => {
     await ensureLoggedIn(page);
     await addToCartAndCheckout(page);
     await fillBillingFields(page);
+    await waitForCheckoutUpdate(page);
     await selectPayuniPayment(page);
   });
 

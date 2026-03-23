@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { CARDS, SELECTORS } from '../../fixtures/test-data';
 import { addToCartAndCheckout } from '../../helpers/cart.helper';
-import { fillBillingFields, selectPayuniPayment, clickPlaceOrder, verifyOrderReceived, selectInstallment } from '../../helpers/checkout.helper';
+import { fillBillingFields, selectPayuniPayment, waitForCheckoutUpdate, clickPlaceOrder, verifyOrderReceived, selectInstallment } from '../../helpers/checkout.helper';
 import { fillNewCard, waitForIframes } from '../../helpers/iframe.helper';
 import { ensureLoggedIn } from '../../helpers/auth.helper';
 
@@ -10,6 +10,7 @@ test.describe('A1 - 新卡付款 @checkout', () => {
     await ensureLoggedIn(page);
     await addToCartAndCheckout(page);
     await fillBillingFields(page);
+    await waitForCheckoutUpdate(page);
     await selectPayuniPayment(page);
   });
 
@@ -41,7 +42,7 @@ test.describe('A1 - 新卡付款 @checkout', () => {
   });
 
   test('A1-5 新卡 + 勾選記憶卡片 → 卡片出現在帳號 @P2', async ({ page }) => {
-    const saveCheckbox = page.locator(SELECTORS.saveCardCheckbox);
+    const saveCheckbox = page.locator(SELECTORS.saveCardFlag);
     if (await saveCheckbox.isVisible().catch(() => false)) {
       await saveCheckbox.check();
     }

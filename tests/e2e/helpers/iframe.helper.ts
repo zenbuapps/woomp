@@ -36,6 +36,17 @@ export async function fillNewCard(page: Page, card?: CardData): Promise<void> {
   const c = card || CARDS.visa;
   await waitForIframes(page);
 
+  // 等待 blockUI overlay 消失；若卡住則強制移除（paynow-shipping JS bug 可能導致 blockUI 永久殘留）
+  try {
+    await page.waitForSelector('.blockUI.blockOverlay', { state: 'hidden', timeout: 15_000 });
+  } catch {
+    // blockUI 卡住了，強制移除
+    await page.evaluate(() => {
+      document.querySelectorAll('.blockUI').forEach(el => el.remove());
+    });
+    await page.waitForTimeout(300);
+  }
+
   // 若已有綁卡，先切回「使用新卡片」模式再填寫卡號與效期
   const newCardRadio = page.locator(SELECTORS.newCardRadio).first();
   if (await newCardRadio.isVisible().catch(() => false)) {
@@ -46,15 +57,15 @@ export async function fillNewCard(page: Page, card?: CardData): Promise<void> {
   await expect(page.locator(SELECTORS.cardExpContainer)).toBeVisible({ timeout: 10_000 });
 
   const cardNoInput = getCardNoFrame(page).locator('input');
-  await cardNoInput.click();
+  await cardNoInput.click({ force: true });
   await cardNoInput.pressSequentially(c.number, { delay: 30 });
 
   const cardExpInput = getCardExpFrame(page).locator('input');
-  await cardExpInput.click();
+  await cardExpInput.click({ force: true });
   await cardExpInput.pressSequentially(c.expiry, { delay: 30 });
 
   const cardCvcInput = getCardCvcFrame(page).locator('input');
-  await cardCvcInput.click();
+  await cardCvcInput.click({ force: true });
   await cardCvcInput.pressSequentially(c.cvc, { delay: 30 });
 }
 
