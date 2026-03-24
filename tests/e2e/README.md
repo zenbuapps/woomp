@@ -154,14 +154,14 @@ npx playwright test --headed=false
 
 ## Playwright Projects 說明
 
-| Project | 說明 | 測試目錄 | 依賴 |
-|---------|------|---------|------|
-| `setup` | 啟用所有模組 + 建立 API Keys | `00-setup/` | 無 |
-| `payuni-embed` | PayUni Embed 完整測試 | `A-H/` | 無 |
-| `integration` | 整合測試 | `01-08/` | setup |
-| `happy-flow` | 核心業務 happy flow | `01-05/` + `A-B/` | setup |
-| `all` | 全部測試 | 全部 | 無 |
-| `chromium` | 預設（向後相容） | 全部 | 無 |
+| Project        | 說明                         | 測試目錄          | 依賴  |
+| -------------- | ---------------------------- | ----------------- | ----- |
+| `setup`        | 啟用所有模組 + 建立 API Keys | `00-setup/`       | 無    |
+| `payuni-embed` | PayUni Embed 完整測試        | `A-H/`            | 無    |
+| `integration`  | 整合測試                     | `01-08/`          | setup |
+| `happy-flow`   | 核心業務 happy flow          | `01-05/` + `A-B/` | setup |
+| `all`          | 全部測試                     | 全部              | 無    |
+| `chromium`     | 預設（向後相容）             | 全部              | 無    |
 
 ## 測試架構
 
@@ -208,11 +208,11 @@ tests/e2e/
 
 ## 三層驗證策略
 
-| Tier | 方式 | 適用場景 |
-|------|------|---------|
+| Tier       | 方式             | 適用場景                               |
+| ---------- | ---------------- | -------------------------------------- |
 | **Tier 1** | Browser UI Tests | 結帳流程、設定頁面、表單驗證、商品展示 |
-| **Tier 2** | Admin Panel 驗證 | 訂單狀態、備註、meta、發票狀態 |
-| **Tier 3** | WC REST API 驗證 | Gateway 註冊、訂單 meta、設定值 |
+| **Tier 2** | Admin Panel 驗證 | 訂單狀態、備註、meta、發票狀態         |
+| **Tier 3** | WC REST API 驗證 | Gateway 註冊、訂單 meta、設定值        |
 
 ## Graceful Skip 機制
 
@@ -224,29 +224,29 @@ tests/e2e/
 
 ## 測試卡號（PayUni Sandbox）
 
-| 用途 | 卡號 | 品牌 |
-|------|------|------|
-| 一般付款 | `4147631000000001` | Visa |
-| 一般付款 | `3560511000000001` | JCB |
-| 分期付款 | `4147632000000001` | Visa |
-| 分期付款 | `3560562000000001` | JCB |
-| CVC | 任意 3 碼（如 `123`） | — |
-| 到期日 | 任意未來日期（如 `1228`） | — |
+| 用途     | 卡號                      | 品牌 |
+| -------- | ------------------------- | ---- |
+| 一般付款 | `4147631000000001`        | Visa |
+| 一般付款 | `3560511000000001`        | JCB  |
+| 分期付款 | `4147632000000001`        | Visa |
+| 分期付款 | `3560562000000001`        | JCB  |
+| CVC      | 任意 3 碼（如 `123`）     | —    |
+| 到期日   | 任意未來日期（如 `1228`） | —    |
 
 ## 設定參數
 
 `playwright.config.ts` 中的關鍵設定：
 
-| 參數 | 值 | 說明 |
-|------|-----|------|
-| `timeout` | 300s (5min) | 全域 timeout，WC admin 頁面含 Query Monitor 很慢 |
-| `actionTimeout` | 30s | 單一操作 timeout |
-| `navigationTimeout` | 120s (2min) | 頁面導航 timeout |
-| `expect.timeout` | 15s | 斷言等待 timeout |
-| `workers` | 1 | 單執行緒（金流 Sandbox 有並發限制） |
-| `retries` | 1 | Sandbox 偶有不穩定，自動重試 1 次 |
-| `ignoreHTTPSErrors` | true | 支援 Local by Flywheel 自簽憑證 |
-| `headless` | 由 `CI` 環境變數控制 | `CI=true` 時 headless，否則有頭 |
+| 參數                | 值                   | 說明                                             |
+| ------------------- | -------------------- | ------------------------------------------------ |
+| `timeout`           | 300s (5min)          | 全域 timeout，WC admin 頁面含 Query Monitor 很慢 |
+| `actionTimeout`     | 30s                  | 單一操作 timeout                                 |
+| `navigationTimeout` | 120s (2min)          | 頁面導航 timeout                                 |
+| `expect.timeout`    | 15s                  | 斷言等待 timeout                                 |
+| `workers`           | 1                    | 單執行緒（金流 Sandbox 有並發限制）              |
+| `retries`           | 1                    | Sandbox 偶有不穩定，自動重試 1 次                |
+| `ignoreHTTPSErrors` | true                 | 支援 Local by Flywheel 自簽憑證                  |
+| `headless`          | 由 `CI` 環境變數控制 | `CI=true` 時 headless，否則有頭                  |
 
 ## 注意事項
 

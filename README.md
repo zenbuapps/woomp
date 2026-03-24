@@ -28,11 +28,11 @@ npm run build
 
 產出 `build/woomp.zip`，版本號自動從 `woomp.php` 的 `Version:` header 讀取。
 
-| 包含 | 排除 |
-|------|------|
-| `includes/`, `admin/`, `public/`, `languages/`, `woocommerce/` | `.git/`, `.idea/`, `tests/`, `build/` |
-| `vendor/`（僅正式依賴，`composer install --no-dev`） | `phpcs.xml`, `phpunit.xml`, `.gitignore` |
-| `woomp.php`, `init.php`, `uninstall.php` 等主要檔案 | `composer.json`, `composer.lock` |
+| 包含                                                           | 排除                                     |
+| -------------------------------------------------------------- | ---------------------------------------- |
+| `includes/`, `admin/`, `public/`, `languages/`, `woocommerce/` | `.git/`, `.idea/`, `tests/`, `build/`    |
+| `vendor/`（僅正式依賴，`composer install --no-dev`）           | `phpcs.xml`, `phpunit.xml`, `.gitignore` |
+| `woomp.php`, `init.php`, `uninstall.php` 等主要檔案            | `composer.json`, `composer.lock`         |
 
 ## 程式碼檢查
 
@@ -44,10 +44,10 @@ vendor/bin/phpcs
 
 本專案有兩層自動化測試：
 
-| 層級 | 工具 | 範圍 | 目錄 |
-|------|------|------|------|
-| **PHPUnit 整合測試** | PHPUnit 9 + wp-env | PHP 內部邏輯（Hook、Gateway、加解密、HPOS） | `tests/phpunit/` |
-| **E2E 端對端測試** | Playwright + TypeScript | 真實瀏覽器操作（結帳、設定頁、後台管理） | `tests/e2e/` |
+| 層級                 | 工具                    | 範圍                                        | 目錄             |
+| -------------------- | ----------------------- | ------------------------------------------- | ---------------- |
+| **PHPUnit 整合測試** | PHPUnit 9 + wp-env      | PHP 內部邏輯（Hook、Gateway、加解密、HPOS） | `tests/phpunit/` |
+| **E2E 端對端測試**   | Playwright + TypeScript | 真實瀏覽器操作（結帳、設定頁、後台管理）    | `tests/e2e/`     |
 
 ### 環境設定
 
@@ -144,13 +144,13 @@ woomp/
 
 ### 測試卡號（PayUni Sandbox）
 
-| 用途 | 卡號 | 品牌 |
-|------|------|------|
-| 一般付款 | `4147631000000001` | Visa |
-| 一般付款 | `3560511000000001` | JCB |
-| 分期付款 | `4147632000000001` | Visa |
-| CVC | 任意 3 碼（如 `123`） | — |
-| 到期日 | 任意未來日期（如 `1228`） | — |
+| 用途     | 卡號                      | 品牌 |
+| -------- | ------------------------- | ---- |
+| 一般付款 | `4147631000000001`        | Visa |
+| 一般付款 | `3560511000000001`        | JCB  |
+| 分期付款 | `3560562000000001`        | Visa |
+| CVC      | 任意 3 碼（如 `123`）     | —    |
+| 到期日   | 任意未來日期（如 `1228`） | —    |
 
 ## 授權
 
