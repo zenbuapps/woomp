@@ -43,18 +43,12 @@ console.log(`\n▶ 清理並建立暫存目錄 build/${PLUGIN_SLUG}/ ...`);
 fs.rmSync(STAGE_DIR, { recursive: true, force: true });
 fs.mkdirSync(STAGE_DIR, { recursive: true });
 
-// ── 3. 複製檔案（排除開發用目錄與檔案）─────────────────────────────────────────
-const EXCLUDE_NAMES = new Set([
-  '.git', '.idea', 'tests', 'vendor', 'build',
-  'phpcs.xml', 'phpunit.xml', 'build.sh', 'build.mjs',
-  'tailwind.config.cjs', '.gitignore',
-  'package.json', 'package-lock.json', 'node_modules',
-]);
+// ── 3. 複製檔案（白名單制：只打包指定的目錄與檔案）──────────────────────────────
+const INCLUDE_DIRS = ['admin', 'includes', 'languages', 'public', 'vendor', 'woocommerce'];
 
 function copyDir(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    if (EXCLUDE_NAMES.has(entry.name)) continue;
     const srcPath  = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     if (entry.isDirectory()) {
@@ -65,11 +59,35 @@ function copyDir(src, dest) {
   }
 }
 
-console.log('▶ 複製檔案 ...');
-copyDir(PLUGIN_DIR, STAGE_DIR);
+console.log('▶ 複製檔案（白名單制）...');
+
+// 複製白名單目錄
+for (const dir of INCLUDE_DIRS) {
+  const srcDir = path.join(PLUGIN_DIR, dir);
+  if (fs.existsSync(srcDir)) {
+    copyDir(srcDir, path.join(STAGE_DIR, dir));
+  } else {
+    console.warn(`   ⚠ 目錄不存在，跳過：${dir}/`);
+  }
+}
+
+// 複製根目錄下所有 .php 檔
+for (const entry of fs.readdirSync(PLUGIN_DIR, { withFileTypes: true })) {
+  if (!entry.isDirectory() && entry.name.endsWith('.php')) {
+    fs.copyFileSync(
+      path.join(PLUGIN_DIR, entry.name),
+      path.join(STAGE_DIR, entry.name),
+    );
+  }
+}
 
 // ── 4. 重新執行 composer install（僅正式依賴）────────────────────────────────
-console.log('▶ 執行 composer install --no-dev ...');
+console.log('▶ 複製 composer 設定檔並執行 composer install --no-dev ...');
+// composer install 需要 composer.json / composer.lock，白名單未包含，手動複製
+for (const f of ['composer.json', 'composer.lock']) {
+  const src = path.join(PLUGIN_DIR, f);
+  if (fs.existsSync(src)) fs.copyFileSync(src, path.join(STAGE_DIR, f));
+}
 execSync(
   'composer install --no-dev --optimize-autoloader --no-interaction',
   { cwd: STAGE_DIR, stdio: 'inherit' }
