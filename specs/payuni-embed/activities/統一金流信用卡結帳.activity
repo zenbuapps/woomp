@@ -11,15 +11,18 @@
     [BRANCH:3a:有已儲存卡片且記憶卡號已啟用] {specs/ui/已儲存卡片清單.md}
     [BRANCH:3a:無已儲存卡片或記憶卡號未啟用] {specs/ui/新卡片輸入表單.md}
   [MERGE:3a]
-[STEP:4] @消費者 {features/invoice/選擇發票載具.feature}
-  [DECISION:4a] 載具類型
-    [BRANCH:4a:手機條碼] @消費者 {specs/ui/手機條碼輸入.md}
-    [BRANCH:4a:自然人憑證] @消費者 {specs/ui/自然人憑證輸入.md}
-    [BRANCH:4a:會員載具] -- 無需額外輸入
-    [BRANCH:4a:捐贈] @消費者 {specs/ui/捐贈碼輸入.md}
-    [BRANCH:4a:公司統編] @消費者 {specs/ui/公司統編輸入.md}
-    [BRANCH:4a:不使用載具] -- 紙本發票
-  [MERGE:4a]
+[DECISION:3b] enable_invoice_carrier 是否啟用
+  [BRANCH:3b:已啟用] @消費者 {features/invoice/選擇發票載具.feature}
+    [DECISION:3b1] 載具類型
+      [BRANCH:3b1:手機條碼] @消費者 {specs/ui/手機條碼輸入.md}
+      [BRANCH:3b1:自然人憑證] @消費者 {specs/ui/自然人憑證輸入.md}
+      [BRANCH:3b1:會員載具] -- 無需額外輸入
+      [BRANCH:3b1:捐贈] @消費者 {specs/ui/捐贈碼輸入.md}
+      [BRANCH:3b1:公司統編] @消費者 {specs/ui/公司統編輸入.md}
+      [BRANCH:3b1:不使用載具] -- 紙本發票
+    [MERGE:3b1]
+  [BRANCH:3b:未啟用] -- 跳過載具區塊，不渲染、不驗證、不送參數
+[MERGE:3b]
 [STEP:5] @消費者 {features/payment/提交信用卡付款.feature}
 [STEP:6] @系統 {features/payment/執行PayUni交易.feature}
   [DECISION:6a] PayUni merchant_trade 回應類型

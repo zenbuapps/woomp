@@ -6,8 +6,8 @@ Feature: 設定金流參數
 
   Background:
     Given 系統中有以下金流設定：
-      | merchant_id | hash_key         | hash_iv          | mode | enable_tokenization | enable_3d_auth | enable_log | installment_options |
-      | ABC123      | test_hash_key_32 | test_hash_iv_16  | TEST | false               | true           | true       |                     |
+      | merchant_id | hash_key         | hash_iv          | mode | enable_tokenization | enable_3d_auth | enable_log | installment_options | enable_invoice_carrier |
+      | ABC123      | test_hash_key_32 | test_hash_iv_16  | TEST | false               | true           | true       |                     | no                     |
 
   Rule: 前置（參數）- 必要參數必須提供
 
@@ -36,11 +36,17 @@ Feature: 設定金流參數
   Rule: 後置（狀態）- 設定應正確儲存
 
     Example: 設定金流參數後各項設定正確儲存
-      When 管理員設定金流參數，merchant_id "XYZ789"，hash_key "new_key_32"，hash_iv "new_iv_16"，mode "PROD"，enable_tokenization true，installment_options "3,6,12"
+      When 管理員設定金流參數，merchant_id "XYZ789"，hash_key "new_key_32"，hash_iv "new_iv_16"，mode "PROD"，enable_tokenization true，installment_options "3,6,12"，enable_invoice_carrier "yes"
       Then 操作成功
       And 金流設定應為：
-        | merchant_id | hash_key   | hash_iv    | mode | enable_tokenization | installment_options |
-        | XYZ789      | new_key_32 | new_iv_16  | PROD | true                | 3,6,12              |
+        | merchant_id | hash_key   | hash_iv    | mode | enable_tokenization | installment_options | enable_invoice_carrier |
+        | XYZ789      | new_key_32 | new_iv_16  | PROD | true                | 3,6,12              | yes                    |
+
+  Rule: 後置（狀態）- enable_invoice_carrier 預設值應為 no
+
+    Example: 新安裝或升級後 enable_invoice_carrier 預設為關閉
+      When 管理員查詢金流設定
+      Then enable_invoice_carrier 應為 "no"
 
   Rule: 後置（狀態）- TEST 與 PROD 模式應使用不同的 API 端點
 

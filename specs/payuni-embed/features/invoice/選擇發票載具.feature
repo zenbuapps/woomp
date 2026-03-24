@@ -3,11 +3,41 @@ Feature: 選擇發票載具
 
   消費者在結帳頁選擇發票載具類型並填寫對應資訊。
   載具資訊暫存至訂單 meta，隨交易參數一併送出至 PayUni。
+  此功能須在後台啟用「統一金流電子發票(光貿)」選項後才會生效。
 
   Background:
-    Given 系統中有以下訂單：
+    Given 系統中有以下金流設定：
+      | enable_invoice_carrier |
+      | yes                    |
+    And 系統中有以下訂單：
       | orderId | billing_name | billing_email  |
       | 1001    | Alice Chen   | alice@test.com |
+
+  Rule: 前置（狀態）- enable_invoice_carrier 必須為啟用狀態
+
+    Example: enable_invoice_carrier 為關閉時結帳頁不顯示載具區塊
+      Given 系統中有以下金流設定：
+        | enable_invoice_carrier |
+        | no                     |
+      When 消費者進入結帳頁
+      Then 結帳頁不應顯示發票載具區塊
+
+    Example: enable_invoice_carrier 為關閉時跳過載具驗證
+      Given 系統中有以下金流設定：
+        | enable_invoice_carrier |
+        | no                     |
+      When 消費者選擇發票載具，類型為 "3J0002"，載具資訊為 "INVALID"
+      Then 操作成功
+      And 載具驗證應被跳過
+
+    Example: enable_invoice_carrier 為關閉時交易不送載具參數
+      Given 系統中有以下金流設定：
+        | enable_invoice_carrier |
+        | no                     |
+      When 系統組裝 TradeReqHash 交易參數
+      Then 交易參數不應包含 CarrierType
+      And 交易參數不應包含 CarrierInfo
+      And 交易參數不應包含 InvBuyerName
 
   Rule: 前置（參數）- 載具類型必須為有效值
 

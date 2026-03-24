@@ -5,7 +5,6 @@ Feature: PayUni v3 UNi Embed 信用卡付款
 
   Background:
     Given PayUni 金流已啟用（wc_woomp_enabled_payuni_gateway = yes）
-    And payuni_enable_v3 = yes（啟用 UNi Embed）
     And payuni-credit-v3 閘道已啟用
     And 商店已設定 MerchantID、Hash Key、Hash IV
     And PayUni SDK Token 取得成功

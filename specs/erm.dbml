@@ -108,7 +108,6 @@ Table wp_options_payuni [note: 'PayUni 統一金流設定選項'] {
 // payuni_payment_testmode             | 測試模式（yes/no）
 // payuni_payment_log                  | 除錯日誌（yes/no）
 // payuni_3d_auth                      | 3D 驗證（yes/no）
-// payuni_enable_v3                    | 啟用 v3 Embed（yes/no）
 // payuni_payment_merchant_no_test     | 測試商店代號
 // payuni_payment_hash_key_test        | 測試 HashKey
 // payuni_payment_hash_iv_test         | 測試 HashIV
