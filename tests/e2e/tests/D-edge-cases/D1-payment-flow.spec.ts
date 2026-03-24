@@ -1,8 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { loginWordPress } from '../../helpers/auth.helper';
 import { addProductToCart } from '../../helpers/cart.helper';
-import { fillBillingFields, selectPayuniPayment, clickPlaceOrder, verifyOrderReceived } from '../../helpers/checkout.helper';
+import { fillBillingFields, selectPayuniPayment, selectInstallment, clickPlaceOrder, verifyOrderReceived } from '../../helpers/checkout.helper';
 import { fillNewCard, waitForIframes } from '../../helpers/iframe.helper';
+import { extractOrderIdFromUrl } from '../../helpers/admin.helper';
+import { getOrder, getOrderNotes } from '../../helpers/wc-api.helper';
 import { CARDS, SELECTORS } from '../../fixtures/test-data';
 
 test.describe('D1. 付款流程邊緣案例', () => {
@@ -144,5 +146,33 @@ test.describe('D1. 付款流程邊緣案例', () => {
 
     await expect(page.locator(SELECTORS.cardNoContainer)).toBeVisible();
     await expect(page.locator(SELECTORS.cardNoIframe)).toBeVisible();
+  });
+
+  test('D1-7 @P1 一次付清卡號 + 選分期 → 3D 觸發後訂單維持等待付款', async ({ page }) => {
+    await fillBillingFields(page);
+    await selectPayuniPayment(page);
+    await waitForIframes(page);
+
+    // 選擇分期 3 期
+    await selectInstallment(page, 3);
+
+    // 使用一次付清卡號（不支援分期，會觸發 3D 驗證流程）
+    await fillNewCard(page, CARDS.visa);
+    await clickPlaceOrder(page);
+
+    // 應導向 order-received 頁面（process_payment 回傳 success）
+    await verifyOrderReceived(page);
+
+    // 從 URL 擷取訂單 ID，透過 WC REST API 驗證訂單狀態
+    const orderId = extractOrderIdFromUrl(page.url());
+
+    // 訂單狀態應為 pending（等待付款中），而非 processing 或 completed
+    const order = await getOrder(orderId);
+    expect(order.status).toBe('pending');
+
+    // 訂單備註應包含 3D 驗證建立記錄
+    const notes = await getOrderNotes(orderId);
+    const has3dNote = notes.some((n) => n.note.includes('3D 驗證已建立'));
+    expect(has3dNote).toBeTruthy();
   });
 });

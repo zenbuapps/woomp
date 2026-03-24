@@ -182,3 +182,83 @@ export interface WcSetting {
   default: string;
   options?: Record<string, string>;
 }
+
+// ── Polling utilities ──
+
+export interface PollOrderStatusOptions {
+  /** 預期的目標狀態列表，匹配任一即回傳 */
+  expectedStatuses: string[];
+  /** 超時時間（毫秒），預設 60_000 */
+  timeout?: number;
+  /** 輪詢間隔（毫秒），預設 5_000 */
+  interval?: number;
+}
+
+/**
+ * 輪詢訂單狀態直到匹配目標狀態之一，或超時拋錯。
+ * 成功場景用：等待 webhook 回傳後訂單狀態變為 processing/completed。
+ * 單次 API 查詢失敗會靜默跳過（網路抖動容錯），繼續下一輪。
+ */
+export async function pollOrderStatus(
+  orderId: string | number,
+  options: PollOrderStatusOptions,
+): Promise<string> {
+  const timeout = options.timeout ?? 60_000;
+  const interval = options.interval ?? 5_000;
+  const start = Date.now();
+  let lastStatus = 'unknown';
+  let polls = 0;
+
+  while (Date.now() - start < timeout) {
+    try {
+      const order = await getOrder(orderId);
+      lastStatus = order.status;
+      polls++;
+
+      if (options.expectedStatuses.includes(lastStatus)) {
+        return lastStatus;
+      }
+    } catch {
+      // 單次查詢失敗（網路抖動），靜默跳過
+    }
+
+    await new Promise((r) => setTimeout(r, interval));
+  }
+
+  throw new Error(
+    `pollOrderStatus 超時：訂單 #${orderId} 在 ${Math.round(timeout / 1000)} 秒內` +
+    `未變為 [${options.expectedStatuses.join(', ')}]。` +
+    `最後狀態：${lastStatus}，已輪詢 ${polls} 次。`,
+  );
+}
+
+export interface WaitCheckOptions {
+  /** 預期的訂單狀態 */
+  expectedStatus: string;
+  /** 等待時間（毫秒），預設 60_000 */
+  waitTime?: number;
+}
+
+/**
+ * 等待指定時間後檢查訂單狀態是否仍為預期值。
+ * 失敗場景用：等滿超時後確認訂單仍為 pending（webhook 未到達）。
+ */
+export async function waitAndCheckOrderStatus(
+  orderId: string | number,
+  options: WaitCheckOptions,
+): Promise<WcOrder> {
+  const waitTime = options.waitTime ?? 60_000;
+
+  await new Promise((r) => setTimeout(r, waitTime));
+
+  const order = await getOrder(orderId);
+
+  if (order.status !== options.expectedStatus) {
+    throw new Error(
+      `waitAndCheckOrderStatus 失敗：訂單 #${orderId} 等待 ${Math.round(waitTime / 1000)} 秒後，` +
+      `狀態為 ${order.status}，預期為 ${options.expectedStatus}。`,
+    );
+  }
+
+  return order;
+}
