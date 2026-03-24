@@ -240,9 +240,9 @@ final class TradeHandler
 				$this->save_payment_token($user_id, $card_hash, $card_6no, $card_4no, $credit_life);
 			}
 		} else {
-			// 交易失敗
+			// 交易失敗：維持 pending（允許客戶重試付款），僅寫入失敗備註
 			$note_html = $this->build_order_note_html( '統一金流 PAYUNi 信用卡付款失敗', $trade_result );
-			$order->update_status( 'failed', $note_html );
+			$order->add_order_note( $note_html );
 		}
 
 		$order->save();

@@ -342,16 +342,29 @@ class CreditV3 extends AbstractGateway
 			$handler      = new TradeHandler();
 			$raw_response = $handler->execute_trade($request_body);
 
-			// 若有 EncryptInfo → 驗證 HashInfo 並解密（直接授權流程）
-			// 否則使用 raw response（幕後3D流程：TradeNo 由 webhook 補傳）
-			if (! empty($raw_response['EncryptInfo'])) {
-				$trade_result = $handler->process_notify($raw_response);
-			} else {
-				$trade_result = $raw_response;
-			}
+			// 解密 PayUni 回應（server-side API 一定有 EncryptInfo）
+			$trade_result = $handler->process_notify($raw_response);
 
-			// 依交易結果更新訂單狀態（SUCCESS → payment_complete, 其他 → failed）
-			$handler->update_order_status($order, $trade_result);
+			// 判斷是否為 3D 驗證流程：解密後 TradeNo 為空 = 僅建立 3D 驗證，尚未實際授權
+			// 真正的交易完成會有 TradeNo（由 webhook 回傳）
+			if (! empty($trade_result['TradeNo'])) {
+				// 直接授權成功（有 TradeNo）：更新訂單狀態
+				$handler->update_order_status($order, $trade_result);
+			} else {
+				// 3D 驗證流程（TradeNo 為空）：訂單維持「等待付款中」，由後續 Webhook 決定最終狀態
+				$status  = $trade_result['Status'] ?? '';
+				$message = $trade_result['Message'] ?? '';
+
+				$order->update_meta_data('_payuni_v3_resp', $trade_result);
+				$order->add_order_note(
+					\sprintf(
+						'3D 驗證已建立，等待 webhook 回傳交易結果（狀態碼：%s，交易訊息：%s）',
+						$status,
+						$message
+					)
+				);
+				$order->save();
+			}
 
 			return [
 				'result'   => 'success',
@@ -383,9 +396,33 @@ class CreditV3 extends AbstractGateway
 			return;
 		}
 
+		// 判斷訂單是否已有最終交易結果（已付款、已失敗、已取消）
+		// 3D 驗證流程中 webhook 尚未回傳時，訂單仍為 pending，不應顯示原始 3D 建立回應
+		$order_status     = $order->get_status();
+		$has_final_result = $order->is_paid()
+			|| 'failed' === $order_status
+			|| 'cancelled' === $order_status;
 
-		$status = \esc_html($order->get_meta('_payuni_resp_status', true));
-		$message = \esc_html($order->get_meta('_payuni_resp_message', true));
+		if (! $has_final_result) {
+			$html = <<<'HTML'
+            <h2 class="woocommerce-order-details__title">交易狀態</h2>
+            <div class="responsive-table">
+                <table class="woocommerce-table woocommerce-table--order-details shop_table order_details">
+                    <tbody>
+                        <tr>
+                            <td>付款處理中，系統確認後將自動更新訂單狀態。</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            HTML;
+
+			echo $html;
+			return;
+		}
+
+		$status   = \esc_html($order->get_meta('_payuni_resp_status', true));
+		$message  = \esc_html($order->get_meta('_payuni_resp_message', true));
 		$trade_no = \esc_html($order->get_meta('_payuni_resp_trade_no', true));
 		$card_4no = \esc_html($order->get_meta('_payuni_card_number', true));
 
