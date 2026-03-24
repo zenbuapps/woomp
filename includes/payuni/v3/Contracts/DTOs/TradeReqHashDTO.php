@@ -150,8 +150,8 @@ final class TradeReqHashDTO
 			$args['UserIP'] = $ip;
 		}
 
-		// 發票載具整合
-		if ($carrier_type) {
+		// 發票載具整合（僅在啟用電子發票功能時送出載具參數）
+		if ($setting_dto->enable_invoice_carrier && $carrier_type) {
 			$args['CarrierType'] = $carrier_type;
 			// amego 會員載具不需填 CarrierInfo；其他類型需填入
 			if ($carrier_type !== 'amego' && $carrier_info) {

@@ -103,11 +103,24 @@ class CreditV3 extends AbstractGateway
 					'data-placeholder' => __('選擇分期期數', 'woomp'),
 				],
 			],
+			'enable_invoice_carrier' => [
+				'title'       => __('統一金流電子發票（光貿）', 'woomp'),
+				'type'        => 'checkbox',
+				'label'       => __('啟用統一金流電子發票載具整合，允許消費者在結帳頁選擇發票載具', 'woomp'),
+				'default'     => 'no',
+				'description' => __('啟用後，結帳頁將顯示發票載具選項（手機條碼、自然人憑證、會員載具、捐贈碼、公司統編），載具資訊將隨交易參數一併送出至 PayUni。', 'woomp'),
+				'desc_tip'    => true,
+			],
 		];
 	}
 
 	public function validate_fields(): bool
 	{
+		$enable_invoice_carrier = \wc_string_to_bool($this->get_option('enable_invoice_carrier', 'no'));
+		if (!$enable_invoice_carrier) {
+			return true;
+		}
+
 		$carrier_type = isset($_POST['payuni_carrier_type']) ? sanitize_text_field(wp_unslash($_POST['payuni_carrier_type'])) : '';
 
 		if ('' === $carrier_type || 'amego' === $carrier_type) {
@@ -267,6 +280,9 @@ class CreditV3 extends AbstractGateway
 		echo '<input type="hidden" name="payuni_used_token_id" id="payuni_used_token_id" value="" />';
 
 		// 發票載具選擇區塊
+		$enable_invoice_carrier = \wc_string_to_bool($this->get_option('enable_invoice_carrier', 'no'));
+
+		if ($enable_invoice_carrier) {
 		echo '<div class="payuni-invoice-carrier-options">';
 		echo '<p class="form-row form-row-wide">';
 		echo '<label for="payuni_carrier_type">' . \esc_html__('發票載具', 'woomp') . '</label>';
@@ -314,6 +330,7 @@ class CreditV3 extends AbstractGateway
 		echo '<input type="hidden" name="payuni_carrier_info" id="payuni_carrier_info" value="" />';
 
 		echo '</div>'; // .payuni-invoice-carrier-options
+		} // end if enable_invoice_carrier
 	}
 
 

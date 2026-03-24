@@ -22,6 +22,8 @@ final class SettingDTO {
     public array $installment_options = [];
     /** @var bool 是否啟用記憶卡號 */
     public bool $enable_tokenization = false;
+    /** @var bool 是否啟用統一金流電子發票（光貿）載具整合 */
+    public bool $enable_invoice_carrier = false;
     /** @var string $merchant_id */
     public string $merchant_id = '';
     /** @var string $hash_key */
@@ -57,7 +59,8 @@ final class SettingDTO {
                 'installment_options' => \is_array( $installment_options ) ? \array_map(
                     'intval', $installment_options
                 ) : [],
-                'enable_tokenization' => \wc_string_to_bool( $gateway_settings['enable_tokenization'] ?? 'no' ),
+                'enable_tokenization'  => \wc_string_to_bool( $gateway_settings['enable_tokenization'] ?? 'no' ),
+                'enable_invoice_carrier' => \wc_string_to_bool( $gateway_settings['enable_invoice_carrier'] ?? 'no' ),
                 'merchant_id'         => $is_test ? \get_option( 'payuni_payment_merchant_no_test' ) : \get_option(
                     'payuni_payment_merchant_no'
                 ),
