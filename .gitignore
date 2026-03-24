@@ -35,5 +35,8 @@ dist-ssr
 *.sln
 *.sw?
 
-
-
+# Debug screenshots & temp artifacts (root level)
+/*.png
+/*.md
+!README.md
+.playwright-mcp/
