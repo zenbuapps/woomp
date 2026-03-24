@@ -82,15 +82,22 @@ Flow:
   10. CreditV3Gateway 透過 TradeHandler 執行幕後交易
       → TradeHandler::execute_trade() POST 到 /iframe/merchant_trade
       → Condition: 回應包含 EncryptInfo
-        Yes → TradeHandler::process_notify() 驗證 HashInfo 並解密
-        No → 使用 raw response（3D 流程由 webhook 補傳）
+        Yes → 非 3D 直接授權流程
+          → TradeHandler::process_notify() 驗證 HashInfo 並解密
+          → 進入 Step 11（update_order_status）
+        No → 3D 驗證流程（raw response 不含交易結果）
+          → 儲存 _payuni_v3_resp（raw response）到訂單 meta
+          → 訂單備註記錄「3D 驗證已建立，等待 webhook 回傳交易結果（狀態碼：{Status}，交易訊息：{Message}）」
+          → ★ 不呼叫 update_order_status()，訂單維持「等待付款中」
+          → ★ 不清除暫存資料（供 Webhook 處理時使用）
+          → 直接跳到 Step 12（回傳 success）
 
-  11. TradeHandler::update_order_status() 更新訂單（幕後授權路徑）
+  11. TradeHandler::update_order_status() 更新訂單（僅非 3D 直接授權路徑）
       → 儲存 _payuni_v3_resp（完整解密陣列）
       → 儲存 _payuni_resp_status, _payuni_resp_message, _payuni_resp_trade_no, _payuni_card_number
       → Condition: Status = 'SUCCESS'
         Yes → $order->payment_complete($trade_no)
-          → 訂單備註記錄「統一金流 PAYUNi 信用卡付款成功（幕後授權）」（注意：幕後授權回應不含 TradeNo）
+          → 訂單備註記錄「統一金流 PAYUNi 交易紀錄（前景授權）」
           → Condition: 需要儲存卡號（payuni_save_card meta 且有 card_hash）
             Yes → save_payment_token() 建立 WC_Payment_Token_CC
         No → $order->update_status('failed')

@@ -24,15 +24,15 @@
 [STEP:6] @系統 {features/payment/執行PayUni交易.feature}
   [DECISION:6a] PayUni merchant_trade 回應類型
     [BRANCH:6a:非3D直接授權] @系統 {features/payment/解密驗證交易回應.feature}
-    [BRANCH:6a:3D驗證流程] @消費者 {specs/ui/3D驗證頁面.md}
+      [STEP:7] @系統 {features/payment/處理交易結果.feature}
+        [DECISION:7a] 交易狀態
+          [BRANCH:7a:SUCCESS]
+            [DECISION:7a1] 是否需要儲存卡片 Token
+              [BRANCH:7a1:記憶卡號啟用且消費者已勾選儲存] @系統 {features/token/儲存付款Token.feature}
+              [BRANCH:7a1:記憶卡號未啟用或消費者未勾選] -- 跳過儲存
+            [MERGE:7a1]
+          [BRANCH:7a:非SUCCESS] @系統 {features/error/對應錯誤訊息.feature} -> {specs/ui/付款失敗通知.md}
+        [MERGE:7a]
+    [BRANCH:6a:3D驗證流程] -- 儲存 _payuni_v3_resp meta + order_note「3D 驗證已建立」，訂單維持「等待付款中」，由 Webhook 決定
   [MERGE:6a]
-[STEP:7] @系統 {features/payment/處理交易結果.feature}
-  [DECISION:7a] 交易狀態
-    [BRANCH:7a:SUCCESS]
-      [DECISION:7a1] 是否需要儲存卡片 Token
-        [BRANCH:7a1:記憶卡號啟用且消費者已勾選儲存] @系統 {features/token/儲存付款Token.feature}
-        [BRANCH:7a1:記憶卡號未啟用或消費者未勾選] -- 跳過儲存
-      [MERGE:7a1]
-    [BRANCH:7a:非SUCCESS] @系統 {features/error/對應錯誤訊息.feature} -> {specs/ui/付款失敗通知.md}
-  [MERGE:7a]
 [STEP:8] @PayUni {features/webhook/處理交易回調.feature}
