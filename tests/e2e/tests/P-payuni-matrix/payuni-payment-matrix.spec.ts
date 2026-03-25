@@ -16,12 +16,18 @@ import {
   waitAndCheckOrderStatus,
   getOrderNotes,
 } from '../../helpers/wc-api.helper';
-import { CARDS, PRODUCT, PRODUCT_INSTALLMENT } from '../../fixtures/test-data';
+import { CARDS, PRODUCT_INSTALLMENT } from '../../fixtures/test-data';
 
 /**
- * PayUni V3 付款矩陣（2x2x2 = 8 案例）
+ * PayUni V3 付款矩陣（8 案例）
  *
  * 維度：分期/不分期 × 載具/無載具 × 成功/失敗
+ *
+ * 設計決策：
+ * - 全部使用 PRODUCT_INSTALLMENT（虛擬商品 $1500），避免實體商品的運費計算 AJAX 干擾 PayUni SDK iframe
+ * - 成功案例：一次付清用 visa，分期用 visaInstallment
+ * - 失敗案例：統一使用「非分期卡 + 分期請求」觸發處理層失敗（非 SDK 前端拒絕），確保訂單會建立
+ *   - M5/M6 用 JCB 非分期卡，M7/M8 用 Visa 非分期卡（覆蓋兩種卡品牌）
  *
  * 驗證策略：
  * - 成功：WC REST API 輪詢 60s，期望 processing/completed + order note 含 "Webhook"
@@ -97,17 +103,17 @@ test.describe('PayUni V3 付款矩陣 @payuni @P0', () => {
 
   // ── 成功案例 ──────────────────────────────────
 
-  test('M1 @P0 不分期+無載具 → 訂單成功 @success @no-installment', async ({ page }) => {
+  test('M1 @P0 一次付清+無載具 → 訂單成功 @success @no-installment', async ({ page }) => {
     const orderId = await checkout(page, {
-      productUrl: PRODUCT.addToCartUrl,
+      productUrl: PRODUCT_INSTALLMENT.addToCartUrl,
       card: CARDS.visa,
     });
     await verifySuccess(orderId);
   });
 
-  test('M2 @P0 不分期+有載具 → 訂單成功 @success @no-installment @carrier', async ({ page }) => {
+  test('M2 @P0 一次付清+有載具 → 訂單成功 @success @no-installment @carrier', async ({ page }) => {
     const orderId = await checkout(page, {
-      productUrl: PRODUCT.addToCartUrl,
+      productUrl: PRODUCT_INSTALLMENT.addToCartUrl,
       card: CARDS.visa,
       withCarrier: true,
     });
@@ -135,18 +141,20 @@ test.describe('PayUni V3 付款矩陣 @payuni @P0', () => {
 
   // ── 失敗案例 ──────────────────────────────────
 
-  test('M5 @P0 不分期+無載具 → 付款失敗，訂單維持 pending @failure @no-installment', async ({ page }) => {
+  test('M5 @P0 JCB非分期卡+分期請求+無載具 → 付款失敗，訂單維持 pending @failure @jcb', async ({ page }) => {
     const orderId = await checkout(page, {
-      productUrl: PRODUCT.addToCartUrl,
-      card: CARDS.invalidVisa,
+      productUrl: PRODUCT_INSTALLMENT.addToCartUrl,
+      card: CARDS.jcb,
+      installment: 3,
     });
     await verifyFailure(orderId);
   });
 
-  test('M6 @P0 不分期+有載具 → 付款失敗，訂單維持 pending @failure @no-installment @carrier', async ({ page }) => {
+  test('M6 @P0 JCB非分期卡+分期請求+有載具 → 付款失敗，訂單維持 pending @failure @jcb @carrier', async ({ page }) => {
     const orderId = await checkout(page, {
-      productUrl: PRODUCT.addToCartUrl,
-      card: CARDS.invalidVisa,
+      productUrl: PRODUCT_INSTALLMENT.addToCartUrl,
+      card: CARDS.jcb,
+      installment: 3,
       withCarrier: true,
     });
     await verifyFailure(orderId);

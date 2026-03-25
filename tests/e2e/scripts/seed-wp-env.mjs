@@ -21,12 +21,14 @@
  */
 
 import { execSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ENV_PATH = resolve(__dirname, '../../../.env');
+const PLUGIN_ROOT = resolve(__dirname, '../../..');
+const ENV_PATH = resolve(PLUGIN_ROOT, '.env');
+const TEMP_PHP = resolve(PLUGIN_ROOT, '_seed-temp.php');
 
 // ── Helpers ─────────────────────────────────────
 
@@ -37,13 +39,26 @@ function wp(cmd) {
     const output = execSync(full, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: resolve(__dirname, '../../..'),
+      cwd: PLUGIN_ROOT,
       timeout: 60_000,
     });
     return output.trim();
   } catch (err) {
     console.error(`  ✗ 失敗：${err.stderr?.trim() || err.message}`);
     throw err;
+  }
+}
+
+/**
+ * 透過臨時檔案執行 PHP 程式碼（繞過 Windows/Docker 多層引號問題）
+ * 臨時檔案寫入 plugin 目錄（已掛載到 Docker 容器），用 wp eval-file 執行
+ */
+function wpEval(phpCode) {
+  writeFileSync(TEMP_PHP, `<?php ${phpCode}`, 'utf-8');
+  try {
+    return wp('eval-file /var/www/html/wp-content/plugins/woomp/_seed-temp.php');
+  } finally {
+    try { unlinkSync(TEMP_PHP); } catch {}
   }
 }
 
@@ -85,6 +100,16 @@ function writeEnvKey(key, value) {
 console.log('\n🚀 Woomp wp-env Seed Script\n');
 const env = readEnv();
 
+// Step 0: 安裝繁體中文語系（Woomp 為台灣市場外掛，需 zh_TW）
+console.log('🌐 Step 0: 安裝繁體中文語系');
+try {
+  wp('language core install zh_TW --activate');
+  wp('language plugin install woocommerce zh_TW');
+  console.log('  ✓ zh_TW 語系已安裝並啟用\n');
+} catch {
+  console.log('  ⚠ 語系安裝失敗，使用英文介面\n');
+}
+
 // Step 1: WooCommerce 基礎設定
 console.log('📦 Step 1: WooCommerce 基礎設定');
 wp('option update woocommerce_currency TWD');
@@ -94,7 +119,12 @@ wp('option update woocommerce_store_postcode 100');
 wp('option update woocommerce_store_city "台北市"');
 wp('option update woocommerce_store_address "測試路1號"');
 wp('option update woocommerce_allowed_countries specific');
-wp('option update woocommerce_specific_allowed_countries --format=json \'["TW"]\'');
+// 限制僅允許台灣（用 wpEval 繞過引號問題）
+try {
+  wpEval('update_option("woocommerce_specific_allowed_countries", array("TW"));');
+} catch {
+  console.log('  ⚠ 設定允許國家失敗，使用 woocommerce_default_country=TW 作為替代');
+}
 
 // 建立 WC 預設頁面（商店/購物車/結帳/我的帳戶）
 try {
@@ -103,8 +133,20 @@ try {
   console.log('  ⚠ install_pages 可能已執行過，跳過');
 }
 
-// 設定經典結帳（非 Block Checkout）
-wp('option update woocommerce_checkout_page_id $(wp post list --post_type=page --name=checkout --field=ID)');
+// 設定經典結帳（非 Block Checkout）— wp-env 預設用 Block Checkout，需改回 shortcode
+try {
+  wpEval(`
+    $checkout_id = wc_get_page_id('checkout');
+    if ($checkout_id > 0) {
+      wp_update_post(array('ID' => $checkout_id, 'post_content' => '[woocommerce_checkout]'));
+      echo "checkout page $checkout_id -> classic shortcode";
+    } else {
+      echo "checkout page not found";
+    }
+  `);
+} catch {
+  console.log('  ⚠ 經典結帳頁設定失敗，跳過');
+}
 
 console.log('  ✓ WooCommerce 基礎設定完成\n');
 
@@ -166,23 +208,23 @@ if (!merchantId || !hashKey || !hashIv) {
   console.log(`  ✓ MerchantID: ${merchantId}\n`);
 }
 
-// Step 5: 啟用 PayUni 信用卡 V3 閘道
+// Step 5: 啟用 PayUni 信用卡 V3 閘道（完整設定）
 console.log('💳 Step 5: 啟用 PayUni 信用卡 V3 閘道');
 
-// PayUni 閘道啟用：設定 woocommerce_payuni-credit-v3_settings option
-// 這是一個序列化的陣列，需用 wp option patch
+// 用 wpEval 一次寫入完整設定（含分期選項、記憶卡、載具）
 try {
-  wp('option patch insert woocommerce_payuni-credit-v3_settings enabled yes');
+  wpEval(`
+    update_option("woocommerce_payuni-credit-v3_settings", array(
+      "enabled" => "yes",
+      "title" => "統一金流 PAYUNi 信用卡 v3",
+      "description" => "",
+      "enable_tokenization" => "yes",
+      "installment_options" => array("3", "6", "9", "12", "18", "24", "30"),
+      "enable_invoice_carrier" => "yes",
+    ));
+  `);
 } catch {
-  // option 可能尚不存在，用 update 建立
-  wp('option update woocommerce_payuni-credit-v3_settings --format=json \'{"enabled":"yes","title":"PayUni 信用卡"}\'');
-}
-
-// 同時啟用載具功能
-try {
-  wp('option patch insert woocommerce_payuni-credit-v3_settings enable_invoice_carrier yes');
-} catch {
-  // 若 patch 失敗，已在上方 update 中處理
+  console.log('  ⚠ PayUni 閘道設定失敗，請手動在後台啟用');
 }
 
 console.log('  ✓ PayUni 信用卡 V3 閘道已啟用\n');
@@ -201,10 +243,10 @@ try {
     console.log(`  ✓ API Key 建立成功`);
   }
 } catch {
-  // customer_key 子命令可能不支援，用 PHP eval 方式建立
-  console.log('  ⚠ wc customer_key 不支援，改用 PHP eval 建立 API Key');
+  // customer_key 子命令可能不支援，用 wpEval 建立
+  console.log('  ⚠ wc customer_key 不支援，改用 PHP eval-file 建立 API Key');
   try {
-    const phpResult = wp(`eval '
+    const phpResult = wpEval(`
       global $wpdb;
       $key = "ck_" . wc_rand_hash();
       $secret = "cs_" . wc_rand_hash();
@@ -217,7 +259,7 @@ try {
         "truncated_key" => substr($key, -7),
       ]);
       echo json_encode(["key" => $key, "secret" => $secret]);
-    '`);
+    `);
 
     const parsed = JSON.parse(phpResult);
     if (parsed.key && parsed.secret) {
@@ -239,18 +281,34 @@ try {
     'wc shipping_zone create --name="台灣本島" --order=0 --porcelain --user=1'
   );
   wp(`wc shipping_zone_method create ${zoneId} --method_id=flat_rate --user=1`);
-  // 加入台灣區域限制
-  wp(`eval '
+  // 加入台灣區域限制（用 wpEval 繞過引號問題）
+  wpEval(`
     global $wpdb;
     $wpdb->insert($wpdb->prefix . "woocommerce_shipping_zone_locations", [
       "zone_id" => ${zoneId},
       "location_code" => "TW",
       "location_type" => "country",
     ]);
-  '`);
+  `);
   console.log(`  ✓ 運送區域 ID: ${zoneId}\n`);
 } catch {
   console.log('  ⚠ 運送區域建立失敗（可能已存在），跳過\n');
+}
+
+// Step 8: 設定站台 URL（若 .env 有 TEST_SITE_URL 則同步到 wp-config）
+console.log('🌐 Step 8: 站台 URL 設定');
+const testSiteUrl = env.TEST_SITE_URL;
+if (testSiteUrl && testSiteUrl !== 'http://localhost:8888') {
+  try {
+    wp(`config set WP_SITEURL "${testSiteUrl}" --type=constant`);
+    wp(`config set WP_HOME "${testSiteUrl}" --type=constant`);
+    wp('config set WP_DEBUG_DISPLAY false --raw');
+    console.log(`  ✓ WP_SITEURL / WP_HOME → ${testSiteUrl}\n`);
+  } catch {
+    console.log('  ⚠ 站台 URL 設定失敗，請手動執行 wp config set\n');
+  }
+} else {
+  console.log('  ⚠ TEST_SITE_URL 未設定或為 localhost:8888，跳過\n');
 }
 
 // ── Done ────────────────────────────────────────
