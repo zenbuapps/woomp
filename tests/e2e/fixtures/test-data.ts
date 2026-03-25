@@ -121,7 +121,7 @@ export const SELECTORS = {
 	noticesWrapper: '.woocommerce-notices-wrapper',
 
 	// ── Order success ──
-	orderReceivedHeading: '.woocommerce-thankyou-order-received, .entry-title, h1:has-text("已收到訂單")',
+	orderReceivedHeading: '.woocommerce-thankyou-order-received, .entry-title, h1:has-text("已收到訂單"), h1:has-text("Order received")',
 };
 
 /** 實際在結帳頁出現的分期選項（value 值）*/
