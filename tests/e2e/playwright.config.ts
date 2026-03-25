@@ -26,13 +26,6 @@ export default defineConfig({
     navigationTimeout: 120_000,  // 2 分鐘：WC settings 頁面 PHP 執行極慢
   },
   projects: [
-    // 原有 PayUni Embed 測試（A-checkout ~ H-sdk）
-    {
-      name: 'payuni-embed',
-      testDir: './tests',
-      testMatch: /\/[A-H]-.*\/.*\.spec\.ts$/,
-      use: { ...devices['Desktop Chrome'] },
-    },
     // 環境 Setup（啟用所有模組 + 建立 API Keys）
     {
       name: 'setup',
@@ -40,7 +33,21 @@ export default defineConfig({
       testMatch: /.*\.spec\.ts$/,
       use: { ...devices['Desktop Chrome'] },
     },
-    // 新整合測試（01-08）
+    // PayUni V3 付款矩陣（8 案例：分期/不分期 × 載具/無載具 × 成功/失敗）
+    {
+      name: 'payuni-matrix',
+      testDir: './tests',
+      testMatch: /\/P-payuni-matrix\/.*\.spec\.ts$/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // PayUni 載具 UI 測試（無付款流程，純 UI 驗證）
+    {
+      name: 'payuni-carrier-ui',
+      testDir: './tests',
+      testMatch: /\/B-invoice\/B1-carrier-ui\.spec\.ts$/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // 整合測試（01-08，非 PayUni 付款流程）
     {
       name: 'integration',
       testDir: './tests',
@@ -48,19 +55,19 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['setup'],
     },
-    // 核心業務 happy flow（01-05 + A-checkout + B-invoice，排除 edge cases）
+    // 核心業務 happy flow（01-05 + B1 載具 UI + P 付款矩陣）
     {
       name: 'happy-flow',
       testDir: './tests',
       testMatch: [
         /\/0[1-5]-.*\/.*\.spec\.ts$/,
-        /\/A-checkout\/.*\.spec\.ts$/,
-        /\/B-invoice\/.*\.spec\.ts$/,
+        /\/B-invoice\/B1-carrier-ui\.spec\.ts$/,
+        /\/P-payuni-matrix\/.*\.spec\.ts$/,
       ],
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['setup'],
     },
-    // 全部跑（setup + payuni-embed + integration）
+    // 全部跑
     {
       name: 'all',
       testDir: './tests',

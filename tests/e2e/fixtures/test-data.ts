@@ -8,21 +8,22 @@ export const CREDENTIALS = {
 	password: process.env.TEST_PASSWORD || 'test',
 };
 
+/** 低價商品（一般付款測試用）— ID 可透過 PRODUCT_ID env 覆蓋（wp-env seed 用） */
+const productId = process.env.PRODUCT_ID || '81';
 export const PRODUCT = {
-	/** ?add-to-cart=81 → T-Shirt with Logo, NT$10 */
-	addToCartUrl: '/?add-to-cart=81',
+	addToCartUrl: `/?add-to-cart=${productId}`,
 	name: 'T-Shirt with Logo',
 	price: 10,
-	id: 81,
+	id: parseInt(productId, 10),
 };
 
-/** 高金額商品（分期測試用，需 >= NT$100 才能分期） */
+/** 高金額商品（分期測試用，需 >= NT$100）— ID 可透過 PRODUCT_INSTALLMENT_ID env 覆蓋 */
+const productInstallmentId = process.env.PRODUCT_INSTALLMENT_ID || '1028';
 export const PRODUCT_INSTALLMENT = {
-	/** ?add-to-cart=1028 → E2E Frontend Test Course, NT$1,500 */
-	addToCartUrl: '/?add-to-cart=1028',
+	addToCartUrl: `/?add-to-cart=${productInstallmentId}`,
 	name: 'E2E Frontend Test Course',
 	price: 1500,
-	id: 1028,
+	id: parseInt(productInstallmentId, 10),
 };
 
 /** PayUni Sandbox 測試卡號 */
