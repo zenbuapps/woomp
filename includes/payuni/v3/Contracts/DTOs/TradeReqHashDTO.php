@@ -173,12 +173,13 @@ final class TradeReqHashDTO
 		return \implode(';', $item_names);
 	}
 
-	/** 取得背景通知網址，local 環境改用 Cloudflare Tunnel，確保 PayUni 可回調 */
+	/**
+	 * 取得背景通知網址
+	 * 使用 home_url() 動態生成，確保 PayUni 回調到正確的站台 URL
+	 * （包含 Cloudflare Tunnel 場景：WP_HOME 已指向 tunnel URL）
+	 */
 	private static function get_notify_url(): string
 	{
-		if ('local' === \wp_get_environment_type()) {
-			return 'https://local-turbo.powerhouse.tw/wc-api/payuni_notify';
-		}
 		return \home_url('/wc-api/payuni_notify');
 	}
 
