@@ -2,7 +2,7 @@
 
 基於 specs/payuni-embed 規格產出，使用 Playwright + PayUni Sandbox 環境。
 
-**測試環境**：`https://local-turbo.powerhouse.tw`
+**測試環境**：`https://local-test.powerhouse.tw`
 **測試卡號**：依情境使用不同卡號，詳見 `.claude/skills/payuni-embed/references/sandbox-credentials.md`
 
 | 情境 | 卡號 | 說明 |

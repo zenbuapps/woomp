@@ -65,11 +65,11 @@ woomp/
 ```
 
 ## 測試環境
-請使用 playwright MCP 登入 https://local-turbo.powerhouse.tw/ 測試
-登入網址: https://local-turbo.powerhouse.tw/wp-admin
+請使用 playwright MCP 登入 https://local-test.powerhouse.tw/ 測試
+登入網址: https://local-test.powerhouse.tw/wp-admin
 登入憑證請參照專案根目錄 `.env` 檔案（格式見 `.env.example`，不進版本控制）
 
-https://local-turbo.powerhouse.tw 透過 cloudflare tunnel 連線到本地測試伺服器，**若無法連線請提請開發者開啟測試伺服器**
+https://local-test.powerhouse.tw 透過 wp-env（localhost:8888）+ Cloudflare Tunnel 提供對外連線，**若無法連線請提請開發者啟動 wp-env 並開啟 Cloudflare Tunnel**
 
 ## Git 工作流程
 

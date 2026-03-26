@@ -4,7 +4,7 @@
 
 **測試目標**：透過 60 秒輪詢策略驗證成功/失敗場景的訂單狀態流轉，涵蓋不分期與分期兩種付款模式。
 
-**測試環境**：`https://local-turbo.powerhouse.tw`
+**測試環境**：`https://local-test.powerhouse.tw`
 
 ---
 
