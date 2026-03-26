@@ -3,7 +3,8 @@
   "phpVersion": "8.2",
   "plugins": [
     ".",
-    "https://downloads.wordpress.org/plugin/woocommerce.latest-stable.zip"
+    "https://downloads.wordpress.org/plugin/woocommerce.latest-stable.zip",
+    "../woocommerce-subscriptions"
   ],
   "config": {
     "WP_DEBUG": true,
