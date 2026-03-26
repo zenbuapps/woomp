@@ -190,6 +190,14 @@ final class TradeHandler
 			$order->update_meta_data('_payuni_card_number', $card_4no);
 		}
 
+		// 判斷 Token 儲存目標閘道 ID（訂閱閘道用自己的 gateway_id）
+		$payment_method = $order->get_payment_method();
+		$token_gateway_id = $this->resolve_token_gateway_id($payment_method);
+
+		// 訂閱閘道強制儲存 Token
+		$is_subscription = \PAYUNI\Gateways\CreditSubscriptionV3::ID === $payment_method;
+		$should_save_card = $is_subscription || \wc_string_to_bool($order->get_meta('payuni_save_card', true));
+
 		// 冪等性保護：訂單已付款（如 process_payment 已呼叫 payment_complete）
 		// 仍需保存 meta（webhook 補傳的 TradeNo/Card4No），但跳過重複付款完成動作
 		if ($order->is_paid()) {
@@ -202,7 +210,6 @@ final class TradeHandler
 				if ($is_webhook) {
 					$order->add_order_note( $this->build_order_note_html( '統一金流 PAYUNi 交易紀錄（Webhook）', $trade_result ) );
 				}
-				$should_save_card = \wc_string_to_bool($order->get_meta('payuni_save_card', true));
 				$user_id = $order->get_customer_id();
 				\do_action('woomp_payuni_log', 'info', "[DEBUG] #{$order->get_id()} 路徑B token 儲存條件檢查", [
 					'order_id'        => $order->get_id(),
@@ -215,7 +222,7 @@ final class TradeHandler
 				]);
 				if ($user_id && $should_save_card && ($card_hash || $card_4no)) {
 					$credit_life = $trade_result['CreditLife'] ?? '';
-					$this->save_payment_token($user_id, $card_hash, $card_6no, $card_4no, $credit_life);
+					$this->save_payment_token($user_id, $card_hash, $card_6no, $card_4no, $credit_life, $token_gateway_id);
 				}
 			}
 			$order->save();
@@ -231,13 +238,11 @@ final class TradeHandler
 				$order->add_order_note( $this->build_order_note_html( '統一金流 PAYUNi 交易紀錄（前景授權）', $trade_result ) );
 			}
 
-			// 檢查是否需要儲存卡片
-			$should_save_card = \wc_string_to_bool($order->get_meta('payuni_save_card', true));
-			$user_id = $order->get_customer_id();
 			// 儲存卡號
+			$user_id = $order->get_customer_id();
 			if ($user_id && $should_save_card && ($card_hash || $card_4no)) {
 				$credit_life = $trade_result['CreditLife'] ?? '';
-				$this->save_payment_token($user_id, $card_hash, $card_6no, $card_4no, $credit_life);
+				$this->save_payment_token($user_id, $card_hash, $card_6no, $card_4no, $credit_life, $token_gateway_id);
 			}
 		} else {
 			// 交易失敗：維持 pending（允許客戶重試付款），僅寫入失敗備註
@@ -301,37 +306,63 @@ final class TradeHandler
 	}
 
 	/**
+	 * 根據付款方式決定 Token 儲存的閘道 ID
+	 *
+	 * 訂閱閘道的 Token 需要儲存在對應的閘道 ID 下，
+	 * 以便續扣時能正確找到。
+	 *
+	 * @param string $payment_method 付款方式 ID
+	 *
+	 * @return string 目標閘道 ID
+	 */
+	private function resolve_token_gateway_id( string $payment_method ): string {
+		if ( \PAYUNI\Gateways\CreditSubscriptionV3::ID === $payment_method ) {
+			return \PAYUNI\Gateways\CreditSubscriptionV3::ID;
+		}
+
+		return \PAYUNI\Gateways\CreditV3::ID;
+	}
+
+	/**
 	 * 儲存 Payment Token 到 WooCommerce
 	 *
 	 * @param int    $customer_id 客戶 ID
 	 * @param string $card_hash   信用卡 Hash
+	 * @param string $card_6no    信用卡前六碼
 	 * @param string $card_4no    信用卡末四碼
 	 * @param string $card_exp    有效期限 (MMYY)
+	 * @param string $gateway_id  閘道 ID（預設為 CreditV3::ID）
 	 *
 	 * @return void
 	 */
-	private function save_payment_token(
+	public function save_payment_token(
 		int $customer_id,
 		string $card_hash,
 		string $card_6no,
 		string $card_4no,
-		string $card_exp
+		string $card_exp,
+		string $gateway_id = ''
 	): void {
+		if (empty($gateway_id)) {
+			$gateway_id = \PAYUNI\Gateways\CreditV3::ID;
+		}
+
 		// 若無 CreditHash（Sandbox 模擬授權不回傳），以卡號組合作為 fallback token
 		$token_key = $card_hash ?: sprintf('%s****%s', $card_6no, $card_4no);
 		if (! $token_key) {
 			return;
 		}
 
-		// 檢查是否已存在相同的 Token
-		$existing_tokens = \WC_Payment_Tokens::get_customer_tokens($customer_id, \PAYUNI\Gateways\CreditV3::ID);
+		// 檢查是否已存在相同的 Token（搜尋目標 gateway_id）
+		$existing_tokens = \WC_Payment_Tokens::get_customer_tokens($customer_id, $gateway_id);
 
 		foreach ($existing_tokens as $existing_token) {
 			if ($existing_token->get_token() === $token_key) {
 				// 已存在相同的卡片，不需要重複儲存
 				\do_action('woomp_payuni_log', 'info', '信用卡 Token 已存在，跳過儲存', [
 					'customer_id' => $customer_id,
-					'card_4no'    => $card_4no
+					'card_4no'    => $card_4no,
+					'gateway_id'  => $gateway_id,
 				]);
 				return;
 			}
@@ -349,7 +380,7 @@ final class TradeHandler
 		// 建立新的 Payment Token
 		$token = new \WC_Payment_Token_CC();
 		$token->set_token($token_key);
-		$token->set_gateway_id(\PAYUNI\Gateways\CreditV3::ID);
+		$token->set_gateway_id($gateway_id);
 		// 依卡號前幾碼判斷卡片類型（4=Visa, 5=Mastercard, 3=Amex, 6=Discover）
 		$card_type = match (true) {
 			str_starts_with($card_6no, '4') => 'visa',
@@ -374,6 +405,7 @@ final class TradeHandler
 		\do_action('woomp_payuni_log', 'info', '信用卡 Token 儲存成功', [
 			'customer_id' => $customer_id,
 			'card_4no'    => $card_4no,
+			'gateway_id'  => $gateway_id,
 			'token_id'    => $token->get_id()
 		]);
 	}

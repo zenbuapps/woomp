@@ -6,6 +6,7 @@ namespace J7\Payuni;
 
 use J7\Payuni\Contracts\DTOs\SdkDTO;
 use J7\Payuni\Contracts\DTOs\SettingDTO;
+use J7\Payuni\Domains\Subscription\SubscriptionBootstrap;
 use J7\Payuni\Infrastructure\Http\HttpClient;
 use J7\Payuni\Infrastructure\Http\TradeHandler;
 use J7\Payuni\Shared\Enums\EMode;
@@ -42,6 +43,9 @@ final class Bootstrap
 
 		// 交易回調通知
 		\add_action('woocommerce_api_payuni_notify', [__CLASS__, 'handle_notify']);
+
+		// 定期定額訂閱
+		SubscriptionBootstrap::register_hooks();
 	}
 
 	/**
@@ -167,7 +171,7 @@ final class Bootstrap
 	 */
 	public static function save_payuni_card_hash(int $order_id, array $posted_data, \WC_Order $order): void
 	{
-		$payuni_methods = [CreditV3::ID];
+		$payuni_methods = [CreditV3::ID, \PAYUNI\Gateways\CreditSubscriptionV3::ID];
 
 		$payment_method = $posted_data['payment_method'] ?? '';
 
