@@ -42,6 +42,14 @@
 			<file>integration/EcpayCallbackTest.php</file>
 			<file>integration/PaynowCallbackTest.php</file>
 			<file>integration/OrderMetaTest.php</file>
+			<file>integration/SubscriptionV3GatewayTest.php</file>
+		</testsuite>
+		<!-- PayUni V3 定期定額 -->
+		<testsuite name="subscription">
+			<file>integration/SubscriptionV3GatewayTest.php</file>
+			<file>integration/SubscriptionV3BootstrapTest.php</file>
+			<file>integration/SubscriptionV3PaymentTest.php</file>
+			<file>integration/SubscriptionV3MetaboxTest.php</file>
 		</testsuite>
 	</testsuites>
 </phpunit>
