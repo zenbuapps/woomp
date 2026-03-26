@@ -17,7 +17,7 @@ export default defineConfig({
     ['list'],
   ],
   use: {
-    baseURL: process.env.TEST_SITE_URL || 'https://local-turbo.powerhouse.tw',
+    baseURL: process.env.TEST_SITE_URL || 'https://local-test.powerhouse.tw',
     headless: process.env.CI === 'true',
     screenshot: 'only-on-failure',
     trace: 'on-first-retry',

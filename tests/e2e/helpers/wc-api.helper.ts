@@ -15,7 +15,7 @@ let cachedContext: APIRequestContext | null = null;
 async function getApiContext(): Promise<APIRequestContext> {
   if (cachedContext) return cachedContext;
 
-  const baseURL = process.env.TEST_SITE_URL || process.env.BASE_URL || 'https://local-turbo.powerhouse.tw';
+  const baseURL = process.env.TEST_SITE_URL || process.env.BASE_URL || 'https://local-test.powerhouse.tw';
   const key = process.env.WC_API_KEY || '';
   const secret = process.env.WC_API_SECRET || '';
 

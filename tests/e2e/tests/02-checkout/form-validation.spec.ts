@@ -12,7 +12,7 @@ test.describe('Taiwan Form Validation @checkout @tw-validation', () => {
 	test.beforeAll(async ({ browser }) => {
 		// 強制啟用「台灣格式驗證」設定（wc_woomp_setting_tw_field_valitdate = 'yes'）
 		// 使用直接 HTTP POST 取代 UI 點擊，避免 saveSettings 等待頁面重載（30-60s）
-		const baseURL = process.env.TEST_SITE_URL || 'https://local-turbo.powerhouse.tw';
+		const baseURL = process.env.TEST_SITE_URL || 'https://local-test.powerhouse.tw';
 		const context = await browser.newContext({ baseURL });
 		const page = await context.newPage();
 		try {
