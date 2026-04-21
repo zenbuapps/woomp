@@ -425,6 +425,9 @@ if ( ! class_exists( 'WooMP_Order' ) ) {
 		 * @return array 更新後的批次處理選項
 		 */
 		public function bulk_action( $actions ) {
+			$actions['mark_wmp-shipped']    = __( '變更為已出貨', 'woomp' );
+			$actions['mark_wmp-in-transit'] = __( '變更為配送中', 'woomp' );
+
 			if ( ! wc_string_to_bool( get_option( 'RY_WT_enabled_ecpay_shipping' ) ) ) {
 				return $actions;
 			}
@@ -444,9 +447,6 @@ if ( ! class_exists( 'WooMP_Order' ) ) {
 			}
 
 			$actions['ry_print_ecpay_home_tcat'] = __( 'Print ECPay shipping booking note (tcat)', 'woomp' );
-
-			$actions['mark_wmp-shipped']    = __( '變更為已出貨', 'woomp' );
-			$actions['mark_wmp-in-transit'] = __( '變更為配送中', 'woomp' );
 
 			return $actions;
 		}
