@@ -128,7 +128,10 @@ if ( ! defined( 'RY_WT_VERSION' ) ) {
 
 	register_activation_hook( __FILE__, [ 'RY_WT', 'plugin_activation' ] );
 	register_deactivation_hook( __FILE__, [ 'RY_WT', 'plugin_deactivation' ] );
-	add_action( 'init', [ 'RY_WT', 'ry_init' ] );
+	// 改用 plugins_loaded 載入，避免 WooCommerce Blocks 在 init:5 提前
+	// 初始化 WC_Payment_Gateways 後，綠界 gateway 的 add_filter 來不及生效。
+	// 詳見 issue #99。
+	add_action( 'plugins_loaded', [ 'RY_WT', 'ry_init' ], 20 );
 	add_action( 'init', [ 'RY_WT', 'load_plugin_textdomain_ry_woocommerce_tools' ] );
 
 }
