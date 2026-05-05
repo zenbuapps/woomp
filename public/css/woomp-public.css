@@ -11,6 +11,13 @@
 label[for$="new-payment-method"] {
 	position: relative;
 }
+
+.woocommerce-SavedPaymentMethods,
+.woocommerce-SavedPaymentMethods li {
+	list-style: none;
+	padding-left: 0;
+	margin-left: 0;
+}
 .change-save-card-label {
 	cursor: pointer;
 }
