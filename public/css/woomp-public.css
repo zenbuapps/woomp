@@ -18,18 +18,8 @@ label[for$="new-payment-method"] {
 }
 
 .woocommerce-SavedPaymentMethods {
-	position: relative;
-	margin: 0.5rem 0 0.75rem 1.5rem;
-	padding: 0.25rem 0 0.25rem 1rem;
-	border-left: 2px solid #d1d5db;
-}
-
-.woocommerce-SavedPaymentMethods::before {
-	content: "選擇要使用的卡片：";
-	display: block;
-	margin-bottom: 0.25rem;
-	color: #6b7280;
-	font-size: 0.8125rem;
+	margin: 0.25rem 0 0.5rem 2rem;
+	padding: 0;
 }
 
 .woocommerce-SavedPaymentMethods li {
@@ -38,7 +28,7 @@ label[for$="new-payment-method"] {
 }
 
 .woocommerce-SavedPaymentMethods li label {
-	margin-left: 0.25rem;
+	margin-left: 0.35rem;
 }
 .change-save-card-label {
 	cursor: pointer;
