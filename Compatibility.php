@@ -58,6 +58,9 @@ final class Compatibility {
 		if ($scheduled_version === WOOMP_VERSION) {
 			return;
 		}
+		if ( ! function_exists( 'as_enqueue_async_action' ) ) {
+			return;
+		}
 		\as_enqueue_async_action( self::AS_COMPATIBILITY_ACTION, [] );
 	}
 

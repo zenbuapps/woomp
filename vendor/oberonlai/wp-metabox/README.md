@@ -60,6 +60,26 @@ $metabox = new Metabox(array(
 ));
 ```
 
+Please add the detection for the WooCommerce order metabox to check whether the HPOS is enabled or not.
+
+```php
+use Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController;
+
+$screen = wc_get_container()->get( CustomOrdersTableController::class )->custom_orders_table_usage_is_enabled()
+		? wc_get_page_screen_id( 'shop-order' )
+		: 'shop_order';
+
+$metabox = new Metabox(
+	array(
+		'id'       => 'metabox_id',
+		'title'    => 'My awesome metabox for WooCommerce order',
+		'screen'   => $screen,
+		'context'  => 'side',
+		'priority' => 'high',
+	)
+);
+```
+
 ## Available Fields
 
 After instantiating the above metabox, add a few fields to it.  Below is a list of the available fields. 

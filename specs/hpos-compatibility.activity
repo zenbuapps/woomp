@@ -1,0 +1,74 @@
+[ACTIVITY] HPOS 高效能訂單儲存相容性
+[ACTOR] WooCommerce -> {specs/actors/WooCommerce.md}
+[ACTOR] Woomp -> {specs/actors/Woomp.md}
+[ACTOR] 管理員 -> {specs/actors/管理員.md}
+[ACTOR] 金流服務商 -> {specs/actors/金流服務商.md}
+
+[STEP:1] @Woomp 宣告 HPOS 相容性 {features/hpos/宣告HPOS相容性.feature}
+  外掛載入時透過 FeaturesUtil::declare_compatibility 向 WooCommerce 宣告支援 custom_order_tables
+  [已決] 最低需求提升至 WooCommerce 7.1+，直接使用 FeaturesUtil 不需防禦，需更新 woomp.php header
+
+[STEP:2] @Woomp 訂單 Meta 讀寫遷移 {features/hpos/訂單Meta讀寫.feature}
+  所有子模組的 get_post_meta / update_post_meta / add_post_meta / delete_post_meta
+  用於訂單 context 時，統一改用 $order->get_meta() / $order->update_meta_data() + $order->save()
+  [已決] 統一使用 WC_Order 物件 API（$order->get_meta / update_meta_data / save），天生雙模式相容
+
+[DECISION:2a] 訂單物件取得方式
+  [BRANCH:2a:已有 WC_Order 物件] 直接使用 $order->get_meta() / $order->update_meta_data()
+  [BRANCH:2a:僅有 order_id] 先 wc_get_order($order_id) 取得物件再操作
+  [BRANCH:2a:meta box callback 參數] 參數可能是 WP_Post 或 WC_Order，需要型別判斷後取得
+[MERGE:2a]
+
+[STEP:3] @Woomp Meta Box Hook 遷移 {features/hpos/MetaBox顯示.feature}
+  所有 add_meta_box 的 screen 參數需同時支援 'shop_order' 和 HPOS screen
+  add_meta_box 的 render callback 參數從 WP_Post 變為可能是 WC_Order
+  [已決] 建立共用 Woomp_HPOS_Helper 類別，提供 get_order($post_or_order) 等靜態方法，所有子模組統一呼叫
+
+[STEP:4] @Woomp 訂單列表 Hook 遷移 {features/hpos/訂單列表欄位.feature}
+  manage_shop_order_posts_columns / manage_shop_order_posts_custom_column
+  需同時掛載 HPOS 對應的 manage_woocommerce_page_wc-orders_columns 等 hook
+
+[STEP:5] @Woomp 批次操作 Hook 遷移 {features/hpos/批次操作.feature}
+  bulk_actions-edit-shop_order / handle_bulk_actions-edit-shop_order
+  需同時掛載 HPOS 對應的 bulk_actions-woocommerce_page_wc-orders 等 hook
+
+[STEP:6] @Woomp 儲存 Hook 遷移 {features/hpos/儲存Hook.feature}
+  save_post_shop_order 在 HPOS 下不觸發
+  需改用 woocommerce_process_shop_order_meta 或同時註冊兩種 hook
+  [已決] 全部改用 woocommerce_process_shop_order_meta（傳統 + HPOS 都觸發，最乾淨）
+
+[STEP:7] @Woomp Admin URL/Screen 判斷遷移 {features/hpos/AdminURL相容.feature}
+  admin_url('edit.php?post_type=shop_order') 在 HPOS 下指向空白頁
+  get_post_type() 對 HPOS 訂單返回空
+  $pagenow === 'post.php' 在 HPOS 下為 false
+  [已決] Compatibility.php 和 class.ry-wt.update.php 的直接 SQL 保留不動。
+  理由：這些是一次性遷移/清理腳本，操作的就是 postmeta 裡的 legacy 資料，語義正確且零風險。
+  未來若需清理 HPOS 表資料，另寫新遷移腳本。
+
+[STEP:8] @Woomp 修復既有 Bug {features/hpos/修復既有Bug.feature}
+  - LINE Pay: $post->post_type = 'shop_order'（賦值 bug）
+  - LINE Pay: wp_delete_post($refund->id) → $refund->delete(true)（HPOS 下退款非 post）
+  - PChomePay / Admin: new WC_Order($id) → wc_get_order($id)（過時寫法）
+  - 多處 meta box callback: global $post → 使用 Helper 從 callback 參數取得 order
+
+[STEP:9] @管理員 驗證 HPOS 相容性 {features/hpos/驗證HPOS相容性.feature}
+  在 HPOS 啟用/停用兩種模式下驗證所有功能正常運作
+
+Side Effects:
+  - 所有子模組的訂單 meta 操作方式改變
+  - Meta Box render callback 參數型別改變
+  - 訂單列表和批次操作的 hook 名稱新增
+  - 部分 admin URL 格式改變
+
+Related Features:
+  - admin-order-management.feature（訂單列表欄位、批次操作）
+  - ecpay-invoice-issue.feature（發票 meta 讀寫、save_post hook）
+  - ezpay-invoice-issue.feature（同上）
+  - paynow-payment.feature（金流回調 meta 寫入）
+  - paynow-invoice-issue.feature（發票 meta box + 列表欄位）
+  - linepay-payment.feature（meta 讀寫 + bug）
+  - pchomepay-payment.feature（meta 讀寫）
+  - ecpay-shipping.feature（meta box + URL）
+  - newebpay-shipping.feature（meta box + URL）
+  - paynow-shipping.feature（meta box）
+  - smilepay-payment.feature（meta box + URL）

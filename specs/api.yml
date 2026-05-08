@@ -1,0 +1,1212 @@
+openapi: '3.0.3'
+info:
+  title: Woomp Plugin API
+  description: |
+    WooCommerce 好用版擴充 API 規格。
+    本文件涵蓋所有金流回調（Webhook）、物流選店回調、電子發票操作、
+    以及後台管理 AJAX 端點。
+
+    Woomp 不使用 WordPress REST API（register_rest_route），
+    所有端點均透過 WooCommerce API（wc-api）或 WordPress AJAX（wp_ajax_）機制實作。
+  version: 3.4.81
+  contact:
+    name: Woomp 好用版擴充
+
+servers:
+  - url: '{site_url}'
+    description: WordPress 站點根網址
+    variables:
+      site_url:
+        default: 'https://example.com'
+
+tags:
+  - name: PayUni 金流
+    description: 統一金流 PAYUNi 回調與操作
+  - name: ECPay 金流
+    description: 綠界金流回調
+  - name: NewebPay 金流
+    description: 藍新金流回調
+  - name: SmilePay 金流
+    description: 速買配金流回調
+  - name: PayNow 金流
+    description: 立吉富金流回調
+  - name: LINE Pay
+    description: LINE Pay 回調
+  - name: PChomePay 金流
+    description: 支付連金流回調
+  - name: ECPay 物流
+    description: 綠界物流回調
+  - name: SmilePay 物流
+    description: 速買配物流回調
+  - name: PayNow 物流
+    description: 立吉富物流回調
+  - name: ECPay 發票
+    description: 綠界電子發票 AJAX
+  - name: EZPay 發票
+    description: 藍新 ezPay 電子發票 AJAX
+  - name: PayNow 發票
+    description: 立吉富電子發票 AJAX
+  - name: 訂單管理
+    description: 後台訂單管理 AJAX
+  - name: 商品管理
+    description: 後台商品管理 AJAX
+  - name: 卡片管理
+    description: 訂閱卡片管理 AJAX
+  - name: 結帳
+    description: 結帳流程 AJAX
+
+# ============================================================
+# Paths
+# ============================================================
+paths:
+
+  # ----------------------------------------------------------
+  # PayUni 金流回調
+  # ----------------------------------------------------------
+  /wc-api/payuni_notify:
+    post:
+      summary: PayUni v3 Embed 交易回調通知
+      description: |
+        PayUni 在交易完成後 POST 至此端點（NotifyURL）。
+        資料經 AES 加密，伺服器端解密後驗證 Hash，再更新訂單狀態。
+        註冊位置：`Bootstrap::register_hooks()` → `woocommerce_api_payuni_notify`
+      tags: [PayUni 金流]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PayuniEncryptedRequest'
+      responses:
+        '200':
+          description: 處理成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: string
+        '400':
+          description: 處理失敗（解密失敗、Hash 驗證失敗、找不到訂單等）
+
+  /wc-api/payuni_notify_card:
+    post:
+      summary: PayUni v1 信用卡付款回調
+      description: |
+        PayUni v1 信用卡付款完成後的回調端點（含 3D 驗證回傳）。
+        解密 EncryptInfo 後取得交易資料，更新訂單 meta 並處理卡片 Token 儲存。
+        註冊位置：`Response::init()` → `woocommerce_api_payuni_notify_card`
+      tags: [PayUni 金流]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PayuniEncryptedRequest'
+      responses:
+        '302':
+          description: 重導至訂單完成頁或付款方式頁
+
+  /wc-api/payuni_notify_atm:
+    post:
+      summary: PayUni ATM 轉帳回調
+      description: |
+        PayUni ATM 付款的兩個階段回調：
+        1. 取號完成（前景 $resp）：回傳銀行帳號、繳費期限
+        2. 繳費完成（背景 $_REQUEST）：更新訂單為處理中
+        註冊位置：`Response::init()` → `woocommerce_api_payuni_notify_atm`
+      tags: [PayUni 金流]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PayuniEncryptedRequest'
+      responses:
+        '200':
+          description: 處理成功
+
+  /wc-api/payuni_notify_cvs:
+    post:
+      summary: PayUni 超商代碼繳費回調
+      description: |
+        PayUni 超商代碼付款的回調端點。
+        背景通知繳費結果，更新訂單狀態。
+        註冊位置：`Response::init()` → `woocommerce_api_payuni_notify_cvs`
+      tags: [PayUni 金流]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PayuniEncryptedRequest'
+      responses:
+        '200':
+          description: 處理成功
+
+  # ----------------------------------------------------------
+  # ECPay 金流回調
+  # ----------------------------------------------------------
+  /wc-api/ry_ecpay_callback:
+    post:
+      summary: 綠界金流交易回調
+      description: |
+        綠界在交易完成後 POST 至此端點。
+        驗證 CheckMacValue 後更新訂單狀態。
+        註冊位置：`ecpay-gateway-response.php` → `woocommerce_api_ry_ecpay_callback`
+      tags: [ECPay 金流]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                MerchantID:
+                  type: string
+                  description: 特店編號
+                MerchantTradeNo:
+                  type: string
+                  description: 特店交易編號
+                RtnCode:
+                  type: string
+                  description: 交易狀態 (1=成功)
+                RtnMsg:
+                  type: string
+                  description: 交易訊息
+                TradeNo:
+                  type: string
+                  description: 綠界交易編號
+                TradeAmt:
+                  type: integer
+                  description: 交易金額
+                PaymentDate:
+                  type: string
+                  description: 付款時間
+                PaymentType:
+                  type: string
+                  description: 付款方式
+                CheckMacValue:
+                  type: string
+                  description: 檢查碼
+      responses:
+        '200':
+          description: 回傳 1|OK
+
+  /wc-api/ry_ecpay_gateway_return:
+    get:
+      summary: 綠界金流前景導向
+      description: |
+        綠界付款完成後前景導向回傳端點，重導至訂單完成頁。
+        註冊位置：`ecpay-gateway-response.php` → `woocommerce_api_ry_ecpay_gateway_return`
+      tags: [ECPay 金流]
+      parameters:
+        - name: id
+          in: query
+          schema:
+            type: integer
+          description: 訂單 ID
+        - name: key
+          in: query
+          schema:
+            type: string
+          description: 訂單 Key
+      responses:
+        '302':
+          description: 重導至訂單完成頁
+
+  # ----------------------------------------------------------
+  # NewebPay 金流回調
+  # ----------------------------------------------------------
+  /wc-api/ry_newebpay_callback:
+    post:
+      summary: 藍新金流交易回調
+      description: |
+        藍新在交易完成後 POST 至此端點（NotifyURL）。
+        資料經 AES 加密，解密後驗證 Hash 並更新訂單狀態。
+        註冊位置：`newebpay-gateway-response.php` → `woocommerce_api_ry_newebpay_callback`
+      tags: [NewebPay 金流]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                Status:
+                  type: string
+                  description: 交易狀態
+                MerchantID:
+                  type: string
+                  description: 商店代號
+                TradeInfo:
+                  type: string
+                  description: AES 加密交易資料
+                TradeSha:
+                  type: string
+                  description: SHA256 驗證碼
+                Version:
+                  type: string
+                  description: 版本
+      responses:
+        '200':
+          description: 處理成功
+
+  # ----------------------------------------------------------
+  # SmilePay 金流回調
+  # ----------------------------------------------------------
+  /wc-api/ry_smilepay_callback:
+    post:
+      summary: 速買配金流交易回調
+      description: |
+        速買配在交易完成後 POST 至此端點。
+        註冊位置：`smilepay-gateway-response.php` → `woocommerce_api_ry_smilepay_callback`
+      tags: [SmilePay 金流]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                Classif:
+                  type: string
+                Ession:
+                  type: string
+                Od_sob:
+                  type: string
+                  description: 訂單編號
+                Data_id:
+                  type: string
+                  description: 速買配交易編號
+                Process_date:
+                  type: string
+                Amount:
+                  type: string
+                Monession:
+                  type: string
+                Roturl_status:
+                  type: string
+      responses:
+        '200':
+          description: 處理成功
+
+  # ----------------------------------------------------------
+  # PayNow 金流回調
+  # ----------------------------------------------------------
+  /wc-api/paynow_payment:
+    post:
+      summary: 立吉富金流即時付款回調
+      description: |
+        立吉富在信用卡等即時付款完成後 POST 至此端點。
+        註冊位置：`class-paynow-payment-response.php` → `woocommerce_api_paynow_payment`
+      tags: [PayNow 金流]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                WebNo:
+                  type: string
+                BuysafeNo:
+                  type: string
+                PassCode:
+                  type: string
+                  description: 驗證碼
+      responses:
+        '200':
+          description: 處理成功
+
+  /wc-api/paynow_payment_offline:
+    post:
+      summary: 立吉富金流離線付款回調
+      description: |
+        立吉富 ATM/超商等離線付款繳費完成後 POST 至此端點。
+        註冊位置：`class-paynow-payment-response.php` → `woocommerce_api_paynow_payment_offline`
+      tags: [PayNow 金流]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 處理成功
+
+  # ----------------------------------------------------------
+  # LINE Pay 回調
+  # ----------------------------------------------------------
+  /wc-api/wc_gateway_linepay:
+    get:
+      summary: LINE Pay 付款回調
+      description: |
+        LINE Pay 付款完成後回調端點。
+        透過 LINE Pay Confirm API 確認交易。
+        註冊位置：`line-pay-for-woo.php` → `woocommerce_api_wc_gateway_linepay`
+      tags: [LINE Pay]
+      parameters:
+        - name: transactionId
+          in: query
+          schema:
+            type: string
+          description: LINE Pay 交易 ID
+        - name: orderId
+          in: query
+          schema:
+            type: string
+          description: WooCommerce 訂單 ID
+      responses:
+        '302':
+          description: 重導至訂單完成頁或結帳頁
+
+  # ----------------------------------------------------------
+  # PChomePay 金流回調
+  # ----------------------------------------------------------
+  /wc-api/pchomepaypigrateway:
+    post:
+      summary: 支付連 Pi 錢包付款回調
+      description: |
+        支付連 Pi 錢包付款完成後的回調端點。
+        註冊位置：`PChomePayPIGateway.php` → `woocommerce_api_pchomepaypigrateway`
+      tags: [PChomePay 金流]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 處理成功
+
+  /wc-api/pcpgw_pchomepay:
+    post:
+      summary: 支付連金流付款回調
+      description: |
+        支付連金流付款完成後的回調端點。
+        註冊位置：`PChomePayGateway.php` → `woocommerce_api_pcpgw_pchomepay`
+      tags: [PChomePay 金流]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 處理成功
+
+  # ----------------------------------------------------------
+  # ECPay 物流回調
+  # ----------------------------------------------------------
+  /wc-api/ry_ecpay_map_callback:
+    post:
+      summary: 綠界物流選店回調
+      description: |
+        消費者在綠界物流選店地圖選擇門市後，綠界 POST 門市資訊至此端點。
+        會寫入訂單 meta：`_shipping_cvs_store_ID`、`_shipping_cvs_store_name`、`_shipping_cvs_store_address`。
+        註冊位置：`ecpay-shipping-response.php` → `woocommerce_api_ry_ecpay_map_callback`
+      tags: [ECPay 物流]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                CVSStoreID:
+                  type: string
+                  description: 門市編號
+                CVSStoreName:
+                  type: string
+                  description: 門市名稱
+                CVSAddress:
+                  type: string
+                  description: 門市地址
+                CVSTelephone:
+                  type: string
+                  description: 門市電話
+                CVSOutSide:
+                  type: string
+                  description: 是否為外島
+                ExtraData:
+                  type: string
+                  description: 額外資料（含 order_id）
+      responses:
+        '302':
+          description: 重導回結帳頁或訂單頁
+
+  /wc-api/ry_ecpay_shipping_callback:
+    post:
+      summary: 綠界物流狀態更新回調
+      description: |
+        綠界物流狀態變更時 POST 至此端點。
+        更新 `_ecpay_shipping_info` 中對應託運單的物流狀態。
+        註冊位置：`ecpay-shipping-response.php` → `woocommerce_api_ry_ecpay_shipping_callback`
+      tags: [ECPay 物流]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                MerchantID:
+                  type: string
+                AllPayLogisticsID:
+                  type: string
+                  description: 綠界物流交易編號
+                BookingNote:
+                  type: string
+                  description: 寄貨編號
+                RtnCode:
+                  type: string
+                  description: 物流狀態碼
+                RtnMsg:
+                  type: string
+                  description: 物流訊息
+                CheckMacValue:
+                  type: string
+      responses:
+        '200':
+          description: 回傳 1|OK
+
+  # ----------------------------------------------------------
+  # SmilePay 物流回調
+  # ----------------------------------------------------------
+  /wc-api/ry_smilepay_shipping_map_callback:
+    post:
+      summary: 速買配物流選店回調（前台）
+      description: |
+        消費者在速買配選店地圖選擇門市後的前台回調。
+        註冊位置：`smilepay-shipping-response.php` → `woocommerce_api_ry_smilepay_shipping_map_callback`
+      tags: [SmilePay 物流]
+      responses:
+        '302':
+          description: 重導回結帳頁
+
+  /wc-api/ry_smilepay_shipping_admin_map_callback:
+    post:
+      summary: 速買配物流選店回調（後台）
+      description: |
+        後台管理員在速買配選店地圖選擇門市後的回調。
+        註冊位置：`smilepay-shipping-response.php` → `woocommerce_api_ry_smilepay_shipping_admin_map_callback`
+      tags: [SmilePay 物流]
+      responses:
+        '200':
+          description: 處理成功
+
+  /wc-api/ry_smilepay_shipping_callback:
+    post:
+      summary: 速買配物流狀態更新回調
+      description: |
+        速買配物流狀態變更時的回調。
+        更新 `_smilepay_shipping_info` 中的物流狀態。
+        註冊位置：`smilepay-shipping-response.php` → `woocommerce_api_ry_smilepay_shipping_callback`
+      tags: [SmilePay 物流]
+      responses:
+        '200':
+          description: 處理成功
+
+  # ----------------------------------------------------------
+  # PayNow 物流回調
+  # ----------------------------------------------------------
+  /wc-api/paynow_choose_cvs_callback:
+    get:
+      summary: 立吉富物流選店回調
+      description: |
+        消費者在立吉富選店地圖選擇門市後的回調。
+        寫入門市資訊至訂單 meta。
+        註冊位置：`class-paynow-shipping-response.php` → `woocommerce_api_paynow_choose_cvs_callback`
+      tags: [PayNow 物流]
+      parameters:
+        - name: order_id
+          in: query
+          schema:
+            type: integer
+          description: 訂單 ID（後台選店時使用）
+        - name: cid
+          in: query
+          schema:
+            type: string
+          description: 購物車 Hash（前台結帳時使用）
+      responses:
+        '302':
+          description: 重導回結帳頁或訂單頁
+
+  /wc-api/paynow_shipping_order_callback:
+    post:
+      summary: 立吉富物流狀態更新回調
+      description: |
+        立吉富物流狀態變更時 POST 至此端點。
+        更新訂單物流狀態相關 meta。
+        註冊位置：`class-paynow-shipping-response.php` → `woocommerce_api_paynow_shipping_order_callback`
+      tags: [PayNow 物流]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 處理成功
+
+  # ----------------------------------------------------------
+  # ECPay 發票 AJAX
+  # ----------------------------------------------------------
+  /wp-admin/admin-ajax.php?action=gen_invoice:
+    post:
+      summary: 綠界電子發票 — 開立發票
+      description: |
+        後台管理員手動開立綠界電子發票。
+        透過綠界 SDK 調用 Issue API。
+        註冊位置：`woomp-ecpay-invoice/Ajax.php` → `wp_ajax_gen_invoice`
+      tags: [ECPay 發票]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [nonce, orderId]
+              properties:
+                nonce:
+                  type: string
+                  description: WordPress nonce（invoice_handler）
+                orderId:
+                  type: integer
+                  description: WooCommerce 訂單 ID
+                _invoice_type:
+                  type: string
+                  description: 發票類型（personal/company/donate）
+                _invoice_individual:
+                  type: string
+                  description: 載具類型
+                _invoice_carrier:
+                  type: string
+                  description: 載具編號
+                _invoice_company_name:
+                  type: string
+                  description: 公司名稱
+                _invoice_tax_id:
+                  type: string
+                  description: 統一編號
+                _invoice_donate:
+                  type: string
+                  description: 捐贈碼
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  /wp-admin/admin-ajax.php?action=invalid_invoice:
+    post:
+      summary: 綠界電子發票 — 作廢發票
+      description: |
+        後台管理員作廢已開立的綠界電子發票。
+        註冊位置：`woomp-ecpay-invoice/Ajax.php` → `wp_ajax_invalid_invoice`
+      tags: [ECPay 發票]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [nonce, orderId]
+              properties:
+                nonce:
+                  type: string
+                orderId:
+                  type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  /wp-admin/admin-ajax.php?action=update_invoice:
+    post:
+      summary: 綠界電子發票 — 更新發票資料
+      description: |
+        後台管理員更新訂單的發票資料（不開立）。
+        註冊位置：`woomp-ecpay-invoice/Ajax.php` → `wp_ajax_update_invoice`
+      tags: [ECPay 發票]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [nonce, orderId]
+              properties:
+                nonce:
+                  type: string
+                orderId:
+                  type: integer
+                _invoice_type:
+                  type: string
+                _invoice_individual:
+                  type: string
+                _invoice_carrier:
+                  type: string
+                _invoice_company_name:
+                  type: string
+                _invoice_tax_id:
+                  type: string
+                _invoice_donate:
+                  type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  # ----------------------------------------------------------
+  # EZPay 發票 AJAX
+  # ----------------------------------------------------------
+  /wp-admin/admin-ajax.php?action=gen_invoice_ezpay:
+    post:
+      summary: ezPay 電子發票 — 開立發票
+      description: |
+        後台管理員手動開立 ezPay 電子發票。
+        註冊位置：`woomp-ezpay-invoice/Ajax.php` → `wp_ajax_gen_invoice_ezpay`
+      tags: [EZPay 發票]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [nonce, orderId]
+              properties:
+                nonce:
+                  type: string
+                orderId:
+                  type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  /wp-admin/admin-ajax.php?action=invalid_invoice_ezpay:
+    post:
+      summary: ezPay 電子發票 — 作廢發票
+      description: |
+        後台管理員作廢已開立的 ezPay 電子發票。
+        註冊位置：`woomp-ezpay-invoice/Ajax.php` → `wp_ajax_invalid_invoice_ezpay`
+      tags: [EZPay 發票]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [nonce, orderId]
+              properties:
+                nonce:
+                  type: string
+                orderId:
+                  type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  /wp-admin/admin-ajax.php?action=update_invoice_ezpay:
+    post:
+      summary: ezPay 電子發票 — 更新發票資料
+      description: |
+        後台管理員更新訂單的 ezPay 發票資料。
+        註冊位置：`woomp-ezpay-invoice/Ajax.php` → `wp_ajax_update_invoice_ezpay`
+      tags: [EZPay 發票]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [nonce, orderId]
+              properties:
+                nonce:
+                  type: string
+                orderId:
+                  type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  # ----------------------------------------------------------
+  # PayNow 發票 AJAX
+  # ----------------------------------------------------------
+  /wp-admin/admin-ajax.php?action=paynow_issue_einvoice:
+    post:
+      summary: 立吉富電子發票 — 開立發票
+      description: |
+        後台管理員手動開立立吉富電子發票。
+        透過 SOAP API 調用立吉富電子發票服務。
+        註冊位置：`class-paynow-einvoice.php` → `wp_ajax_paynow_issue_einvoice`
+      tags: [PayNow 發票]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [order_id]
+              properties:
+                order_id:
+                  type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  /wp-admin/admin-ajax.php?action=paynow_cancel_einvoice:
+    post:
+      summary: 立吉富電子發票 — 作廢發票
+      description: |
+        後台管理員作廢已開立的立吉富電子發票。
+        註冊位置：`class-paynow-einvoice.php` → `wp_ajax_paynow_cancel_einvoice`
+      tags: [PayNow 發票]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [order_id]
+              properties:
+                order_id:
+                  type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  # ----------------------------------------------------------
+  # PayUni 管理 AJAX
+  # ----------------------------------------------------------
+  /wp-admin/admin-ajax.php?action=payuni_subscription_pay_manual:
+    post:
+      summary: PayUni 訂閱手動扣款
+      description: |
+        後台管理員手動對訂閱訂單執行 PayUni 扣款。
+        註冊位置：`payuni/src/posts/ShopOrder/Ajax.php` → `wp_ajax_payuni_subscription_pay_manual`
+      tags: [PayUni 金流]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                order_id:
+                  type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  /wp-admin/admin-ajax.php?action=payuni_card_change:
+    post:
+      summary: PayUni 變更付款信用卡
+      description: |
+        變更訂閱訂單使用的信用卡。
+        註冊位置：`payuni/src/apis/Payment.php` → `wp_ajax_payuni_card_change`
+      tags: [PayUni 金流]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                ajax_nonce:
+                  type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  # ----------------------------------------------------------
+  # 訂單管理 AJAX
+  # ----------------------------------------------------------
+  /wp-admin/admin-ajax.php?action=update_shipping_number:
+    post:
+      summary: 更新訂單物流編號
+      description: |
+        後台管理員更新訂單的物流追蹤編號（wmp_shipping_no）。
+        註冊位置：`class-woomp.php` → `wp_ajax_update_shipping_number`
+      tags: [訂單管理]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                order_id:
+                  type: integer
+                shipping_no:
+                  type: string
+                  description: 物流追蹤編號
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  # ----------------------------------------------------------
+  # PayNow 物流管理 AJAX
+  # ----------------------------------------------------------
+  /wp-admin/admin-ajax.php?action=create_order:
+    post:
+      summary: 立吉富物流建立訂單取號
+      description: |
+        後台對立吉富物流建立訂單並取得物流單號。
+        註冊位置：`class-paynow-shipping-request.php` → `wp_ajax_create_order`
+      tags: [PayNow 物流]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  /wp-admin/admin-ajax.php?action=renew_order:
+    post:
+      summary: 立吉富物流重新取號
+      description: |
+        後台重新向立吉富取得物流單號。
+        註冊位置：`class-paynow-shipping-request.php` → `wp_ajax_renew_order`
+      tags: [PayNow 物流]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  /wp-admin/admin-ajax.php?action=update_delivery_status:
+    post:
+      summary: 立吉富物流查詢配送狀態
+      description: |
+        後台查詢立吉富物流訂單的最新配送狀態。
+        註冊位置：`class-paynow-shipping-request.php` → `wp_ajax_update_delivery_status`
+      tags: [PayNow 物流]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  /wp-admin/admin-ajax.php?action=cancel_shipping_order:
+    post:
+      summary: 立吉富物流取消訂單
+      description: |
+        後台取消立吉富物流訂單。
+        註冊位置：`class-paynow-shipping-request.php` → `wp_ajax_cancel_shipping_order`
+      tags: [PayNow 物流]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  /wp-admin/admin-ajax.php?action=paynow_shipping_print_label:
+    post:
+      summary: 立吉富物流列印託運單
+      description: |
+        後台列印立吉富物流託運單標籤。
+        註冊位置：`class-paynow-shipping-request.php` → `wp_ajax_paynow_shipping_print_label`
+      tags: [PayNow 物流]
+      responses:
+        '200':
+          description: 回傳列印頁面 HTML 或 PDF
+
+  # ----------------------------------------------------------
+  # SmilePay 物流管理 AJAX
+  # ----------------------------------------------------------
+  /wp-admin/admin-ajax.php?action=RY_SmilePay_Shipping_get_no:
+    post:
+      summary: 速買配物流取號
+      description: |
+        後台向速買配取得物流單號。
+        註冊位置：`smilepay-shipping-admin.php` → `wp_ajax_RY_SmilePay_Shipping_get_no`
+      tags: [SmilePay 物流]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  /wp-admin/admin-ajax.php?action=RY_SmilePay_Shipping_print:
+    post:
+      summary: 速買配物流列印
+      description: |
+        後台列印速買配物流單。
+        註冊位置：`smilepay-shipping-admin.php` → `wp_ajax_RY_SmilePay_Shipping_print`
+      tags: [SmilePay 物流]
+      responses:
+        '200':
+          description: 回傳列印頁面
+
+  # ----------------------------------------------------------
+  # SmilePay 金流取號 AJAX
+  # ----------------------------------------------------------
+  /wp-admin/admin-ajax.php?action=RY_SmilePay_getcode:
+    post:
+      summary: 速買配金流取繳費代碼
+      description: |
+        前後台取得速買配超商繳費代碼。
+        註冊位置：`smilepay-gateway.php` → `wp_ajax_RY_SmilePay_getcode` + `wp_ajax_nopriv_RY_SmilePay_getcode`
+      tags: [SmilePay 金流]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  # ----------------------------------------------------------
+  # 卡片管理 AJAX
+  # ----------------------------------------------------------
+  /wp-admin/admin-ajax.php?action=woomp_set_default:
+    post:
+      summary: 設定預設付款方式
+      description: |
+        訂閱管理中設定預設信用卡付款方式。
+        註冊位置：`card-management/class-card-management.php` → `wp_ajax_woomp_set_default`
+      tags: [卡片管理]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  /wp-admin/admin-ajax.php?action=woomp_remove:
+    post:
+      summary: 移除付款方式
+      description: |
+        訂閱管理中移除已儲存的信用卡付款方式。
+        註冊位置：`card-management/class-card-management.php` → `wp_ajax_woomp_remove`
+      tags: [卡片管理]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  # ----------------------------------------------------------
+  # 商品管理 AJAX
+  # ----------------------------------------------------------
+  /wp-admin/admin-ajax.php?action=woomp_get_attribute_type:
+    post:
+      summary: 取得商品屬性類型
+      description: |
+        後台取得商品屬性的顯示類型（標籤式/下拉式/色彩等）。
+        註冊位置：`class-woomp-product.php` → `wp_ajax_woomp_get_attribute_type`
+      tags: [商品管理]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WpAjaxResponse'
+
+  # ----------------------------------------------------------
+  # 結帳 AJAX
+  # ----------------------------------------------------------
+  /wp-admin/admin-ajax.php?action=checkout_load:
+    post:
+      summary: 結帳頁載入暫存資料
+      description: |
+        前台結帳頁載入使用者暫存的結帳資料（transient）。
+        註冊位置：`transient.php` → `wp_ajax_nopriv_checkout_load`
+      tags: [結帳]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /wp-admin/admin-ajax.php?action=checkout_autosave:
+    post:
+      summary: 結帳頁自動儲存資料
+      description: |
+        前台結帳頁自動儲存使用者填寫的資料至 transient。
+        Transient key：`woomp_temp_{user_id}`，有效期 12 小時。
+        註冊位置：`transient.php` → `wp_ajax_nopriv_checkout_autosave`
+      tags: [結帳]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              description: 結帳表單欄位資料
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+
+# ============================================================
+# Components
+# ============================================================
+components:
+  schemas:
+    PayuniEncryptedRequest:
+      type: object
+      description: PayUni AES 加密的請求格式
+      required: [MerID, EncryptInfo, HashInfo]
+      properties:
+        MerID:
+          type: string
+          description: 商店代號
+        Version:
+          type: string
+          description: API 版本
+        EncryptInfo:
+          type: string
+          description: AES-CBC 加密的交易資料
+        HashInfo:
+          type: string
+          description: SHA256 雜湊驗證碼
+
+    PayuniDecryptedTradeResult:
+      type: object
+      description: PayUni 解密後的交易結果（v3 Webhook）
+      properties:
+        Status:
+          type: string
+          description: 交易狀態（SUCCESS/其他錯誤碼）
+        Message:
+          type: string
+          description: 狀態說明
+        MerID:
+          type: string
+          description: 商店代號
+        MerTradeNo:
+          type: string
+          description: 商店訂單編號（格式：{order_id}-{suffix}）
+        Gateway:
+          type: string
+          description: 交易通道
+        TradeNo:
+          type: string
+          description: PAYUNi 交易編號
+        TradeAmt:
+          type: string
+          description: 交易金額
+        TradeStatus:
+          type: string
+          description: 交易狀態
+        PaymentType:
+          type: string
+          description: 付款方式
+        CardBank:
+          type: string
+          description: 發卡銀行代碼
+        Card6No:
+          type: string
+          description: 卡號前六碼
+        Card4No:
+          type: string
+          description: 卡號末四碼
+        CardInst:
+          type: string
+          description: 分期期數
+        FirstAmt:
+          type: string
+          description: 首期金額
+        EachAmt:
+          type: string
+          description: 每期金額
+        ResCode:
+          type: string
+          description: 回應碼
+        ResCodeMsg:
+          type: string
+          description: 回應碼說明
+        AuthCode:
+          type: string
+          description: 授權碼
+        AuthBank:
+          type: string
+          description: 收單銀行
+        AuthBankName:
+          type: string
+          description: 收單銀行名稱
+        AuthType:
+          type: string
+          description: 授權類型（1=一次授權）
+        AuthDay:
+          type: string
+          description: 授權日期
+        AuthTime:
+          type: string
+          description: 授權時間
+        CreditHash:
+          type: string
+          description: 信用卡 Hash（用於記憶卡號）
+        CreditLife:
+          type: string
+          description: 信用卡有效期（MMYY）
+
+    WpAjaxResponse:
+      type: object
+      description: WordPress AJAX 標準回應格式
+      properties:
+        success:
+          type: boolean
+        data:
+          oneOf:
+            - type: string
+            - type: object
+
+  securitySchemes:
+    wordpressNonce:
+      type: apiKey
+      in: header
+      name: X-WP-Nonce
+      description: WordPress AJAX nonce 驗證（後台 AJAX 端點）
+    wcApiSignature:
+      type: apiKey
+      in: query
+      name: CheckMacValue
+      description: WooCommerce API 回調簽章驗證（由各金流服務商提供）

@@ -1,0 +1,96 @@
+Activity: 郵件通知
+Description: Woomp 的郵件通知系統，包含付款資訊郵件、超商取貨提醒、ATM 轉帳提醒等自動化通知功能
+
+Actors:
+  - WooCommerce: 郵件系統 (WC_Emails)
+  - WooMP_Email: 郵件功能類別 (admin/class-woomp-email.php)
+  - Woomp_Admin: 核心後台類別（排程觸發郵件）
+  - Action Scheduler: 排程系統
+  - 顧客: 接收郵件的消費者
+  - 管理員: 後台配置郵件的管理者
+
+Triggers:
+  - 訂單狀態變更為 on-hold 時（customer_on_hold_order 郵件）
+  - 每日 10:00 排程事件觸發 (wmp_cron_every_morning)
+  - ATM 訂單到期前一天排程觸發 (wmp_cron_atm_deadline_remind)
+
+Flow:
+  1. WooMP_Email::init() 在外掛載入時初始化
+     → Hook: woocommerce_email_after_order_table → add_payment_info()
+
+  2. 付款資訊郵件附加（add_payment_info）
+     → Condition: email->id === 'customer_on_hold_order'
+       Yes → 根據付款方式顯示對應資訊
+
+     === 綠界 ATM (ry_ecpay_atm) ===
+     → 顯示 HTML 表格：
+       - 轉帳銀行名稱（使用 _x 翻譯 BankCode）
+       - 銀行代碼 (_ecpay_atm_BankCode)
+       - ATM 繳費帳號 (_ecpay_atm_vAccount)，每 4 碼一組
+       - 付款截止日 (_ecpay_atm_ExpireDate)，格式化為本地日期
+
+     === 綠界超商代碼 (ry_ecpay_cvs) ===
+     → 顯示 HTML 表格：
+       - 繳費代碼 (_ecpay_cvs_PaymentNo)
+       - 付款期限 (_ecpay_cvs_ExpireDate)，格式化為日期 + 時間
+
+     === 綠界超商條碼 (ry_ecpay_barcode) ===
+     → 顯示 HTML 表格（含條碼字型）：
+       - 載入 Google Fonts: Libre Barcode 39 Text
+       - Barcode 1 (_ecpay_barcode_Barcode1)，以條碼字型顯示
+       - Barcode 2 (_ecpay_barcode_Barcode2)
+       - Barcode 3 (_ecpay_barcode_Barcode3)
+       - 付款期限 (_ecpay_barcode_ExpireDate)
+
+     === 其他付款方式 ===
+     → 不附加額外資訊
+
+  3. 訂單觸發郵件 action 註冊（Woomp_Admin::add_email_action）
+     → Filter: woocommerce_email_actions → add_email_action()
+     → 新增以下 actions 到 WooCommerce 郵件觸發器：
+       - ry_ecpay_shipping_cvs_to_store（超商到店）
+       - ry_ecpay_shipping_cvs_to_transporting（超商運送中）
+       - ry_ecpay_shipping_cvs_get_remind（超商取貨提醒）
+       - ry_ecpay_shipping_cvs_get_expired（超商取貨到期）
+       - ry_ecpay_shipping_atm_transfer_remind（ATM 轉帳提醒）
+
+  4. 超商取貨到期前一天通知（每日排程）
+     → Action: wmp_cron_every_morning → set_ecpay_cvs_get_remind()
+     → 查詢條件：
+       - 訂單狀態: wc-ry-at-cvs（到達超商）
+       - meta: ecpay_cvs_at_store_expired = 明天日期
+     → Condition: 查詢到訂單 AND 郵件類別 RY_ECPay_Shipping_Email_Customer_CVS_Get_Remind 已啟用
+       Yes → 逐筆訂單發送提醒郵件
+         - recipient: 訂單的 billing_email
+         - 使用郵件類別的 get_subject/get_content/get_headers/get_attachments
+
+  5. 超商取貨到期當天通知（每日排程）
+     → Action: wmp_cron_every_morning → set_ecpay_cvs_get_expired()
+     → 查詢條件：
+       - 訂單狀態: wc-ry-at-cvs
+       - meta: ecpay_cvs_at_store_expired = 今天日期
+     → Condition: 查詢到訂單 AND 郵件類別 RY_ECPay_Shipping_Email_Customer_CVS_Get_Expired 已啟用
+       Yes → 逐筆訂單發送到期通知郵件
+
+  6. ATM 轉帳到期前一天提醒（單次排程）
+     → Action: wmp_cron_atm_deadline_remind → set_ecpay_atm_transfer_remind($order_id)
+     → Condition: 訂單狀態為 'pending' 或 'on-hold'
+       Yes → 使用郵件類別 RY_ECPay_Shipping_Email_Customer_ATM_Transfer_Remind
+         → Condition: 該郵件類別已啟用
+           Yes → 發送轉帳提醒郵件
+           No → 不發送
+       No → 不發送（訂單已付款或已取消）
+
+  7. 貨到付款閘道感謝頁面指示
+     → WooMP_Payment_Cod::thankyou_page()
+       → 在感謝頁面顯示 instructions 文字
+
+Side Effects:
+  - 每日 10:00 排程可能一次發送大量郵件（所有到期前一天和當天到期的超商訂單）
+  - ATM 提醒郵件排程在訂單建立時就設定，不會因為訂單狀態變更而取消
+  - 條碼郵件載入外部 Google Fonts，可能在離線環境失效
+  - 所有郵件 HTML 使用內嵌樣式，確保郵件客戶端相容性
+
+Related Features:
+  - email-notifications.feature
+  - admin-order-management.feature

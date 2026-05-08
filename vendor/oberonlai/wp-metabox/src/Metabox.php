@@ -73,7 +73,7 @@ class Metabox {
 		add_meta_box(
 			$this->_meta_box['id'],
 			$this->_meta_box['title'],
-			array( $this, 'show' ), // callback
+			array( $this, 'show' ),
 			$this->_meta_box['screen'],
 			$this->_meta_box['context'],
 			$this->_meta_box['priority']
@@ -87,13 +87,15 @@ class Metabox {
 	 *
 	 * @return void
 	 */
-	public function show() {
+	public function show( $post_or_order_object ) {
 		global $post;
+
+		$order = ( $post_or_order_object instanceof \WP_Post ) ? wc_get_order( $post_or_order_object->ID ) : $post_or_order_object;
 
 		wp_nonce_field( basename( __FILE__ ), $this->_nonce_name );
 		echo sprintf( '<div class="%s">', self::BLOCK_NAMESPACE );
 		foreach ( $this->_fields as $field ) {
-			$meta = get_post_meta( $post->ID, $field['id'], true );
+			$meta = ( $order ) ? $order->get_meta( $field['id'] ) : get_post_meta( $post->ID, $field['id'], true );
 			call_user_func( array( $this, 'show_field_' . $field['type'] ), $field, $meta );
 		}
 		echo '</div>';

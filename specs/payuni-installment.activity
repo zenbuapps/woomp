@@ -1,0 +1,71 @@
+Activity: PayUni v1 信用卡分期付款
+Description: 消費者透過 PayUni v1 閘道選擇分期期數完成信用卡分期付款
+
+Actors:
+  - Consumer: 結帳頁面的購物消費者
+  - WooCommerce: WooCommerce 結帳核心
+  - CreditInstallmentGateway: PAYUNI\Gateways\CreditInstallment 閘道類別（id: payuni-credit-installment）
+  - RequestBuilder: PAYUNI\Gateways\Request 類別
+  - PayUniAPI: PayUni 外部 API 端點（api/credit）
+  - ResponseHandler: PAYUNI\Gateways\Response 類別
+  - PaymentAPI: PAYUNI\APIs\Payment 類別
+
+Triggers:
+  - Consumer 在結帳頁選擇「統一金流 PAYUNi 信用卡分期」付款方式並點擊下單
+
+Flow:
+  1. Consumer 在結帳頁看到信用卡表單（繼承 AbstractGateway::form）
+     → 額外顯示分期期數下拉選單（CreditInstallment::form）
+     → 下拉選項來自後台設定的 number_of_periods（multiselect：3/6/9/12/18/24/30 期）
+
+  2. Consumer 填寫卡號資料並選擇分期期數
+
+  3. WooCommerce 呼叫 CreditInstallmentGateway::validate_fields()
+     → 先呼叫 parent::validate_fields() 驗證卡號欄位
+     → 再驗證分期期數欄位（{gateway_id}-period）是否為空
+     → Condition: 分期期數為空
+       Yes → wc_add_notice 錯誤訊息「Credit card installment period is required」
+       No → return true
+
+  4. WooCommerce 呼叫 CreditInstallmentGateway::process_payment($order_id)
+     → 實例化 self() 並呼叫 get_card_data()
+     → card_data 包含 period 欄位（分期期數）
+     → 建立 Request 實例
+
+  5. RequestBuilder::get_transaction_args() 組裝參數
+     → 基本參數同信用卡付款（MerID, MerTradeNo, TradeAmt 等）
+     → 加入 CardNo, CardExpired, CardCVC
+     → Condition: card_data['period'] 非空
+       Yes → 加入 CardInst（分期期數）
+     → Condition: 3D 驗證啟用
+       Yes → 加入 API3D=1, ReturnURL
+     → Hook: payuni_transaction_args_payuni-credit-installment (apply_filters)
+
+  6. RequestBuilder 加密參數並發送 POST 到 PayUni api/credit
+     → 加密方式同信用卡付款（AES-256-GCM + SHA-256）
+
+  7. PayUniAPI 回傳加密回應
+
+  8. RequestBuilder 解密並判斷結果
+     → Condition: Status = 'CREDIT04001'
+       Yes → woomp_copy_order() 建立新訂單，遞迴 process_payment
+     → Condition: 3D 驗證
+       Yes → redirect 到 3D 驗證頁面
+     → Condition: 成功
+       Yes → ResponseHandler::card_response() 處理回應
+
+  9. ResponseHandler 更新訂單
+     → payment_complete()
+     → 儲存分期相關 meta：_payuni_resp_card_inst, _payuni_resp_first_amt, _payuni_resp_each_amt
+     → 儲存標準 meta：_payuni_resp_status, _payuni_resp_trade_no, _payuni_card_number
+
+  10. Consumer 被導向訂單完成頁面
+
+Side Effects:
+  - 訂單 meta 額外儲存分期資訊（期數、首期金額、每期金額）
+  - 支援 tokenization（可儲存卡號供下次使用）
+  - 支援 refunds（透過 AbstractGateway::process_refund）
+
+Related Features:
+  - payuni-installment.feature
+  - payuni-credit-card-payment.feature

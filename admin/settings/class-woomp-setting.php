@@ -343,8 +343,8 @@ class Woomp_Setting {
 				'id'       => 'wc_woomp_setting_tw_field_valitdate',
 				'class'    => 'toggle',
 				'desc_tip' => true,
-				'default'  => 'no',
-				'std'      => 'no',
+				'default'  => 'yes',
+				'std'      => 'yes',
 			],
 			'virtual_product_address'                   => [
 				'name'     => __( '虛擬商品隱藏地址欄位', 'woomp' ),

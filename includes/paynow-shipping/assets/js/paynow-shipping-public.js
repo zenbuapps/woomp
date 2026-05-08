@@ -30,7 +30,7 @@ var paynow_shipping_info;
 	$( document.body ).on(
 		'updated_checkout',
 		function (e, data) {
-			if ( data.fragments.paynow_shipping_info !== undefined ) {
+			if ( data && data.fragments && data.fragments.paynow_shipping_info !== undefined ) {
 				console.log( 'on updated_checkout' );
 				// console.log(data.fragments.paynow_shipping_info.shipping_data);
 				// console.log(paynow_shipping_object);

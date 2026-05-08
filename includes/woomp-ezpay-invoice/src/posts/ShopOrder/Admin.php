@@ -12,9 +12,15 @@ class Admin {
 	public static function init() {
 		$class = new self();
 		add_action( 'admin_enqueue_scripts', [ $class, 'enqueue_script' ] );
+
+		// 訂單列表欄位（傳統 + HPOS 雙重掛載）
 		add_filter( 'manage_shop_order_posts_columns', [ $class, 'shop_order_columns' ], 11, 1 );
 		add_action( 'manage_shop_order_posts_custom_column', [ $class, 'shop_order_column' ], 11, 2 );
-		add_action( 'save_post_shop_order', [ $class, 'update_invoice_data' ], 10, 3 );
+		add_filter( 'manage_woocommerce_page_wc-orders_columns', [ $class, 'shop_order_columns' ], 11, 1 );
+		add_action( 'manage_woocommerce_page_wc-orders_custom_column', [ $class, 'shop_order_column' ], 11, 2 );
+
+		// 訂單儲存（HPOS 相容）
+		add_action( 'woocommerce_process_shop_order_meta', [ $class, 'update_invoice_data_hpos' ], 10, 2 );
 
 		if ( 'auto' === get_option( 'wc_woomp_ezpay_invoice_issue_mode' ) ) {
 			$invoice_issue_at = str_replace( 'wc-', '', get_option( 'wc_woomp_ezpay_invoice_issue_at' ) );
@@ -63,6 +69,16 @@ class Admin {
 				echo '<button type="button" class="button btnGenerateInvoiceEzPay" value="' . esc_attr( $post_id ) . '">' . __( 'Generate invoice', 'woomp' ) . '</button>';
 			}
 		}
+	}
+
+	/**
+	 * HPOS 相容：透過 woocommerce_process_shop_order_meta 更新電子發票資訊
+	 *
+	 * @param int             $order_id 訂單 ID
+	 * @param \WC_Order|null  $order    訂單物件
+	 */
+	public function update_invoice_data_hpos( $order_id, $order = null ) {
+		$this->update_invoice_data( $order_id, null, true );
 	}
 
 	/**

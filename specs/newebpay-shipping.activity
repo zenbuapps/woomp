@@ -1,0 +1,52 @@
+Activity: 藍新物流超商取貨流程
+Description: 透過藍新金流的超商取貨整合功能，讓顧客選擇超商門市並完成取貨付款或取貨不付款
+
+Actors:
+  - Customer: 結帳的消費者
+  - WooCommerce: WordPress 電商系統
+  - NewebPay_Shipping: 藍新物流主類別（RY_NewebPay_Shipping）
+  - NewebPay_Gateway_Api: 藍新金流 API（透過金流表單整合物流）
+
+Triggers:
+  - Customer 在結帳頁面選擇藍新超商取貨物流方式
+
+Flow:
+  1. WooCommerce 載入藍新物流模組
+     → 條件：RY_WT_enabled_newebpay_shipping = yes 且藍新金流已啟用
+     → 註冊 1 種物流方式：ry_newebpay_shipping_cvs（RY_NewebPay_Shipping_CVS）
+     → 繼承 WC_Shipping_Method，支援 shipping-zones、instance-settings
+
+  2. Customer 選擇藍新超商取貨
+     → 結帳頁所有運送地址欄位加入 ry-hide class 隱藏
+     → Hook: woocommerce_checkout_fields（priority 9999）
+     → 結帳送出時移除 shipping 欄位的 required 屬性
+
+  3. 付款方式限制
+     → Hook: woocommerce_available_payment_gateways → only_newebpay_gateway()
+     → 使用藍新物流時，僅保留 ry_newebpay_* 閘道和 cod（貨到付款）
+
+  4. COD 特殊處理
+     → Hook: woocommerce_cod_process_payment_order_status → 改為 pending
+     → Hook: woocommerce_receipt_cod → cod_receipt_page()
+     → COD 也會透過藍新金流 MPG 表單送出（CVSCOM=2）
+
+  5. 超商門市資訊透過金流回調取得
+     → 藍新的 CVSCOM 機制：金流回調中包含門市資訊（StoreCode, StoreName, StoreAddr 等）
+     → 不像綠界有獨立的選店地圖 API
+     → 門市資訊在 payment_status_SUCCESS 中處理
+
+  6. 運費計算
+     → 繼承自 WC_Shipping_Method，與 RY_ECPay_Shipping_Base 類似
+     → 支援免運條件：coupon, min_amount, either, both
+     → 支援重量加收運費（weight_plus_cost）
+     → 支援商品運送類別加價
+
+Side Effects:
+  - 藍新物流依賴藍新金流啟用（需 enabled_newebpay_gateway = yes）
+  - 門市資訊在金流回調中設定，非獨立選店流程
+  - 物流資訊儲存在 _newebpay_shipping_info order meta
+  - 運送目的地為 billing_only 時無法啟用
+
+Related Features:
+  - newebpay-shipping.feature
+  - newebpay-payment.activity

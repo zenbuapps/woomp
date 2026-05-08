@@ -1,0 +1,119 @@
+Activity: 後台商品管理
+Description: WooMP 改善可變商品的後台編輯介面，提供標籤式輸入、前台變化類型 UI 切換、以及商品屬性類型管理
+
+Actors:
+  - 管理員: 編輯商品的後台使用者
+  - WooMP_Product: 後台商品管理類別 (admin/class-woomp-product.php)
+  - WordPress/WooCommerce: 後台商品編輯系統
+
+Triggers:
+  - 管理員進入商品編輯頁面
+  - 管理員操作可變商品屬性
+  - 管理員切換好用版/原版介面
+
+Flow:
+  1. WooMP_Product::init() 條件式初始化
+     → Condition: wc_woomp_setting_product_variations_ui === 'no'
+       Yes → return，不初始化
+       No → 繼續註冊 hooks
+
+  2. 註冊的 Hooks
+     → Action: admin_head → set_woomp_ui() — 變更好用介面啟用狀態
+     → Action: admin_head → add_active_woomp_ui_button() — 顯示切換按鈕
+     → Action: admin_head → is_active_woomp_ui() — 檢查是否啟用
+     → Filter: admin_head (priority 99) → enqueue_proudcts_style() — 注入自訂 CSS
+     → Filter: admin_footer (priority 99) → enqueue_proudcts_script() — 注入自訂 JS
+     → Action: wp_ajax_woocommerce_save_attributes (priority 1) → wcb_ajax_woocommerce_save_attributes()
+     → Action: save_post → save_post_attribute_type()
+     → Filter: woocommerce_variation_is_active → variation_check()
+     → Condition: wc_woomp_setting_product_variations_frontend_ui === 'yes'
+       Yes → 額外註冊：
+         → Action: woocommerce_after_product_attribute_settings → wcb_add_product_attribute_is_highlighted()
+         → Filter: woocommerce_dropdown_variation_attribute_options_html (priority 20) → variation_radio_buttons()
+     → Action: wp_ajax_woomp_get_attribute_type → get_attribute_type()
+
+  3. 管理員進入商品編輯頁
+     → is_active_woomp_ui() 檢查該商品是否啟用好用介面
+       → Condition: post_meta '_is_active_woomp_ui' 存在
+         Yes → 使用 meta 值
+         No → 使用全域設定 wc_woomp_setting_product_variations_ui 並存入 meta
+
+  4. 好用介面啟用時的 JS 功能（enqueue_proudcts_script）
+     a. 屬性 Tab 更名為「商品屬性」
+     b. 可變商品預設顯示「商品屬性」Tab（而非一般資訊）
+     c. 屬性和變化類型 Tab 移至最上方（inventory_options 之前）
+     d. 儲存屬性按鈕隱藏（改由其他觸發方式）
+     e. 增加「切換原版變化類型介面」按鈕
+     f. 自製屬性值輸入介面
+        → 取代原始 textarea，改用標籤式輸入（tagchecklist 風格）
+        → 支援 Enter 鍵新增、按鈕新增、點擊刪除
+        → 值以 ' | ' 分隔存入 textarea
+     g. 儲存屬性後自動新增變化類型
+        → 呼叫 woocommerce_link_all_variations AJAX
+        → 顯示「已更新」提示
+     h. 移除無效（空值）的變化類型
+     i. 在變化類型標題列增加定價和折扣價輸入框
+        → 同步輸入值到隱藏的原始欄位
+     j. 檢查未輸入價格的變化類型並顯示「定價未填」提示
+
+  5. 切換好用版/原版介面
+     → set_woomp_ui(): 接收 POST 'woomp_ui' 參數
+       → 更新 post_meta '_is_active_woomp_ui'
+     → add_active_woomp_ui_button(): 當介面未啟用時
+       → 顯示「切換好用版 Woo 變化類型介面」按鈕
+
+  6. 前台變化類型屬性設定（wcb_add_product_attribute_is_highlighted）
+     → 在屬性設定面板新增「設定前台變化類型介面」下拉選單
+     → 選項（依 wc_woomp_setting_product_variations_frontend_ui＿default 設定）：
+       → 標籤式選項 (tag)
+       → 下拉選單 (select)
+       → 單選方塊 - 不斷行 (radio)
+       → 單選方塊 - 每行放1個選項 (radio-one)
+       → 單選方塊 - 每行放2個選項 (radio-two)
+     → 「儲存屬性」按鈕
+
+  7. 儲存屬性類型
+     → wcb_ajax_woocommerce_save_attributes(): AJAX 儲存時
+       → 驗證 nonce: 'save-attributes'
+       → 遍歷 attribute_type 陣列
+       → 儲存至 post_meta: 'attribute_{attr_name}_type'
+     → save_post_attribute_type(): 商品更新時
+       → 同樣邏輯儲存 attribute_type
+
+  8. 前台變化類型 HTML 渲染（variation_radio_buttons）
+     → Condition: 商品類型為 'woosg' 或 'woosb'（WPC Bundle 外掛）
+       Yes → 回傳原始 HTML，不處理
+     → 取得 attribute_type（tag/select/radio/radio-one/radio-two）
+     → Condition: attribute_type 包含 'radio'
+       Yes → 生成 radio button HTML
+         → radio: 不斷行排列
+         → radio-one: 每行 1 個（flex, width:100%）
+         → radio-two: 每行 2 個（flex, width:50%）
+     → Condition: attribute_type === 'select'
+       Yes → 回傳原始 select HTML
+     → Condition: attribute_type === 'tag'
+       Yes → 生成標籤式 HTML
+         → 使用 hidden radio + visible label
+         → 選中時套用自訂背景色/文字色（來自設定）
+         → 預設使用加入購物車按鈕的背景色
+         → 停用/缺貨的選項加上刪除線
+
+  9. 變化類型可用性檢查（variation_check）
+     → Condition: 變化類型無庫存且不允許候補
+       Yes → 回傳 false（停用該變化）
+       No → 回傳 $active 原始值
+
+  10. AJAX 取得屬性類型（get_attribute_type）
+      → 接收 postId 和 attrName
+      → 回傳 post_meta 'attribute_{attr_name}_type' 的值
+
+Side Effects:
+  - 每個商品的好用介面啟用狀態存為獨立的 post_meta '_is_active_woomp_ui'
+  - 屬性類型存為 post_meta 'attribute_{attr_name}_type'
+  - 前台 HTML 輸出大幅改變（從 select 改為 radio/tag）
+  - 自動新增變化類型可能產生大量 AJAX 請求
+  - 自動移除空值變化類型可能刪除管理員不預期的項目
+
+Related Features:
+  - admin-product-management.feature
+  - frontend-product-display.feature

@@ -1,0 +1,41 @@
+[ACTIVITY] 統一金流 UNi Embed 信用卡結帳
+[ACTOR] 消費者 -> {specs/actors/消費者.md}
+[ACTOR] 管理員 -> {specs/actors/管理員.md}
+[ACTOR] 系統 -> {specs/actors/系統.md}
+[ACTOR] PayUni -> {specs/actors/PayUni.md}
+
+[STEP:1] @管理員 {features/gateway/設定金流參數.feature} -- 一次性後台設定，非每次結帳重複執行
+[STEP:2] @系統 {features/gateway/初始化結帳頁SDK.feature}
+[STEP:3] @系統 {features/token/查詢已儲存卡片.feature}
+  [DECISION:3a] 消費者是否有已儲存卡片
+    [BRANCH:3a:有已儲存卡片且記憶卡號已啟用] {specs/ui/已儲存卡片清單.md}
+    [BRANCH:3a:無已儲存卡片或記憶卡號未啟用] {specs/ui/新卡片輸入表單.md}
+  [MERGE:3a]
+[DECISION:3b] enable_invoice_carrier 是否啟用
+  [BRANCH:3b:已啟用] @消費者 {features/invoice/選擇發票載具.feature}
+    [DECISION:3b1] 載具類型
+      [BRANCH:3b1:手機條碼] @消費者 {specs/ui/手機條碼輸入.md}
+      [BRANCH:3b1:自然人憑證] @消費者 {specs/ui/自然人憑證輸入.md}
+      [BRANCH:3b1:會員載具] -- 無需額外輸入
+      [BRANCH:3b1:捐贈] @消費者 {specs/ui/捐贈碼輸入.md}
+      [BRANCH:3b1:公司統編] @消費者 {specs/ui/公司統編輸入.md}
+      [BRANCH:3b1:不使用載具] -- 紙本發票
+    [MERGE:3b1]
+  [BRANCH:3b:未啟用] -- 跳過載具區塊，不渲染、不驗證、不送參數
+[MERGE:3b]
+[STEP:5] @消費者 {features/payment/提交信用卡付款.feature}
+[STEP:6] @系統 {features/payment/執行PayUni交易.feature}
+  [DECISION:6a] PayUni merchant_trade 回應類型
+    [BRANCH:6a:非3D直接授權] @系統 {features/payment/解密驗證交易回應.feature}
+      [STEP:7] @系統 {features/payment/處理交易結果.feature}
+        [DECISION:7a] 交易狀態
+          [BRANCH:7a:SUCCESS]
+            [DECISION:7a1] 是否需要儲存卡片 Token
+              [BRANCH:7a1:記憶卡號啟用且消費者已勾選儲存] @系統 {features/token/儲存付款Token.feature}
+              [BRANCH:7a1:記憶卡號未啟用或消費者未勾選] -- 跳過儲存
+            [MERGE:7a1]
+          [BRANCH:7a:非SUCCESS] @系統 {features/error/對應錯誤訊息.feature} -> {specs/ui/付款失敗通知.md}
+        [MERGE:7a]
+    [BRANCH:6a:3D驗證流程] -- 儲存 _payuni_v3_resp meta + order_note「3D 驗證已建立」，訂單維持「等待付款中」，由 Webhook 決定
+  [MERGE:6a]
+[STEP:8] @PayUni {features/webhook/處理交易回調.feature}

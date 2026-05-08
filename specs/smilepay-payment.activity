@@ -1,0 +1,84 @@
+Activity: 速買配金流付款流程
+Description: 顧客透過速買配（SmilePay）提供的多種付款方式完成線上付款，使用 XML 格式 API 回應與自訂驗證碼機制
+
+Actors:
+  - Customer: 結帳的消費者
+  - WooCommerce: WordPress 電商系統
+  - SmilePay_Gateway: 速買配金流閘道（RY_SmilePay_Gateway_Base 及其子類別）
+  - SmilePay_API: 速買配 API 伺服器（ssl.smse.com.tw）
+  - SmilePay_Response: 速買配回調處理器（RY_SmilePay_Gateway_Response）
+
+Triggers:
+  - Customer 在結帳頁面選擇速買配付款方式並提交訂單
+
+Flow:
+  1. WooCommerce 載入速買配金流模組
+     → 條件：RY_WT_enabled_smilepay_gateway = yes
+     → 需要 PHP simplexml 擴充
+     → 註冊 6 種閘道：
+       ry_smilepay_credit（信用卡，Pay_zg=1）
+       ry_smilepay_webatm（WebATM，Pay_zg=21）
+       ry_smilepay_atm（ATM，Pay_zg=2）
+       ry_smilepay_cvs_711（7-11 超商代碼，Pay_zg=4）
+       ry_smilepay_cvs_fami（全家超商代碼，Pay_zg=6）
+       ry_smilepay_barcode（條碼繳費，Pay_zg=3）
+
+  2. Customer 提交訂單，閘道 process_payment() 執行
+     → 重導至收據頁（receipt page）
+
+  3. RY_SmilePay_Gateway_Base::receipt_page() 透過 AJAX 取號
+     → 前端 JS 呼叫 wp_ajax_RY_SmilePay_getcode（或 RY_SmilePay_shipping_getcode）
+     → 後端呼叫 RY_SmilePay_Gateway_Api::get_code()
+
+  4. get_code() 向速買配 API 請求付款
+     → 組建參數：Dcvc（特店代碼）、Rvg2c（收費方式）、Pay_zg（付款類型）、Data_id（訂單編號）等
+     → 儲存 _smilepay_Data_id 至訂單 meta
+     → Condition: get_code_mode（API 模式 vs 網頁模式）
+       get_code_mode = false（信用卡、WebATM）→ 回傳重導 URL（用戶前往速買配頁面付款）
+       get_code_mode = true（ATM、CVS、BARCODE）→ 直接呼叫 API 取號
+     → API 網址：
+       測試：https://ssl.smse.com.tw/ezpos_test/mtmk_utf.asp（網頁）/ api/SPPayment.asp（API）
+       正式：https://ssl.smse.com.tw/ezpos/mtmk_utf.asp / api/SPPayment.asp
+     → API 回應為 XML 格式（simplexml_load_string 解析）
+     → 取號成功（Status=1）：
+       ATM → 儲存 AtmBankNo, AtmNo, PayEndDate
+       BARCODE → 儲存 Barcode1/2/3, PayEndDate
+       CVS 7-11 → 儲存 IbonNo, PayEndDate
+       CVS 全家 → 儲存 FamiNO, PayEndDate
+     → 訂單設為 on-hold
+
+  5. Customer 完成付款後速買配回調
+     → Hook: woocommerce_api_ry_smilepay_callback → check_callback()
+     → 回調資料需 BIG-5 → UTF-8 轉碼（mb_convert_encoding）
+     → 驗證碼計算：
+       取 Rot_check 末 4 碼（左補 0 至 4 位）
+       訂單金額左補 0 至 8 位
+       SmilePay 交易編號末 4 碼（非數字替換為 9，左補 9 至 4 位）
+       三段串接後逐位計算：偶數位總和 x 9 + 奇數位總和 x 3
+       與回傳的 Mid_smilepay 比對
+
+  6. doing_callback() 處理付款結果
+     → 從 Data_id 解析 order_id
+     → 付款類型判斷（Classif 欄位）：A=信用卡, B=WebATM, C=條碼, E=ibon, F=全家
+     → 金額核對：Amount == ceil(order total)
+     → 付款成功 → payment_complete()
+     → 信用卡失敗（Response_id=0）→ failed
+     → get_code_mode = false 時：重導至感謝頁
+     → get_code_mode = true 時：回應 XML 標籤 <Roturlstatus>RY_SmilePay</Roturlstatus>
+
+  7. 前台顯示付款資訊
+     → ATM：帳號、銀行代碼、繳費期限
+     → CVS 7-11：ibon 代碼、繳費期限
+     → CVS 全家：全家代碼、繳費期限
+     → BARCODE：三段條碼、繳費期限
+
+Side Effects:
+  - 速買配使用 XML 格式 API 回應（需 simplexml 擴充）
+  - 驗證碼使用自訂演算法（非 HMAC/SHA）
+  - 回調資料為 BIG-5 編碼，需轉換為 UTF-8
+  - 速買配區分信用卡/WebATM（網頁模式）和 ATM/CVS/BARCODE（API 取號模式）
+  - 速買配物流需要金流啟用（gateway 和 shipping 綁定）
+  - 測試環境使用固定測試金鑰：Dcvc=107, Rvg2c=1, Verify_key=174A02F97A95F72CE301137B3F98D128, Rot_check=9527
+
+Related Features:
+  - smilepay-payment.feature

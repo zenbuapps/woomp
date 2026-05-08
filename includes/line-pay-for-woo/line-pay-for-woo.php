@@ -112,7 +112,11 @@ class WC_Gateway_LINEPay_Handler {
 			}
 
 			$request_type   = wp_unslash( $_GET['request_type'] );
-			$payment_status = get_post_meta( $order_id, '_linepay_payment_status', true );
+			$order_obj      = wc_get_order( $order_id );
+			if ( ! $order_obj ) {
+				throw new Exception( sprintf( WC_Gateway_LINEPay_Const::LOG_TEMPLATE_HANDLE_CALLBANK_NOT_FOUND_ORDER_ID, $order_id, __( 'Unable to process callback.', 'woocommerce_gateway_linepay' ) ) );
+			}
+			$payment_status = $order_obj->get_meta( '_linepay_payment_status' );
 
 			$linepay_gateway = new WC_Gateway_LINEPay();
 			if ( WC_Gateway_LINEPay_Const::PAYMENT_STATUS_RESERVED === $payment_status ) {
@@ -227,7 +231,7 @@ class WC_Gateway_LINEPay_Handler {
 		} catch ( Exception $e ) {
 
 			if ( $refund && is_a( $refund, 'WC_Order_Refund' ) ) {
-				wp_delete_post( $refund->id, true );
+				$refund->delete( true );
 			}
 
 			wc_add_wp_error_notices( new WP_Error( 'process_refund_by_customer', __( 'Unable to process refund. Please try again.', 'woocommerce_gateway_linepay' ) ) );
@@ -282,11 +286,11 @@ class WC_Gateway_LINEPay_Handler {
 	 */
 	public function change_customer_order_action( $actions, $order ) {
 		$order_status   = $order->get_status();
-		$payment_method = get_post_meta( $order->get_id(), '_payment_method' );
+		$payment_method = $order->get_payment_method();
 
 		switch ( $order_status ) {
 			case 'failed':
-				if ( 'linepay' !== $payment_method[0] ) {
+				if ( 'linepay' !== $payment_method ) {
 					break;
 				}
 
@@ -298,7 +302,7 @@ class WC_Gateway_LINEPay_Handler {
 
 		$refund_expired = strtotime( $order->get_date_created()->date( 'Y-m-d H:i:s' ) . ' -8 hour' ) + ( 60 * 86400 );
 
-		if ( get_option( 'linepay_customer_refund' ) && time() < $refund_expired && $payment_method[0] == 'linepay' ) {
+		if ( get_option( 'linepay_customer_refund' ) && time() < $refund_expired && $payment_method === 'linepay' ) {
 			if ( in_array( 'wc-' . $order_status, get_option( 'linepay_customer_refund' ) ) ) {
 				$actions['cancel'] = [
 					'url'  => esc_url_raw(
@@ -319,16 +323,30 @@ class WC_Gateway_LINEPay_Handler {
 		return $actions;
 	}
 	public function linepay_refund_button_replace( $order ) {
+		$is_order_screen = false;
+
+		// 傳統模式：透過 global $post 判斷
 		global $post;
-		if ( ! empty( $post ) && $post->post_type = 'shop_order' && strpos( $_SERVER['REQUEST_URI'], 'post.php?post=' ) == true ) {
+		if ( ! empty( $post ) && $post->post_type === 'shop_order' && strpos( $_SERVER['REQUEST_URI'], 'post.php?post=' ) !== false ) {
+			$is_order_screen = true;
+		}
 
-			$order_status   = $order->get_status();
-			$payment_method = get_post_meta( $order->get_id(), '_payment_method' );
-			$refund_expired = strtotime( $order->get_date_created()->date( 'Y-m-d H:i:s' ) . ' -8 hour' ) + ( 60 * 86400 );
-			$output         = '';
-			if ( get_option( 'linepay_customer_refund' ) && time() > $refund_expired && $payment_method[0] == 'linepay' ) {
+		// HPOS 模式：透過 current_screen 判斷
+		if ( ! $is_order_screen && function_exists( 'get_current_screen' ) && get_current_screen() && in_array( get_current_screen()->id, Woomp_HPOS_Helper::get_order_screen_ids(), true ) ) {
+			$is_order_screen = true;
+		}
 
-				$output = '
+		if ( ! $is_order_screen ) {
+			return;
+		}
+
+		$order_status   = $order->get_status();
+		$payment_method = $order->get_payment_method();
+		$refund_expired = strtotime( $order->get_date_created()->date( 'Y-m-d H:i:s' ) . ' -8 hour' ) + ( 60 * 86400 );
+		$output         = '';
+		if ( get_option( 'linepay_customer_refund' ) && time() > $refund_expired && $payment_method === 'linepay' ) {
+
+			$output = '
                 <script>
 
                 var replaceHtml = "<p style=\"text-align:start;\">已超過60天退款期限，無法由LinePay退款</p>";
@@ -338,12 +356,8 @@ class WC_Gateway_LINEPay_Handler {
                     });
                 </script>';
 
-			}
-			echo $output;
-
-		} else {
-			return;
 		}
+		echo $output;
 	}
 }
 

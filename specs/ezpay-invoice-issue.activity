@@ -1,0 +1,94 @@
+Activity: EZPAY 電子發票開立
+Description: 透過藍新 ezPay API（invoice-porter 套件）為 WooCommerce 訂單開立電子發票，支援 B2C/B2B/捐贈三種類型。
+
+Actors:
+  - 店家管理員: 在後台手動觸發發票開立或設定自動開立規則
+  - WooCommerce: 訂單狀態變更時觸發自動開立
+  - ezPay API: 接收發票開立請求並回傳結果（透過 InvoicePorter\EzpayInvoice SDK）
+  - 顧客: 在結帳頁面選擇發票類型與載具
+
+Triggers:
+  - 自動模式：訂單狀態變更為管理員設定的指定狀態（wc_woomp_ezpay_invoice_issue_at）
+  - 手動模式：管理員在訂單列表或訂單編輯頁點擊「開立發票」按鈕
+
+Flow:
+  1. [WooCommerce] 訂單狀態變更或 [店家管理員] 點擊開立按鈕
+     → Hook (自動): woocommerce_order_status_{$invoice_issue_at}
+       → 呼叫 Admin::issue_invoice($order_id)
+     → Hook (手動/列表): wp_ajax_gen_invoice_ezpay
+       → 呼叫 Ajax::generate_invoice()
+       → 先透過 Ajax::update_invoice_data() 更新訂單發票 meta
+
+  2. [系統] 檢查發票狀態
+     → Condition: _ezpay_invoice_status === '0' 或 _ezpay_invoice_number === ''
+       Yes → 繼續開立
+       No → 中止
+
+  3. [EzPayInvoiceHandler] 呼叫 generate_invoice($order_id)
+
+  4. [EzPayInvoiceHandler] 呼叫 get_issue_data($order_id)
+     → 從 _ezpay_invoice_data meta 讀取發票資料
+     → 檢查：訂單金額 = 0 或無發票資料 → return null
+     → 轉換 individual 類型：
+       手機條碼 → 0
+       自然人憑證 → 1
+       ezPay 電子發票載具 / 雲端電子發票載具 → 2
+
+  5. [EzPayInvoiceHandler] 組裝商品明細
+     → 遍歷 $order->get_items()，以 | 分隔組裝：
+       ItemName, ItemCount, ItemUnit(件), ItemPrice, ItemAmt
+     → 商品名稱截斷至 30 字元（UTF-8），替換空白與特殊字元
+     → 折價券：遍歷 $order->get_items('coupon')，以負數金額加入
+     → 運費：shipping_total + shipping_tax，ItemUnit = 式
+     → 費用：fee 金額，ItemUnit = 式
+
+  6. [EzPayInvoiceHandler] 設定 B2C 基本參數
+     → MerchantOrderNo: 前綴 + order_id + '_' + time()（截斷至 20 字元）
+     → Status = 1
+     → Category = 'B2C'
+     → BuyerName, BuyerAddress, BuyerEmail
+     → CarrierType = 轉換後的載具類型數字
+     → CarrierNum：類型 2（雲端載具）→ rawurlencode(email)，其他 → 載具編號
+     → PrintFlag：無載具且無捐贈 → 'Y'，否則 → 'N'
+     → TaxType = 1, TaxRate = 5
+     → Amt = round(total / 1.05)（未稅）
+     → TaxAmt = total - Amt（稅額）
+     → TotalAmt = total
+     → 雲端載具（類型 2）：KioskPrintFlag = 1
+
+  7. [EzPayInvoiceHandler] B2B 覆寫（公司發票）
+     → Condition: invoice_type === 'company'
+       Yes → Category = 'B2B', BuyerName = 公司名稱, BuyerUBN = 統編
+             CarrierType = '', PrintFlag = 'Y'
+
+  8. [EzPayInvoiceHandler] 捐贈覆寫
+     → Condition: invoice_type === 'donate'
+       Yes → CarrierType = '', LoveCode = 捐贈碼
+
+  9. [EzPayInvoiceHandler] 呼叫 $this->invoice->create($issue_data)
+     → 使用 InvoicePorter\EzpayInvoice SDK
+     → API URL (測試): https://cinv.ezpay.com.tw/
+     → API URL (正式): https://inv.ezpay.com.tw/
+
+  10. [ezPay API] 回傳結果
+
+  11. [EzPayInvoiceHandler] 處理回傳結果
+      → Condition: isOK() 或 code === 'SUCCESS'
+        Yes → 更新 _ezpay_invoice_result（完整回傳物件）
+              更新 _ezpay_invoice_number（發票號碼）
+              訂單備註寫入成功訊息（含發票號碼、開立時間）
+        No → 更新 _ezpay_invoice_result 為錯誤訊息
+             訂單備註寫入失敗訊息
+
+  12. [Ajax] 回傳 JSON 結果給前端（手動模式）
+      → 前端 admin.js 顯示 alert 並 reload 頁面
+
+Side Effects:
+  - 訂單 meta 更新：_ezpay_invoice_result, _ezpay_invoice_number
+  - 訂單備註新增開立結果
+
+Related Features:
+  - ezpay-invoice-issue.feature
+  - ezpay-invoice-void.feature
+  - invoice-carrier.feature
+  - invoice-settings.feature

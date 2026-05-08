@@ -1,0 +1,63 @@
+Activity: PayUni 超商代碼繳費
+Description: 消費者透過 PayUni CVS 閘道取得繳費代碼，至超商完成繳費
+
+Actors:
+  - Consumer: 結帳頁面的購物消費者
+  - WooCommerce: WooCommerce 結帳核心
+  - CvsGateway: PAYUNI\Gateways\Cvs 閘道類別（id: payuni-cvs）
+  - RequestBuilder: PAYUNI\Gateways\Request 類別
+  - PayUniAPI: PayUni 外部 API 端點（api/cvs）
+  - ResponseHandler: PAYUNI\Gateways\Response 類別
+
+Triggers:
+  - Consumer 在結帳頁選擇「PAYUNi CVS Payment」付款方式並點擊下單
+  - PayUni 背景通知繳費完成（wc-api/payuni_notify_cvs）
+
+Flow:
+  【取號流程】
+
+  1. Consumer 在結帳頁看到 CVS 付款選項
+     → CvsGateway 無額外前端表單欄位（僅描述文字）
+
+  2. Consumer 點擊下單
+     → CvsGateway::process_payment($order_id)
+     → 建立 Request 實例
+
+  3. RequestBuilder::get_transaction_args() 組裝參數
+     → 基本參數：MerID, MerTradeNo, TradeAmt, Timestamp, UsrMail, ProdDesc
+     → Hook: payuni_transaction_args_payuni-cvs (apply_filters)
+       → CvsGateway::add_args() 加入：
+         → NotifyURL: home_url('wc-api/payuni_notify_cvs')
+
+  4. RequestBuilder 加密並發送 POST 到 PayUni api/cvs
+
+  5. PayUniAPI 回傳繳費代碼資訊
+
+  6. ResponseHandler::cvs_response() 處理取號回應
+     → 解密回應
+     → Payment::log() 記錄日誌
+     → 注意：目前程式碼在 log 後直接 return（後續的 meta 儲存、狀態更新代碼被 return 截斷）
+
+  7. CvsGateway::process_payment 回傳 {result:'success', redirect: order_received_url}
+     → Consumer 被導向訂單完成頁面
+
+  【繳費完成通知】
+
+  8. Consumer 至超商完成繳費
+
+  9. PayUni 發送背景通知到 wc-api/payuni_notify_cvs
+     → Hook: woocommerce_api_payuni_notify_cvs
+     → ResponseHandler::cvs_response() 處理背景通知（$_REQUEST 方式）
+     → Condition: $_REQUEST['Status'] = 'SUCCESS'
+       Yes → 解密 EncryptInfo
+         → 更新訂單狀態為 processing
+         → 訂單備註記錄繳費結果（狀態碼、繳費結果、繳費時間、轉帳後五碼）
+
+Side Effects:
+  - CVS 閘道的 supports 僅為預設值（products），不支援 refunds 和 tokenization
+  - 目前 cvs_response 取號回應中有 early return，不會儲存 meta 或排程到期檢查
+  - 繳費完成通知透過背景回調更新訂單狀態
+  - 超商繳費代碼資訊顯示在訂單完成頁面（get_detail_after_order_table）
+
+Related Features:
+  - payuni-cvs.feature

@@ -13,44 +13,55 @@ defined( 'ABSPATH' ) || exit;
 class PayNow_Shipping_Order_Meta_Box {
 
 	/**
-	 * Add meta box at order edit screen.
+	 * 在訂單編輯頁面註冊 meta box（HPOS 相容）
 	 *
-	 * @param string $post_type The post type.
-	 * @param object $post The post object.
+	 * @param string                $post_type Post type 或 screen ID
+	 * @param \WP_Post|\WC_Order $post_or_order Post 或 Order 物件
 	 * @return void
 	 */
-	public static function add_meta_box( $post_type, $post ) {
-		if ( 'shop_order' === $post_type ) {
-			global $theorder;
-			if ( ! is_object( $theorder ) ) {
-				$theorder = wc_get_order( $post->ID );
-			}
+	public static function add_meta_box( $post_type, $post_or_order ) {
+		if ( ! in_array( $post_type, Woomp_HPOS_Helper::get_order_screen_ids(), true ) ) {
+			return;
+		}
 
-			foreach ( $theorder->get_items( 'shipping' ) as $item_id => $item ) {
-				if ( PayNow_Shipping::is_paynow_shipping( $item->get_method_id() ) !== false ) {
-					add_meta_box( 'paynow-shipping-info', __( 'PayNow Shipping Info', 'paynow-shipping' ), [ __CLASS__, 'output' ], 'shop_order', 'side', 'high' );
-					break;
+		global $theorder;
+		if ( ! is_object( $theorder ) ) {
+			$theorder = Woomp_HPOS_Helper::get_order( $post_or_order );
+		}
+		if ( ! $theorder ) {
+			return;
+		}
+
+		foreach ( $theorder->get_items( 'shipping' ) as $item_id => $item ) {
+			if ( PayNow_Shipping::is_paynow_shipping( $item->get_method_id() ) !== false ) {
+				foreach ( Woomp_HPOS_Helper::get_order_screen_ids() as $screen ) {
+					add_meta_box( 'paynow-shipping-info', __( 'PayNow Shipping Info', 'paynow-shipping' ), [ __CLASS__, 'output' ], $screen, 'side', 'high' );
 				}
+				break;
 			}
 		}
 	}
 
 	/**
-	 * Output the meta box content.
+	 * 輸出 meta box 內容（HPOS 相容）
 	 *
-	 * @param object $post The post object.
+	 * @param \WP_Post|\WC_Order $post_or_order Post 或 Order 物件
 	 * @return void
 	 */
-	public static function output( $post ) {
+	public static function output( $post_or_order ) {
 		global $theorder;
 
 		if ( ! is_object( $theorder ) ) {
-			$theorder = wc_get_order( $post->ID );
+			$theorder = Woomp_HPOS_Helper::get_order( $post_or_order );
+		}
+		if ( ! $theorder ) {
+			return;
 		}
 
 		// paynow 物流單號.
 		echo '<table>';
-		echo '<tr><th><div id="order-id" data-order-id="' . esc_html( $post->ID ) . '">' . esc_html__( 'PayNow Logistic Number', 'paynow-shipping' ) . '</div></th><td>' . esc_html( $theorder->get_meta( PayNow_Shipping_Order_Meta::LogisticNumber ) ) . '</td></tr>';
+		$order_id = $theorder->get_id();
+		echo '<tr><th><div id="order-id" data-order-id="' . esc_html( $order_id ) . '">' . esc_html__( 'PayNow Logistic Number', 'paynow-shipping' ) . '</div></th><td>' . esc_html( $theorder->get_meta( PayNow_Shipping_Order_Meta::LogisticNumber ) ) . '</td></tr>';
 
 		echo '<tr><th>' . esc_html__( 'Logistic Service', 'paynow-shipping' ) . '</th><td>' . esc_html( $theorder->get_meta( PayNow_Shipping_Order_Meta::LogisticService ) ) . '</td></tr>';
 
@@ -100,7 +111,7 @@ class PayNow_Shipping_Order_Meta_Box {
 
 		echo '<tr><th>' . esc_html__( 'Logistic Status Last Query', 'paynow-shipping' ) . '</th><td>' . esc_html( $update_at ) . '</td></tr>';
 
-		echo '<tr id="paynow-action"><th>物流單動作</th><td>' . $order_btn . '<button class="button print-label" data-id=' . esc_html( $post->ID ) . ' data-service="' . esc_html( $service_id ) . '">列印</button><button class="button update-delivery-status" data-id="' . esc_html( $post->ID ) . '">更新</button><button class="button cancel-shipping" data-id="' . esc_html( $post->ID ) . '">取消</button></td></tr>';
+		echo '<tr id="paynow-action"><th>物流單動作</th><td>' . $order_btn . '<button class="button print-label" data-id=' . esc_html( $order_id ) . ' data-service="' . esc_html( $service_id ) . '">列印</button><button class="button update-delivery-status" data-id="' . esc_html( $order_id ) . '">更新</button><button class="button cancel-shipping" data-id="' . esc_html( $order_id ) . '">取消</button></td></tr>';
 		echo '</table>';
 		?>
 

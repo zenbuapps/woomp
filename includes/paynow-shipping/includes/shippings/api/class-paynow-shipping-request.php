@@ -401,7 +401,8 @@ class PayNow_Shipping_Request {
 			$logistic_nos = [];
 			$order_ids    = explode( ',', $order_ids );
 			foreach ( $order_ids as $order_id ) {
-				$logistic_no = get_post_meta( $order_id, PayNow_Shipping_Order_Meta::LogisticNumber, true );
+				$label_order = wc_get_order( $order_id );
+				$logistic_no = $label_order ? $label_order->get_meta( PayNow_Shipping_Order_Meta::LogisticNumber ) : '';
 				if ( $logistic_no ) {
 					$logistic_nos[] = $logistic_no . '_1';
 				}
@@ -501,7 +502,7 @@ class PayNow_Shipping_Request {
 	 */
 	public static function cancel_order( $order ) {
 
-		$logistic_no = get_post_meta( $order->get_id(), PayNow_Shipping_Order_Meta::LogisticNumber, true );
+		$logistic_no = $order->get_meta( PayNow_Shipping_Order_Meta::LogisticNumber );
 		$passcode    = self::build_pass_code( $order );
 		$url         = PayNow_Shipping::$api_url . '/api/Orderapi/CancelOrder';
 
@@ -577,7 +578,7 @@ class PayNow_Shipping_Request {
 	 */
 	public static function query_order( $order ) {
 
-		$logistic_no = get_post_meta( $order->get_id(), PayNow_Shipping_Order_Meta::LogisticNumber, true );
+		$logistic_no = $order->get_meta( PayNow_Shipping_Order_Meta::LogisticNumber );
 
 		$url      = PayNow_Shipping::$api_url . '/api/Orderapi/Get_Order_Info?LogisticNumber=' . $logistic_no . '&sno=1';
 		$response = wp_remote_get(

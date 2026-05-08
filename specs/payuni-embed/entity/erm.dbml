@@ -1,0 +1,140 @@
+Project PayUniUNiEmbed {
+  database_type: 'WordPress/WooCommerce'
+  Note: 'PayUni UNi Embed Payment Gateway - Entity Relationship Model'
+}
+
+Enum EMode {
+  TEST [note: 'Sandbox environment - https://sandbox-api.payuni.com.tw/api']
+  PROD [note: 'Production environment - https://api.payuni.com.tw/api']
+}
+
+Enum EOrderStatus {
+  pending     [note: 'WC pending payment (待付款)']
+  processing  [note: 'WC processing (已付款)']
+  completed   [note: 'WC completed']
+  "on-hold"   [note: 'WC on hold']
+  cancelled   [note: 'WC cancelled']
+  refunded    [note: 'WC refunded']
+  failed      [note: 'WC failed (失敗)']
+  "checkout-draft" [note: 'WC checkout draft']
+}
+
+Enum CarrierType {
+  "3J0002"  [note: 'Mobile barcode (手機條碼)']
+  CQ0001    [note: 'Citizen digital certificate (自然人憑證)']
+  amego     [note: 'Member carrier (會員載具)']
+  Donate    [note: 'Donation code (捐贈碼)']
+  Company   [note: 'Company invoice / Tax ID (公司發票/統編)']
+}
+
+Enum CardType {
+  visa       [note: 'BIN starts with 4']
+  mastercard [note: 'BIN starts with 5']
+  amex       [note: 'BIN starts with 37']
+  discover   [note: 'BIN starts with 6']
+}
+
+Enum EUseTokenType {
+  OPTIONAL_BIND [note: '1 - Consumer can cancel binding at payment page']
+  REMEMBER_CARD [note: '2 - Remember card number + expiry (記憶卡號)']
+  FORCE_BIND    [note: '3 - Forced binding, consumer cannot cancel']
+}
+
+Enum ECreditTokenType {
+  MEMBER   [note: '1 - Token shared across all merchant IDs under the member']
+  MERCHANT [note: '2 - Token restricted to the originating merchant ID']
+}
+
+Enum InstallmentOption {
+  "1"  [note: 'No installment (不分期)']
+  "3"  [note: '3 installments']
+  "6"  [note: '6 installments']
+  "9"  [note: '9 installments']
+  "12" [note: '12 installments']
+  "18" [note: '18 installments']
+  "24" [note: '24 installments']
+  "30" [note: '30 installments']
+}
+
+Table Consumer {
+  userId      int    [pk, note: 'WordPress user ID (wp_users.ID)']
+  name        varchar [note: 'Display name']
+  email       varchar [note: 'User email address']
+
+  Note: 'Maps to wp_users table. Represents the logged-in WooCommerce customer.'
+}
+
+Table GatewaySettings {
+  merchant_id         varchar [pk, note: 'PayUni merchant ID (payuni_payment_merchant_no / _test)']
+  hash_key            varchar [not null, note: 'AES-256-GCM encryption key (payuni_payment_hash_key / _test)']
+  hash_iv             varchar [not null, note: 'AES-256-GCM initialization vector (payuni_payment_hash_iv / _test)']
+  mode                EMode   [not null, default: 'TEST', note: 'TEST=sandbox, PROD=production (payuni_payment_testmode)']
+  enable_tokenization bool    [default: false, note: 'Enable card tokenization / remember card (gateway setting)']
+  enable_3d_auth      bool    [default: true, note: 'Enable 3D Secure authentication (payuni_3d_auth)']
+  enable_log          bool    [default: true, note: 'Enable debug logging (payuni_payment_log)']
+  enable_installment  bool    [default: false, note: 'Derived: true when installment_options is not empty']
+  installment_options varchar [note: 'Comma-separated valid periods: 3,6,9,12,18,24,30 (gateway setting)']
+  enabled             bool    [default: false, note: 'Gateway enabled/disabled toggle (gateway setting)']
+
+  Note: 'Stored across wp_options (global settings) and woocommerce_payuni-credit-v3_settings (gateway settings). Singleton via SettingDTO.'
+}
+
+Table Order {
+  orderId         int     [pk, note: 'WooCommerce order ID (wp_posts.ID or wp_wc_orders.id)']
+  userId          int     [ref: > Consumer.userId, note: 'Customer who placed the order']
+  status          EOrderStatus [not null, default: 'pending', note: 'WooCommerce order status']
+  total           int     [not null, note: 'Order total amount in TWD']
+  billing_name    varchar [note: 'Billing first + last name']
+  billing_email   varchar [note: 'Billing email address']
+  payuni_trade_no varchar [note: 'PayUni trade number (from _payuni_resp_trade_no meta), used for refunds']
+
+  Note: 'Maps to wp_posts (legacy) or wp_wc_orders (HPOS). Core WooCommerce order entity.'
+}
+
+Table OrderTempMeta {
+  orderId               int     [pk, ref: - Order.orderId, note: 'Parent order ID']
+  sdk_token_tmp         varchar [not null, note: 'SDK Token obtained from PayUni token_get API (valid 10 min)']
+  payuni_save_card      varchar [note: '1=save card after successful payment, 0=do not save']
+  payuni_installment    int     [default: 1, note: 'Selected installment period (1=no installment, 3/6/9/12/18/24/30)']
+  payuni_use_saved_token varchar [note: '1=using a previously saved token, 0=new card']
+  payuni_saved_token_id int     [note: 'WC_Payment_Token ID when using saved card']
+
+  Note: 'Temporary order meta stored during checkout (wp_postmeta / wp_wc_orders_meta). Cleared after payment processing completes.'
+}
+
+Table OrderCarrierMeta {
+  orderId        int         [pk, ref: - Order.orderId, note: 'Parent order ID']
+  carrier_type   CarrierType [note: 'Invoice carrier type selected by consumer']
+  carrier_info   varchar     [note: 'Carrier value: barcode(/XXXXXXX), certificate number, donation code, or tax ID. Empty for amego.']
+  inv_buyer_name varchar     [note: 'Buyer name or company title. Falls back to billing_name if empty. Required for non-Donate types.']
+
+  Note: 'Invoice carrier meta stored on the order (wp_postmeta / wp_wc_orders_meta). Sent to PayUni as CarrierType/CarrierInfo/InvBuyerName trade parameters.'
+}
+
+Table OrderPaymentMeta {
+  orderId              int     [pk, ref: - Order.orderId, note: 'Parent order ID']
+  _payuni_resp_status  varchar [not null, note: 'PayUni response status: SUCCESS or ERROR']
+  _payuni_resp_trade_no varchar [note: 'PayUni trade number (e.g. PAY202601010001)']
+  _payuni_resp_message varchar [note: 'PayUni response message (e.g. 信用卡授權成功, 餘額不足)']
+  _payuni_card_number  varchar [note: 'Last 4 digits of the credit card (Card4No)']
+
+  Note: 'Persisted payment result meta on the order (wp_postmeta / wp_wc_orders_meta). Written after trade result processing or webhook callback.'
+}
+
+Table PaymentToken {
+  token_id     int      [pk, note: 'WC payment token ID (wp_woocommerce_payment_tokens.token_id)']
+  token        varchar  [not null, note: 'CreditHash value from PayUni response, used as CreditToken for repeat payments']
+  last4        varchar  [not null, note: 'Last 4 digits of card number (Card4No)']
+  expiry_month varchar  [not null, note: 'Card expiry month (from CreditLife, e.g. 12)']
+  expiry_year  varchar  [not null, note: 'Card expiry year (from CreditLife, e.g. 2028). Sandbox fallback: 2099']
+  card_type    CardType [not null, note: 'Auto-detected from BIN (Card6No): 4=visa, 5=mastercard, 37=amex, 6=discover']
+  gateway_id   varchar  [not null, default: 'payuni-credit-v3', note: 'WooCommerce gateway identifier']
+  user_id      int      [ref: > Consumer.userId, note: 'Owner of this saved card']
+  is_default   bool     [default: false, note: 'Whether this is the default payment method for the user']
+
+  Note: 'Maps to wp_woocommerce_payment_tokens (WC_Payment_Token_CC). Created after successful payment when consumer opts in to card tokenization. Duplicates (same CreditHash) are not stored.'
+}
+
+Ref: Order.orderId < OrderTempMeta.orderId
+Ref: Order.orderId < OrderCarrierMeta.orderId
+Ref: Order.orderId < OrderPaymentMeta.orderId

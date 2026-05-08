@@ -1,0 +1,161 @@
+Activity: 發票載具選擇與驗證
+Description: 顧客在結帳頁面選擇發票類型與載具，系統驗證輸入並將資料儲存至訂單 meta，後續供發票開立使用。涵蓋綠界、EZPAY、立吉富與 PayUni 四個服務商。
+
+Actors:
+  - 顧客: 在結帳頁面選擇發票類型、載具類型並輸入載具編號
+  - 前端 JavaScript: 控制欄位的顯示/隱藏互動
+  - WooCommerce: 結帳流程驗證與儲存 meta
+
+Triggers:
+  - 顧客進入結帳頁面（woocommerce_after_checkout_billing_form / woocommerce_after_order_notes）
+  - 顧客提交結帳表單（woocommerce_checkout_process）
+  - 訂單建立完成（woocommerce_checkout_update_order_meta）
+
+Flow:
+  === 綠界（ECPay） ===
+
+  1. [前端] 結帳頁面渲染發票欄位
+     → Hook: woocommerce_after_checkout_billing_form
+     → 條件：購物車總額 != 0 或商品為訂閱類型
+     → 欄位：
+       a. invoice-type（select）：個人 / 公司 / 捐贈
+       b. individual-invoice（select）：雲端發票 / 手機條碼 / 自然人憑證 / 紙本發票
+          → 選項來源：wc_woomp_ecpay_invoice_carrier_type（預設 ['雲端發票','手機條碼','自然人憑證','紙本發票']）
+       c. carrier-number（text）：載具編號（手機條碼/自然人憑證時顯示）
+       d. company-name（text）：公司名稱（公司時顯示）
+       e. taxid-number（text）：統一編號（公司時顯示）
+       f. donate-number（select）：捐贈碼（捐贈時顯示）
+          → 選項來源：wc_woomp_ecpay_invoice_donate_org
+
+  2. [前端 JS] 欄位互動控制（checkout.js）
+     → 頁面載入：隱藏 carrier-number, taxid-number, donate-number, company-name, billing_company
+     → invoice-type 變更：
+       individual → 顯示 individual-invoice，預設「雲端發票」，隱藏其他
+       company → 隱藏 individual-invoice，顯示 taxid-number, company-name
+       donate → 隱藏 individual-invoice，顯示 donate-number
+     → individual-invoice 變更：
+       自然人憑證 或 手機條碼 → 顯示 carrier-number
+       其他 → 隱藏 carrier-number
+     → select2 配置：禁用搜尋框（minimumResultsForSearch: Infinity）
+     → updated_checkout 事件：金額為 0 且非訂閱 → 隱藏發票欄位
+
+  3. [後端] 結帳驗證
+     → Hook: woocommerce_checkout_process
+     → 自然人憑證驗證：/^[A-Z]{2}\d{14}$/（前 2 碼大寫英文 + 14 碼數字）
+     → 手機條碼驗證：/^\/[A-Za-z0-9+-\.]{7}$/（/ 開頭 + 7 碼英數字或 +-.）
+     → 統一編號驗證：/^\d{8}$/（8 位數字）
+     → 公司名稱驗證：必填（/./s）
+     → 捐贈碼驗證：/^\d{3,7}$/（3~7 位數字）
+
+  4. [後端] 儲存 meta
+     → Hook: woocommerce_checkout_update_order_meta
+     → 儲存至 _ecpay_invoice_data 陣列：
+       _invoice_type, _invoice_individual, _invoice_carrier,
+       _invoice_company_name, _invoice_tax_id, _invoice_donate
+     → 載具編號僅在手機條碼或自然人憑證時儲存
+
+  === EZPAY ===
+
+  5. [前端] 結帳頁面渲染（與綠界類似但前綴不同）
+     → Hook: woocommerce_after_checkout_billing_form
+     → 欄位前綴：ezpay-（例如 ezpay-invoice-type, ezpay-individual-invoice）
+     → 載具選項差異：
+       預設 ['手機條碼','自然人憑證','ezPay 電子發票載具','雲端電子發票載具']
+       → 來源：wc_woomp_ezpay_invoice_carrier_type
+
+  6. [前端 JS] 欄位互動控制（checkout.js）
+     → 與綠界類似，但使用 ezpay- 前綴的 ID
+     → 額外功能：統一編號 focusout 時自動查詢公司名稱
+       → 呼叫 https://company.g0v.ronny.tw/api/show/{統一編號}
+       → 自動填入 ezpay-company-name 欄位
+
+  7. [後端] 結帳驗證（驗證規則與綠界相同）
+     → 自然人憑證、手機條碼、統一編號、公司名稱、捐贈碼的 regex 驗證規則相同
+
+  8. [後端] 儲存 meta
+     → 儲存至 _ezpay_invoice_data 陣列：
+       _ezpay_invoice_type, _ezpay_invoice_individual, _ezpay_invoice_carrier,
+       _ezpay_invoice_company_name, _ezpay_invoice_tax_id, _ezpay_invoice_donate
+     → 依發票類型過濾欄位：
+       individual → 僅儲存 individual, carrier
+       company → 僅儲存 company_name, tax_id
+       donate → 僅儲存 donate
+     → ezPay/雲端電子發票載具時不儲存 carrier
+
+  === 立吉富（PayNow） ===
+
+  9. [前端] 結帳頁面渲染
+     → Hook: woocommerce_after_order_notes
+     → 渲染在結帳備註之後（非 billing form 之後）
+     → 顯示標題「發票資訊」
+     → 欄位：
+       a. paynow_ei_issue_type（select）：個人 / 公司（/ 捐贈，如有設定捐贈機構）
+       b. paynow_ei_carrier_type（select）：雲端載具 / 手機條碼 / 自然人憑證 / 悠遊卡
+          → 各載具類型可從設定個別啟用/停用
+       c. paynow_ei_buyer_name（text）：公司名稱
+       d. paynow_ei_ubn（text）：統一編號
+       e. paynow_ei_carrier_num（text）：載具編號
+       f. paynow_ei_donate_org（select）：捐贈機構
+
+  10. [前端 JS] 欄位互動控制（paynow-einvoice-public.js）
+      → PaynowEinvoiceHandler 類別管理欄位顯示
+      → issue_type 變更：
+        b2c → 顯示 carrier_type，隱藏 buyer_name/ubn/donate_org
+        b2b → 顯示 buyer_name/ubn，隱藏 carrier_type/carrier_num/donate_org
+              自動帶入 billing_company 或 billing 姓名
+        donate → 顯示 donate_org，隱藏其他
+      → carrier_type 變更：
+        非空且非雲端 → 顯示 carrier_num
+        空值（雲端） → 隱藏 carrier_num
+
+  11. [後端] 結帳驗證
+      → Hook: woocommerce_checkout_process
+      → B2B：buyer_name 與 ubn 必填
+      → B2C + 有載具類型：carrier_num 必填
+
+  12. [後端] 儲存 meta
+      → Hook: woocommerce_checkout_update_order_meta
+      → 個別欄位以 _{field_name} 格式儲存至 order meta：
+        _paynow_ei_issue_type, _paynow_ei_carrier_type,
+        _paynow_ei_buyer_name, _paynow_ei_ubn,
+        _paynow_ei_carrier_num, _paynow_ei_donate_org
+
+  === PayUni v3 ===
+
+  13. [前端] 載具欄位整合至付款流程
+      → PayUni v3 將載具資料作為交易參數的一部分傳送給 PayUni API
+      → 結帳頁面透過 ES6 模組（PayUniService.module.js）處理
+      → 欄位：
+        a. payuni_carrier_type（select）：
+           3J0002=手機條碼, CQ0001=自然人憑證, amego=會員載具,
+           Donate=捐贈碼, Company=公司發票
+        b. payuni_carrier_info（text）：載具內容
+        c. payuni_inv_buyer_name（text）：買方名稱或公司抬頭
+
+  14. [前端 JS] 欄位互動控制
+      → carrier_type 變更：
+        amego → 不顯示 carrier_info 輸入框
+        Donate → 不顯示買方名稱
+        其他 → 顯示對應的 carrier_info 輸入框與買方名稱
+
+  15. [後端] 暫存資料至訂單 meta
+      → OrderUtils::update_tmp_data() 儲存：
+        payuni_carrier_type, payuni_carrier_info, payuni_inv_buyer_name
+      → 這些暫存資料在 TradeReqHashDTO::of() 中讀取並組裝至交易請求參數
+      → PayUni API 根據 CarrierType 與 CarrierInfo 直接在金流端開立發票
+
+  16. [後端] 交易參數整合
+      → TradeReqHashDTO::of() 中：
+        有 carrier_type → 設定 CarrierType, CarrierInfo, InvBuyerName
+        amego → CarrierInfo 免填
+        有 CarrierType → InvBuyerName 必填（fallback: billing 姓名）
+
+Side Effects:
+  - 訂單 meta 寫入發票相關資料
+  - 前端欄位動態顯示/隱藏
+
+Related Features:
+  - invoice-carrier.feature
+  - ecpay-invoice-issue.feature
+  - ezpay-invoice-issue.feature
+  - paynow-invoice-issue.feature

@@ -14,7 +14,7 @@ class EcpayInvoiceHandler {
 	 */
 	public function generate_invoice( $order_id ) {
 
-		$order       = wc_get_order( $order_id );
+		$order       = \wc_get_order( $order_id );
 		$order_total = $order->get_total();
 		$order_info  = $order->get_address();
 
@@ -303,11 +303,14 @@ class EcpayInvoiceHandler {
 	 */
 	public function invalid_invoice( $order_id ) {
 
-		global $woocommerce, $post;
+		global $woocommerce;
 
-		$order        = new \WC_Order( $order_id );
-		$orderStatus  = $order->get_status( $order_id );
-		$orderInfo    = get_post_meta( $order_id );
+		$order        = \wc_get_order( $order_id );
+		if ( ! $order ) {
+			return __( 'Invalid order', 'woomp' );
+		}
+		$orderStatus  = $order->get_status();
+		$orderInfo    = [];
 		$relateNumber = date( 'YmdHis' );
 
 		// 付款成功最後的次 第一次付款或沒有此欄位則設定為空值
@@ -317,11 +320,12 @@ class EcpayInvoiceHandler {
 		// 已經開立發票才允許(找出最後一次)
 		$_ecpay_invoice_status = '_ecpay_invoice_status' . $totalSuccessTimes;
 
-		if ( isset( $orderInfo[ $_ecpay_invoice_status ][0] ) && $orderInfo[ $_ecpay_invoice_status ][0] == 1 ) {
+		$invoice_status_value = $order->get_meta( $_ecpay_invoice_status );
+		if ( $invoice_status_value == 1 ) {
 
 			// 發票號碼
 			$_ecpay_invoice_number = '_ecpay_invoice_number' . $totalSuccessTimes;
-			$invoice_number        = get_post_meta( $order_id, $_ecpay_invoice_number, true );
+			$invoice_number        = $order->get_meta( $_ecpay_invoice_number );
 
 			// 呼叫SDK 作廢發票
 			try {

@@ -58,8 +58,9 @@ final class ShopSubscription {
 		if ('cancelled' !== $old_status || 'active' !== $new_status) {
 			return;
 		}
-		$subscription_id = $subscription->get_id();
-		\delete_post_meta($subscription_id, '_schedule_cancelled');
+		// HPOS 相容：使用物件方法取代 delete_post_meta
+		$subscription->delete_meta_data( '_schedule_cancelled' );
+		$subscription->save();
 	}
 
 
@@ -106,10 +107,11 @@ public static function sync_invoice_data_at_renew_subscription( $data, $to_objec
 			// '_paynow_invoice_url', // 不需要同步此欄位
 		];
 		foreach ( $fields as $field ) {
-			if ( ! metadata_exists( 'post', $from_object->get_id(), $field ) ) {
+			// HPOS 相容：使用物件方法判斷 meta 是否存在（語義與原始 metadata_exists 一致）。
+			if ( ! $from_object->meta_exists( $field ) ) {
 				continue;
 			}
-			$to_object->update_meta_data( $field, $from_object->get_meta( $field ) );
+			$to_object->update_meta_data( $field, $from_object->get_meta( $field, true ) );
 		}
 
 		return $data;

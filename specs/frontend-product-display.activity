@@ -1,0 +1,95 @@
+Activity: 前台商品展示
+Description: Woomp 改善前台可變商品的變化類型選擇介面，支援標籤式、單選方塊、下拉選單等多種呈現方式，以及前台訂單物流查詢
+
+Actors:
+  - 顧客: 前台瀏覽商品的消費者
+  - WooMP_Product (admin): 提供 variation_radio_buttons() 前台渲染方法
+  - woomp-public.js: 前台 JavaScript（變化類型 radio 按鈕同步邏輯）
+  - WooMP_Product_Public (public): 前台商品公共類別（一頁式商品結帳，目前已註解停用）
+  - WooMP_Order_Public (public): 前台訂單公共類別
+
+Triggers:
+  - 顧客進入可變商品頁面
+  - 顧客選擇商品變化類型
+  - 顧客查看訂單詳情
+
+Flow:
+  1. 前台變化類型渲染（WooMP_Product::variation_radio_buttons）
+     → Filter: woocommerce_dropdown_variation_attribute_options_html (priority 20)
+     → 取得商品的屬性類型設定: get_attribute_highlighted(attribute_name)
+       → 讀取 post_meta 'attribute_{attr_name}_type'
+
+  2. 屬性類型判斷與渲染
+     → Condition: 商品類型為 'woosg' 或 'woosb'（WPC Bundle 外掛）
+       Yes → 回傳原始 HTML，不處理
+
+     === 類型: radio / radio-one / radio-two ===
+     → 生成 radio button HTML
+     → CSS 樣式：
+       - .variation-radios + select 隱藏（隱藏原始下拉選單）
+       - radio: display: inline-block（不斷行）
+       - radio-one: flex, width:100%（每行 1 個）
+       - radio-two: flex, width:50%（每行 2 個）
+     → 如果屬性為 taxonomy → 使用 wc_get_product_terms() 取得 terms
+     → 如果屬性為自訂 → 直接使用 options 陣列
+     → 每個選項生成: <input type="radio"> + <label>
+
+     === 類型: select ===
+     → 回傳原始的 select HTML（WooCommerce 預設）
+     → 若為 taxonomy 屬性，補充 option 元素
+
+     === 類型: tag ===
+     → 生成標籤式 HTML
+     → CSS 樣式：
+       - .variation-radios.tag: flex, flex-wrap
+       - .tag-list label: 背景 #efefef，圓角 3px
+       - input:checked + label: 自訂背景色
+       - input:disabled + label: 刪除線 + 透明度
+     → JS 邏輯（內嵌 jQuery）：
+       - 讀取「加入購物車」按鈕的背景色作為預設選中色
+       - 如果設定了自訂背景色 (wc_woomp_setting_product_variations_frontend_ui＿bg_color) → 使用自訂色
+       - 如果設定了自訂文字色 (wc_woomp_setting_product_variations_frontend_ui＿text_color) → 使用自訂色
+       - 點擊時：重置所有標籤為預設色，選中標籤套用選中色
+     → radio input 設為 display:none（隱藏，僅顯示 label）
+
+     === 類型: 未設定 (false / default) ===
+     → Condition: wc_woomp_setting_product_variations_frontend_ui＿default 為 true
+       Yes → 預設使用 tag 類型
+       No → 回傳原始 HTML
+
+  3. 前台 JavaScript 同步邏輯（woomp-public.js）
+     → Event: .variation-radios input change
+       → 遍歷所有被選中的 radio
+       → 取得 name 和 value
+       → 為選中的 label 加上 'variation-selected' class
+       → 觸發對應 select 的 change 事件（確保 WooCommerce 原生邏輯運作）
+
+     → Event: woocommerce_update_variation_values
+       → 遍歷所有 radio input
+       → 檢查對應的 select option 是否 disabled
+       → 如果 disabled → 停用 radio 並加上 'variation-out-of-stock' class
+
+  4. 前台訂單物流查詢（WooMP_Order_Public）
+     → Action: woocommerce_view_order → display_order_shipping_number()
+     → Condition: 訂單有 _ecpay_shipping_info meta
+       Yes → 顯示「Ecpay Shipping details」表格
+         → 列出所有物流單號 (PaymentNo + ValidationNo)
+     → Condition: 訂單有 wmp_shipping_no meta
+       Yes → 顯示「Shipping details」表格
+         → 顯示手動輸入的物流單號
+
+  5. 前台商品頁一頁式結帳（WooMP_Product_Public）— 目前已停用
+     → Action: woocommerce_after_single_product → display_cart()
+     → 檢查 post meta '_onepagecheckout'
+     → 如果不為 'no' → 在商品頁下方顯示結帳表單 [woocommerce_checkout]
+     → 注意：WooMP_Product_Public::init() 已被註解，此功能目前未啟用
+
+Side Effects:
+  - 前台 select 元素被隱藏（radio/tag 模式下），可能影響第三方外掛的 JS 邏輯
+  - 內嵌 CSS/JS 增加頁面大小
+  - WPC Product Bundle (woosg/woosb) 商品不受影響，保持原始行為
+  - 變化類型缺貨狀態透過監聽 woocommerce_update_variation_values 事件即時更新
+
+Related Features:
+  - frontend-product-display.feature
+  - admin-product-management.feature

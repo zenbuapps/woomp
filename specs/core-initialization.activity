@@ -1,0 +1,162 @@
+Activity: 外掛初始化與模組載入
+Description: Woomp 外掛從 WordPress 載入到所有子模組就緒的完整啟動流程
+
+Actors:
+  - WordPress: 外掛管理系統，負責載入外掛檔案與觸發 activation/deactivation hooks
+  - Woomp Core: 外掛主類別 (class-woomp.php)，負責協調所有核心功能
+  - Woomp_Loader: Hook 管理器 (class-woomp-loader.php)，收集並批次註冊 actions/filters
+  - Woomp_Activator: 外掛啟用時執行的初始化 (class-woomp-activator.php)
+  - Woomp_Deactivator: 外掛停用時執行的清理 (class-woomp-deactivator.php)
+  - Woomp_i18n: 國際化載入器 (class-woomp-i18n.php)
+  - Compatibility: 版本間相容性處理 (Compatibility.php)
+  - 子外掛模組: 各金流/物流/發票服務商的子模組
+
+Triggers:
+  - WordPress 載入已啟用外掛列表時執行 woomp.php
+  - register_activation_hook 觸發外掛啟用
+  - register_deactivation_hook 觸發外掛停用
+
+Flow:
+  1. WordPress 載入 woomp.php 入口檔案
+     → require_once 'init.php'
+     → require_once 'debug.php'
+     → require_once 'Compatibility.php'
+
+  2. init.php 定義常數
+     → WOOMP_VERSION = '3.4.49'
+     → WOOMP_PLUGIN_URL = plugin_dir_url(__FILE__)
+     → WOOMP_PLUGIN_DIR = plugin_dir_path(__FILE__)
+     → WOOMP_PLUGIN_BASENAME = plugin_basename(__FILE__)
+     → WOOMP_ACTIVE_PLUGINS = apply_filters('active_plugins', get_option('active_plugins'))
+
+  3. init.php 檢查 WooCommerce 是否存在
+     → Condition: woocommerce/woocommerce.php 在 active_plugins 中
+       Yes → 繼續初始化
+       No → 停用自身外掛，顯示 admin_notices 錯誤訊息「好用版擴充啟用失敗，需要安裝並啟用 WooCommerce 5.3 以上版本」，return 中止
+
+  4. init.php 載入 Composer autoloader
+     → require vendor/autoload.php
+
+  5. init.php 註冊啟用/停用 hooks
+     → Hook: register_activation_hook → activate_woomp() → Woomp_Activator::activate()
+     → Hook: register_deactivation_hook → deactivate_woomp() → Woomp_Deactivator::deactivate()
+
+  6. init.php 載入核心類別並執行
+     → require includes/class-woomp.php
+     → run_woomp() → new Woomp() → $plugin->run()
+
+  7. Woomp::__construct() 執行初始化序列
+     7a. load_dependencies() 載入所有依賴
+         → class-woomp-loader.php
+         → class-woomp-logger.php
+         → class-woomp-i18n.php
+         → admin/resources/shop_subscription/index.php
+         → admin/resources/class-checkout.php
+         → admin/class-woomp-admin.php
+         → admin/class-woomp-product.php
+         → admin/class-woomp-order.php
+         → admin/class-woomp-email.php
+         → admin/class-woomp-payment-cod-clone.php
+         → admin/class-woomp-shipping-flat-rate.php
+         → admin/settings/class-woomp-setting.php
+         → public/class-woomp-public.php
+         → public/class-woomp-checkout.php
+         → public/class-woomp-order.php
+         → public/class-woomp-product.php
+         → 建立 Woomp_Loader 實例
+
+     7b. set_locale() 設定多語系
+         → Hook: init (priority 20) → Woomp_i18n::load_plugin_textdomain()
+         → 載入 text domains: woomp, ry-woocommerce-tools, ry-woocommerce-tools-pro, ry-woocommerce-ecpay-invoice, paynow-payment, paynow-einvoice, paynow-shipping
+
+     7c. define_admin_hooks() 註冊後台 hooks (透過 Loader)
+     7d. define_public_hooks() 註冊前台 hooks (透過 Loader)
+
+  8. Woomp::run() → Woomp_Loader::run()
+     → 批次註冊所有收集的 actions 和 filters
+
+  9. init.php 條件式載入結帳模板覆寫
+     → Condition: wc_woomp_setting_mode === 'onepage' || 'twopage'
+       Yes → Filter: wc_get_template → intercept_wc_template()
+       No → 不覆寫模板
+
+  10. init.php 載入 ry-woocommerce-tools（常駐載入）
+      → Condition: RY_WT_VERSION 未定義
+        Yes → 定義 RY_WT 常數，require class.ry-wt.main.php
+              → Hook: register_activation_hook → RY_WT::plugin_activation
+              → Hook: register_deactivation_hook → RY_WT::plugin_deactivation
+              → Hook: init → RY_WT::ry_init
+              → Hook: init → RY_WT::load_plugin_textdomain_ry_woocommerce_tools
+        No → 跳過（已被其他外掛載入）
+
+  11. init.php 條件式載入 PayNow 金流
+      → Condition: PAYNOW_PLUGIN_URL 未定義 AND wc_woomp_setting_paynow_gateway === 'yes'
+        Yes → 定義常數，Hook: init (priority 30) → run_paynow_payment()
+        No → 跳過
+
+  12. init.php 條件式載入 PayNow 物流
+      → Condition: PAYNOW_SHIPPING_PLUGIN_URL 未定義 AND wc_woomp_setting_paynow_shipping === 'yes'
+        Yes → 定義常數，Hook: plugins_loaded → run_paynow_shipping()
+              → Filter: woocommerce_shipping_methods → add_paynow_shipping_methods()
+        No → 跳過
+
+  13. init.php 條件式載入 PayNow 電子發票
+      → Condition: PAYNOW_EINVOICE_PLUGIN_URL 未定義 AND wc_settings_tab_active_paynow_einvoice === 'yes'
+        Yes → 定義常數，建立 Paynow_Einvoice 實例並 run()
+        No → 跳過
+
+  14. init.php 載入常駐模組
+      → require line-pay-for-woo/line-pay-for-woo.php（常駐）
+      → require woomp-ecpay-invoice/woomp-ecpay-invoice.php（常駐）
+      → require woomp-ezpay-invoice/woomp-ezpay-invoice.php（常駐）
+
+  15. init.php 條件式載入 woomp-paynow-shipping
+      → Condition: WOOMP_PAYNOW_SHIPPING_PLUGIN_URL 未定義 AND wc_woomp_setting_paynow_shipping === 'yes'
+        Yes → 定義常數，require woomp-paynow-shipping.php
+        No → 跳過
+
+  16. init.php 載入支付連
+      → Condition: PChomePay 未作為獨立外掛啟用
+        Yes → require PChomePay.php
+        No → 跳過
+      → 如果 woomp 已啟用且獨立 PChomePay 外掛也啟用 → 停用獨立版並顯示通知
+
+  17. init.php 載入統一金流（常駐）
+      → require payuni/payuni.php
+      → Hook: woocommerce_credit_card_form_start → add_payment_description()
+
+  18. init.php 註冊自動更新機制
+      → Hook: plugins_loaded → woomp_plugin_update_checker()
+      → 使用 PucFactory 連接 GitHub j7-dev/woomp，追蹤 master 分支
+
+  19. init.php 註冊全域修正
+      → Filter: woocommerce_order_received_verify_known_shoppers → __return_false（修正感謝頁登入問題）
+
+  20. init.php 定義 woomp_copy_order() 工具函式
+      → 複製訂單的所有 props、meta data、items（商品/運費/稅金/優惠券/手續費）
+
+  21. Compatibility.php 初始化
+      → Compatibility::instance() 建立 Singleton
+      → Hook: init → compatibility_action_scheduler()
+        → 檢查 woomp_compatibility_action_scheduled !== WOOMP_VERSION
+          → 排程 Action Scheduler 非同步任務：woomp_compatibility_action_scheduler
+      → Hook: woomp_compatibility_action_scheduler → compatibility()
+        → 執行 delete_post_meta() 清理舊版空白 meta
+        → 更新 woomp_compatibility_action_scheduled = WOOMP_VERSION
+
+  22. debug.php 載入
+      → 定義 J7\WpUtils\Classes\ErrorLog 抽象類別（如果尚未存在）
+      → 提供 info()、error()、debug() 靜態方法
+
+Side Effects:
+  - Woomp_Activator::activate() 設定預設選項值（結帳模式、地址、電話、變化類型 UI 等）
+  - Woomp_Activator::activate() 將 woocommerce_ship_to_destination 設為 'billing'
+  - Woomp_Activator::activate() 修改預設貨到付款文字為「超商取貨付款」
+  - Woomp_Deactivator::deactivate() 目前為空操作（貨到付款還原已被註解）
+  - Compatibility::delete_post_meta() 清理非 shop_order/shop_subscription/shop_order_refund 的空白 PayNow 發票 meta
+  - 獨立安裝的 PChomePay 外掛會被自動停用
+  - 自動更新機制會在 plugins_loaded 時建立 GitHub Update Checker
+
+Related Features:
+  - core-initialization.feature
+  - admin-settings.feature

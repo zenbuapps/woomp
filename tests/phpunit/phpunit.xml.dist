@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.6/phpunit.xsd"
+	bootstrap="bootstrap.php"
+	colors="true"
+	beStrictAboutTestsThatDoNotTestAnything="true"
+	beStrictAboutOutputDuringTests="true"
+	convertDeprecationsToExceptions="true"
+	convertErrorsToExceptions="true"
+	convertNoticesToExceptions="true"
+	convertWarningsToExceptions="true"
+	printerClass="PHPUnit\TextUI\DefaultResultPrinter"
+	verbose="true"
+>
+	<testsuites>
+		<!-- 全部整合測試（預設） -->
+		<testsuite name="integration">
+			<directory suffix="Test.php">integration/</directory>
+		</testsuite>
+		<!-- 快速煙霧測試：核心初始化 + 閘道註冊 + HPOS 宣告（~20 個測試，最快）-->
+		<testsuite name="smoke">
+			<file>integration/CoreInitializationTest.php</file>
+			<file>integration/HookRegistrationTest.php</file>
+			<file>integration/GatewayRegistrationTest.php</file>
+			<file>integration/HposDeclarationTest.php</file>
+			<file>integration/SettingsPersistenceTest.php</file>
+		</testsuite>
+		<!-- HPOS 相容性（5 個類別） -->
+		<testsuite name="hpos">
+			<file>integration/HposDeclarationTest.php</file>
+			<file>integration/HposHelperTest.php</file>
+			<file>integration/HposHookRegistrationTest.php</file>
+			<file>integration/HposOrderMetaTest.php</file>
+			<file>integration/HposBugFixTest.php</file>
+		</testsuite>
+		<!-- 金流相關（閘道 + 回調 + 加解密 + 訂單 meta） -->
+		<testsuite name="gateway">
+			<file>integration/GatewayRegistrationTest.php</file>
+			<file>integration/PayuniEncryptionTest.php</file>
+			<file>integration/PayuniWebhookTest.php</file>
+			<file>integration/EcpayCallbackTest.php</file>
+			<file>integration/PaynowCallbackTest.php</file>
+			<file>integration/OrderMetaTest.php</file>
+			<file>integration/SubscriptionV3GatewayTest.php</file>
+		</testsuite>
+		<!-- PayUni V3 定期定額 -->
+		<testsuite name="subscription">
+			<file>integration/SubscriptionV3GatewayTest.php</file>
+			<file>integration/SubscriptionV3BootstrapTest.php</file>
+			<file>integration/SubscriptionV3PaymentTest.php</file>
+			<file>integration/SubscriptionV3MetaboxTest.php</file>
+		</testsuite>
+	</testsuites>
+</phpunit>

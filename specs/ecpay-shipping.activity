@@ -1,0 +1,140 @@
+Activity: 綠界物流配送流程
+Description: 透過綠界科技物流 API 處理超商取貨（CVS）和宅配（Home Delivery）的物流單建立、狀態追蹤與列印
+
+Actors:
+  - Customer: 結帳的消費者
+  - Admin: 網站管理員
+  - WooCommerce: WordPress 電商系統
+  - ECPay_Shipping: 綠界物流主類別（RY_ECPay_Shipping）
+  - ECPay_Shipping_Api: 綠界物流 API 處理器
+  - ECPay_Shipping_Response: 綠界物流回調處理器
+  - ECPay_Map: 綠界超商地圖選店服務
+
+Triggers:
+  - Customer 在結帳頁面選擇綠界物流方式
+  - Admin 在訂單後台操作物流單
+
+Flow:
+  1. WooCommerce 啟動時載入綠界物流模組
+     → Hook: RY_ECPay_Shipping::init()（在 ecpay-shipping.php 底部自動呼叫）
+     → 條件：RY_WT_enabled_ecpay_shipping = yes
+     → 註冊 9 種物流方式至 woocommerce_shipping_methods：
+       超商取貨（CVS）：
+         - ry_ecpay_shipping_cvs_711（7-11，UNIMART，預設運費 65）
+         - ry_ecpay_shipping_cvs_711_freeze（7-11 冷凍）
+         - ry_ecpay_shipping_cvs_hilife（萊爾富，HILIFE）
+         - ry_ecpay_shipping_cvs_okmart（OK 超商，OKMARTC2C）
+         - ry_ecpay_shipping_cvs_family（全家，FAMI）
+       宅配（Home）：
+         - ry_ecpay_shipping_home_tcat（黑貓常溫，TCAT，預設運費 110）
+         - ry_ecpay_shipping_home_tcat_freeze（黑貓冷藏，Temperature=0002）
+         - ry_ecpay_shipping_home_tcat_frozen（黑貓冷凍，Temperature=0003）
+         - ry_ecpay_shipping_home_post（郵局，POST）
+
+  2. Customer 在結帳頁面選擇超商取貨物流
+     → Hook: woocommerce_review_order_after_shipping → RY_ECPay_Shipping::shipping_choose_cvs()
+     → 載入選擇超商按鈕模板（cart/cart-choose-cvs.php）
+     → 透過 JS 將超商選擇 API 資料傳至前端（ry_shipping_params）
+     → 結帳欄位動態調整：
+       → Hook: woocommerce_checkout_fields（priority 9999）
+       → 新增隱藏欄位：LogisticsSubType, CVSStoreID, CVSStoreName, CVSAddress, CVSTelephone
+       → 新增 shipping_phone 電話欄位
+       → 超商選擇時隱藏一般地址欄位（加入 ry-hide class）
+
+  3. Customer 點擊「選擇超商」按鈕
+     → 前端 JS 開啟綠界超商地圖頁面
+     → 地圖 API 網址：
+       測試：https://logistics-stage.ecpay.com.tw/Express/map
+       正式：https://logistics.ecpay.com.tw/Express/map
+     → POST 參數包含 MerchantID, LogisticsType=CVS, LogisticsSubType（如 UNIMART / UNIMARTC2C）, ServerReplyURL
+
+  4. Customer 在綠界地圖選擇門市
+     → 綠界回調至 ServerReplyURL（ry_ecpay_map_callback）
+     → Hook: woocommerce_api_ry_ecpay_map_callback → RY_ECPay_Shipping_Response::map_redirect()
+     → 回傳超商資訊：CVSStoreID, CVSStoreName, CVSAddress, CVSTelephone, LogisticsSubType, CVSOutSide
+     → 產生自動提交表單將資訊帶回結帳頁
+     → 若 CVSOutSide 改變，清除 shipping rate 快取
+
+  5. Customer 提交訂單
+     → Hook: woocommerce_checkout_create_order（priority 20）→ RY_ECPay_Shipping::save_cvs_info()
+     → 儲存超商資訊至訂單 meta：
+       _shipping_cvs_store_ID, _shipping_cvs_store_name, _shipping_cvs_store_address, _shipping_cvs_store_telephone
+     → 清空不需要的運送欄位（company, address_2, city, state, postcode）
+     → 新增訂單備註記錄門市名稱和代號
+
+  6. 訂單狀態變更為 on-hold 或 processing 時自動取號
+     → Condition: ecpay_shipping_auto_get_no = yes
+       Yes → Hook: woocommerce_order_status_on-hold / woocommerce_order_status_processing
+             → RY_ECPay_Shipping::get_code() → 排程 WC Queue 呼叫 RY_ECPay_Shipping_Api::get_code()
+       No → 管理員手動取號
+
+  7. ECPay_Shipping_Api::get_code() 建立物流單
+     → 組建 API 參數：MerchantID, LogisticsType, LogisticsSubType, GoodsAmount, SenderName, ReceiverName 等
+     → ReceiverCellPhone 正規化為台灣手機格式（移除 +886 等）
+     → 可選清理收件人姓名（ecpay_shipping_cleanup_receiver_name）
+     → CVS 類型：
+       C2C → LogisticsSubType 加上 'C2C' 後綴
+       B2C → 不加後綴
+     → 代收貨款（COD）：IsCollection=Y, CollectionAmount=訂單金額（上限 20000）
+     → 宅配類型額外參數：SenderZipCode, SenderAddress, ReceiverZipCode, ReceiverAddress, Temperature, Distance, Specification
+     → 郵局宅配：GoodsWeight=1
+     → API 網址：
+       測試：https://logistics-stage.ecpay.com.tw/Express/Create
+       正式：https://logistics.ecpay.com.tw/Express/Create
+     → CheckMacValue 使用 MD5 雜湊
+     → 回應成功後儲存物流資訊至 _ecpay_shipping_info meta（包含 AllPayLogisticsID, PaymentNo, ValidationNo, BookingNote 等）
+     → Hook: ry_ecpay_shipping_get_cvs_no / ry_ecpay_shipping_get_all_cvs_no
+
+  8. ECPay 物流狀態回調
+     → Hook: woocommerce_api_ry_ecpay_shipping_callback → RY_ECPay_Shipping_Response::check_shipping_callback()
+     → 驗證 CheckMacValue（MD5）
+     → 更新 _ecpay_shipping_info 中的 status, status_msg, edit 時間
+     → 根據狀態碼觸發對應 action：
+       超商配送中（2030, 3024, 3032）→ shipping_transporting → 訂單狀態 wmp-in-transit
+       黑貓配送中（3001, 3006）→ shipping_transporting → wmp-in-transit
+       黑貓已送達（3003）→ shipping_completed → completed
+       郵局配送中（3113）→ shipping_transporting → wmp-in-transit
+       郵局已送達（3308）→ shipping_completed → completed
+       超商已到店（2063, 2073, 3018）→ shipping_at_cvs → ry-at-cvs
+       超商逾期未取（2074, 3020）→ shipping_out_cvs → ry-out-cvs
+       超商取貨完成（2067, 3022, 3308, 3309）→ shipping_completed → completed（需 ecpay_shipping_auto_completed = yes）
+     → Hook: ry_ecpay_shipping_response
+
+  9. 訂單狀態變更時發送 Email
+     → Hook: woocommerce_order_status_changed → RY_ECPay_Shipping::send_email()
+     → 狀態對應 Email 類別：
+       ry-at-cvs → RY_ECPay_Shipping_Email_Customer_CVS_Store
+       wmp-in-transit → RY_ECPay_Shipping_Email_Customer_CVS_Transporting
+       ry-out-cvs → RY_ECPay_Shipping_Email_Customer_CVS_Get_Expired
+       wmp-shipped → WMP_Shipped
+
+  10. Admin 在後台管理物流單
+      → Meta Box：RY_ECPay_Shipping_Meta_Box（add_meta_boxes hook）
+      → 訂單動作：
+        get_new_ecpay_no → 取得新綠界物流編號
+        get_new_ecpay_no_cod → 取得代收貨款物流編號
+        send_at_cvs_email → 重發到店通知
+      → 批量操作：
+        get_new_ecpay_no → 批量取號
+        get_new_ecpay_no_cod → 批量代收取號
+        print_ecpay_post_shipping_label → 列印中華郵政宅配單
+
+  11. Admin 列印物流標籤
+      → 隱藏子選單頁面：ry_print_ecpay_shipping
+      → RY_ECPay_Shipping_admin::print_shipping() 根據物流類型找到對應印單
+      → 呼叫 RY_ECPay_Shipping_Api::get_print_form() 產生自動提交表單至綠界印單 API
+      → 印單 API 網址依 C2C/B2C 類型不同：
+        C2C：各超商對應 PrintUniMartC2COrderInfo / PrintFAMIC2COrderInfo / PrintHILIFEC2COrderInfo / PrintOKMARTC2COrderInfo
+        B2C：printTradeDocument
+
+Side Effects:
+  - 物流資訊儲存在 _ecpay_shipping_info order meta（陣列結構，以 AllPayLogisticsID 為 key）
+  - 超商資訊儲存在 _shipping_cvs_store_ID, _shipping_cvs_store_name, _shipping_cvs_store_address, _shipping_cvs_store_telephone
+  - 自訂訂單狀態：ry-at-cvs（到店）, ry-out-cvs（退貨）, wmp-in-transit（配送中）, wmp-shipped（已出貨）
+  - 運送目的地設為 billing_only 時，CVS 物流方式會被強制停用
+  - 寄件人資訊從 RY_WT options 讀取（ecpay_shipping_sender_name, _phone, _cellphone, _zipcode, _address）
+  - 可選記錄物流狀態變更至訂單備註（ecpay_shipping_log_status_change）
+
+Related Features:
+  - ecpay-shipping.feature
+  - ecpay-payment.activity

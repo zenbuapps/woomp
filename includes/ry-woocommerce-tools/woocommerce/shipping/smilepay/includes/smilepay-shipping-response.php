@@ -92,11 +92,13 @@ class RY_SmilePay_Shipping_Response extends RY_SmilePay {
 				return;
 			}
 		}
-		wp_redirect( admin_url( 'edit.php?post_type=shop_order' ) );
+		// HPOS 相容：使用 Helper 取得訂單列表 URL
+		wp_redirect( Woomp_HPOS_Helper::get_order_list_url() );
 	}
 
 	public static function doing_admin_map_callback( $ipn_info ) {
-		$url = admin_url( 'edit.php?post_type=shop_order' );
+		// HPOS 相容：使用 Helper 取得訂單列表 URL
+		$url = Woomp_HPOS_Helper::get_order_list_url();
 
 		$order_id = self::get_order_id( $ipn_info, RY_WT::get_option( 'smilepay_gateway_order_prefix' ) );
 		if ( $order = wc_get_order( $order_id ) ) {
@@ -125,7 +127,8 @@ class RY_SmilePay_Shipping_Response extends RY_SmilePay {
 				$order->update_meta_data( '_smilepay_shipping_info', $shipping_list );
 				$order->save();
 
-				$url = admin_url( 'post.php?post=' . $order_id . '&action=edit' );
+				// HPOS 相容：使用 Helper 取得訂單編輯 URL
+				$url = Woomp_HPOS_Helper::get_order_edit_url( $order_id );
 
 				if ( 'yes' === RY_WT::get_option( 'smilepay_shipping_auto_get_no', 'yes' ) ) {
 					RY_SmilePay_Shipping_Api::get_code_no( $order_id, $smse_id );

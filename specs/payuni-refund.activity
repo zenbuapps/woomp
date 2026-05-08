@@ -1,0 +1,109 @@
+Activity: PayUni 退款處理
+Description: 管理員或系統觸發退款，透過 PayUni API 完成退款或取消授權
+
+Actors:
+  - Admin: 網站管理員（後台操作退款）
+  - WooCommerce: WooCommerce 訂單管理
+  - AbstractGateway: PAYUNI\Gateways\AbstractGateway 基底類別（v1 process_refund）
+  - CreditV3Gateway: PAYUNI\Gateways\CreditV3 閘道類別（v3 process_refund）
+  - RefundHandler: PAYUNI\Gateways\Refund 類別（v1 訂單狀態變更退款）
+  - HttpClient: J7\Payuni\Infrastructure\Http\HttpClient（v3 退款 API）
+  - PayUniAPI: PayUni 外部 API 端點
+  - PaymentAPI: PAYUNI\APIs\Payment 類別（v1 加解密）
+  - EncryptUtils: J7\Payuni\Shared\Utils\EncryptUtils（v3 加解密）
+
+Triggers:
+  - Admin 在後台訂單頁面點擊退款按鈕（觸發 process_refund）
+  - 訂單狀態變更為 refunded（觸發 Refund::handle_refund）
+  - 記憶卡號 5 元取消授權（排程 payuni_cancel_trade_by_trade_no）
+
+Flow:
+  【v1 退款流程 — AbstractGateway::process_refund】
+
+  1. Admin 在後台發起部分或全額退款
+     → WooCommerce 呼叫 AbstractGateway::process_refund($order_id, $amount, $reason)
+
+  2. 組裝退款請求參數
+     → MerID, TradeNo(_payuni_resp_trade_no), TradeAmt, Timestamp, CloseType=2
+     → AES-256-GCM 加密（Payment::encrypt）
+     → SHA-256 雜湊（Payment::hash_info）
+     → {MerID, Version:'1.0', EncryptInfo, HashInfo}
+
+  3. 發送 POST 到 PayUni api/trade/close
+
+  4. 解密回應（Payment::decrypt）
+     → Condition: Status = 'SUCCESS'
+       Yes → 訂單備註記錄退費結果和原因 → return true
+       No → return false
+
+  【v3 退款流程 — CreditV3Gateway::process_refund】
+
+  5. Admin 在後台發起退款
+     → WooCommerce 呼叫 CreditV3Gateway::process_refund($order_id, $amount, $reason)
+
+  6. 驗證前置條件
+     → 訂單存在否 → 不存在回傳 WP_Error
+     → PayUni 交易編號存在否 → 不存在回傳 WP_Error
+     → 退款金額大於 0 否 → 不大於 0 回傳 WP_Error
+
+  7. HttpClient::query_trade($trade_no) 查詢交易狀態
+     → POST /api/trade/query（Version='2.0'）
+     → 取得 CloseStatus
+
+  8. 根據 CloseStatus 執行不同操作
+     → CloseStatus = '1'（請款申請中）或 '7'（請款處理中）：
+       → HttpClient::cancel_trade($trade_no) POST /api/trade/cancel
+       → 訂單備註記錄「取消請款成功」
+     → CloseStatus = '3'（已取消）或 '9'（未申請請款）：
+       → 訂單備註記錄「無需退款」→ return true
+     → CloseStatus = '2'（請款成功）或其他：
+       → HttpClient::refund($trade_no, $amount) POST /api/trade/close
+       → 請求參數：MerID, TradeNo, TradeAmt, Timestamp, CloseType=2
+       → 訂單備註記錄退款金額
+
+  【v1 訂單狀態變更退款 — Refund::handle_refund】
+
+  9. 訂單狀態變更為 refunded
+     → Hook: woocommerce_order_status_changed
+     → Refund::handle_refund($order_id, $old_status, $new_status)
+
+  10. 檢查前置條件
+      → 新狀態是否為 refunded → 否則 return
+      → 付款方式是否以 'payuni-' 開頭 → 否則 return
+
+  11. Refund::get_trade_by_order() 查詢交易狀態
+      → POST /api/trade/query（Version='2.0'）
+
+  12. 根據 CloseStatus 執行退款
+      → CloseStatus = 1：cancel_trade_by_order() POST /api/trade/cancel
+      → CloseStatus = 3：備註「狀態為【3=請款取消】，本來就不會請款」
+      → CloseStatus = 9：備註「狀態為【9=未申請】」
+      → 其他（2, 7）：refund_by_order() POST /api/trade/close（CloseType=2）
+
+  【5 元取消授權】
+
+  13. 記憶卡號 5 元取消授權
+      → Hook: payuni_cancel_trade_by_trade_no（Action Scheduler 排程觸發）
+      → Refund::cancel_trade_by_trade_no($trade_no, $order_id)
+      → POST /api/trade/cancel
+      → Condition: 訂單 meta no_checkout = 'yes'
+        Yes → 更新訂單狀態為 cancelled
+
+  【取消綁卡】
+
+  14. 取消信用卡綁定
+      → Refund::cancel_credit_bind($CreditHash)
+      → 參數：MerID, UseTokenType=1, BindVal=$CreditHash, Timestamp
+      → POST /api/credit_bind/cancel
+
+Side Effects:
+  - v1 退款通過 api/trade/close（CloseType=2）
+  - v3 退款先查詢 CloseStatus 再決定操作（cancel 或 close）
+  - 5 元取消授權通過 api/trade/cancel
+  - 取消綁卡通過 api/credit_bind/cancel
+  - 退款結果記錄在訂單備註中
+
+Related Features:
+  - payuni-refund.feature
+  - payuni-credit-card-payment.feature
+  - payuni-credit-v3-embed.feature

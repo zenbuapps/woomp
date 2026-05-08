@@ -1,0 +1,176 @@
+Activity: PayUni v3 前端 SDK 互動流程
+Description: PayUni UNi Embed SDK 在結帳頁面的完整前端互動流程，包含 iframe 渲染、表單驗證、交易處理
+
+Actors:
+  - Consumer: 結帳頁面的購物消費者
+  - checkout.js: ES6 Module 入口點，監聽 WC updated_checkout 事件
+  - Elements: 元素管理類別，偵測付款方式變更並管理 iframe 渲染
+  - PayUniService: 核心服務類別，整合 SDK 處理完整付款流程
+  - FormState: 表單狀態管理器，追蹤 CardNo/CardExp/CardCvc 驗證狀態
+  - UIHelper: UI 輔助工具，處理載入狀態、錯誤訊息顯示
+  - ApiService: API 服務，處理與 WooCommerce 和 PayUni 的通訊
+  - UniPaymentSDK: PayUni UNi Embed JavaScript SDK（外部腳本）
+  - env.module.js: 環境變數模組，提供 params 和 jQuery 參照
+  - constants.module.js: 常數定義模組
+  - utils.module.js: 工具函式模組
+
+Triggers:
+  - WooCommerce 結帳頁面觸發 updated_checkout 事件
+  - Consumer 選擇 payuni-credit-v3 付款方式
+  - Consumer 點擊下單按鈕
+
+Flow:
+  【模組載入與初始化】
+
+  1. WordPress 載入前端資源
+     → 載入 PayUni SDK（uni-payment.js）— sandbox 或 production
+     → 載入 checkout.js 為 type="module"（透過 script_loader_tag filter）
+     → wp_localize_script 注入 payuni_payment_v3_checkout_params
+       → ENV: 'P' 或 'S'
+       → SDK_TOKEN: 從 /iframe/token_get 取得的 Token
+       → USE_INST: 是否啟用分期
+       → ENABLE_3D_AUTH: 是否啟用 3D 驗證
+       → INST_OPTIONS: 可用的分期期數陣列
+       → ENABLE_TOKENIZATION: 是否啟用記憶卡號
+       → ERROR_MAPPER: 錯誤代碼對應訊息物件
+
+  2. checkout.js 初始化
+     → 透過 env.module.js 取得 jQuery ($) 和 params
+     → 監聽 $("body").on("updated_checkout") 事件
+     → 觸發時延遲 300ms 建立 Elements 實例
+
+  3. Elements 初始化
+     → 使用靜態私有屬性 #serviceInstance 實作單例模式
+     → #init(): 檢查是否選中 payuni-credit-v3（isPayuni()）
+     → #bindPaymentMethodChange(): 監聽 input[type="radio"][name="payment_method"] 變更
+     → #renderPayUniIframe():
+       → 防重複渲染檢查（iframe 是否已存在於 put_card_no 容器）
+       → 建立 PayUniService 實例（若不存在）
+       → 呼叫 service.render()
+
+  【SDK 連線與 iframe 渲染】
+
+  4. PayUniService 建構函式
+     → 建立 FormState、UIHelper、ApiService 實例
+     → #initSDK():
+       → 檢查 UniPayment 全域物件是否存在
+       → 檢查 SDK_TOKEN 是否已設定
+       → UniPayment.createSession(SDK_TOKEN, options)
+         → options.env: 'P' 或 'S'
+         → options.useInst: 是否啟用分期
+         → options.elements: {CardNo:'put_card_no', CardExp:'put_card_exp', CardCvc:'put_card_cvc', CardTokenType:'put_token_type'}
+         → options.style: {color:'#000000', errorColor:'#FF0000', fontSize:'14px', fontWeight:'400', lineHeight:'24px'}
+       → payuniSDK.onUpdate(callback) 設定狀態監聽
+     → #bindCheckoutEvents(): 綁定結帳按鈕和分期選擇事件
+     → #bindSavedCardEvents(): 綁定已儲存卡片選擇事件
+
+  5. PayUniService::render()
+     → payuniSDK.start() 驗證 origin/token 並渲染 iframe
+     → 成功: FormState.setReady(true), initialized = true
+     → 失敗: FormState.setReady(false), 顯示錯誤訊息
+       → Code 1008: 「信用卡輸入框連線逾時，請重新整理頁面」
+       → Code 1007: 「網域驗證失敗，請聯繫網站管理員」
+
+  【表單狀態追蹤】
+
+  6. SDK onUpdate 回調
+     → PayUniService::handleSDKUpdate(update)
+     → update 包含：status（各欄位驗證狀態）、event（事件名稱）、data（事件資料）
+     → FormState.update(update): 合併 status 到內部狀態
+     → Token 模式保護: 若 sdkTokenCardActive 且 CardNo=null，刪除該 status
+     → 處理 useTokenType 事件（記憶卡號相關）
+
+  7. useTokenType 事件處理
+     → handleTokenTypeEvent(data)
+     → data: {cardNo, tokenTypeText, tokenType}
+     → 顯示 token_type_checkbox_area（flex）
+     → tokenType='2' 且 cardNo 非 null:
+       → UIHelper.showSavedCardInfo(cardNo)
+       → 手動設定 FormState CardNo=true, CardExp=true
+       → sdkTokenCardActive = true
+
+  【已儲存卡片選擇】
+
+  8. Consumer 選擇已儲存的卡片
+     → .payuni-saved-token-radio change 事件
+     → #updateSavedCardState(selectedValue)
+     → selectedValue = token ID:
+       → useSavedCard = true, selectedTokenId = value
+       → 隱藏 CardNo 和 CardExp 的 form-group
+       → 隱藏 token_type_checkbox_area
+       → 設定 payuni_used_token_id hidden input
+     → selectedValue = 'new':
+       → useSavedCard = false, selectedTokenId = null
+       → sdkTokenCardActive = false
+       → 顯示所有 form-group
+       → 清空 payuni_used_token_id
+
+  【結帳流程】
+
+  9. Consumer 點擊下單按鈕
+     → #place_order click 事件代理（document level）
+     → 檢查 isPayuni() → 否則不攔截
+     → e.preventDefault() + e.stopPropagation()
+     → #processCheckout()
+
+  10. 使用已儲存卡片的結帳流程
+      → UIHelper.setLoading(true)
+      → payuniSDK.getTradeResult({ useDefault: true })
+      → ApiService.submitCheckout(additionalData)
+        → additionalData: sdk_token_tmp, payuni_use_saved_token='1', payuni_saved_token_id, payuni_installment, 載具資料
+      → ApiService.sendTradeRequest(checkoutResponse)
+      → handleTradeSuccess() → window.location.href = redirect
+
+  11. 使用新卡片的結帳流程
+      → 驗證 FormState.isReady()
+      → 驗證 FormState.isAllValid()
+        → 失敗: 顯示無效欄位名稱（信用卡號、有效期限、安全碼）
+      → UIHelper.setLoading(true)
+      → Step 1: payuniSDK.getTradeResult(config)
+        → config.cardInst: 分期期數
+        → config.useDefault: sdkTokenCardActive
+        → config.useTokenType: TOKEN_TYPE.REMEMBER_CARD（若勾選記憶卡號）
+      → Step 2: ApiService.submitCheckout(additionalData)
+        → 序列化結帳表單 + additionalData
+        → POST 到 wc_checkout_params.checkout_url
+        → 回應檢查：需包含 EncryptInfo, HashInfo, MerID, Version, ApiUrl
+      → Step 3: ApiService.sendTradeRequest(checkoutResponse)
+        → POST 到 ApiUrl（PayUni merchant_trade）
+        → Content-Type: application/x-www-form-urlencoded
+        → 檢查 result.Status = 'SUCCESS'
+      → Step 4: handleTradeSuccess() → redirect
+
+  【分期與載具事件】
+
+  12. 分期選擇
+      → #payuni_installment change → 更新 #selectedInstallment
+      → updated_checkout → 恢復分期選擇值（防止 WC 重置 select）
+
+  13. 載具類型選擇
+      → #payuni_carrier_type change
+      → 隱藏所有 .payuni-carrier-info-row
+      → 顯示對應的輸入框（#payuni_carrier_info_row_{type}）
+      → 捐贈類型不需買方名稱；其他類型顯示買方名稱欄位
+
+  【錯誤處理】
+
+  14. UIHelper 錯誤顯示
+      → showError(message): 在結帳表單前插入 WooCommerce 風格的錯誤訊息
+      → HTML 跳脫處理（textContent → innerHTML）
+      → 捲動到錯誤訊息位置
+
+  15. ApiService 錯誤處理
+      → submitCheckout 失敗: 從 WC 回應 messages 中提取 .woocommerce-error li 文字
+      → sendTradeRequest 失敗: 回傳 Status 作為錯誤代碼
+      → 錯誤代碼透過 ERROR_MAPPER 轉換為中文訊息
+
+Side Effects:
+  - SDK iframe 渲染在 put_card_no, put_card_exp, put_card_cvc 容器中
+  - 表單資料不經過商店伺服器（PCI DSS 合規）
+  - WooCommerce 結帳表單的 submit 被攔截並由 JS 處理
+  - 分期選擇值在 WC updated_checkout 後恢復
+  - 載具輸入框根據選擇動態顯示/隱藏
+
+Related Features:
+  - payuni-frontend-sdk.feature
+  - payuni-credit-v3-embed.feature

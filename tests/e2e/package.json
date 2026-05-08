@@ -1,0 +1,38 @@
+{
+  "name": "woomp-e2e-tests",
+  "version": "1.0.0",
+  "description": "E2E tests for WooMP plugin",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:headed": "npx playwright test --headed",
+    "test:debug": "npx playwright test --debug",
+    "test:p0": "npx playwright test --grep @P0",
+    "test:p1": "npx playwright test --grep @P1",
+    "test:p2": "npx playwright test --grep @P2",
+    "test:payuni-matrix": "npx playwright test tests/P-payuni-matrix/",
+    "test:payuni-matrix:headed": "npx playwright test --headed tests/P-payuni-matrix/",
+    "test:carrier-ui": "npx playwright test tests/B-invoice/B1-carrier-ui.spec.ts",
+    "test:happy-flow": "npx playwright test tests/01-core/ tests/02-checkout/ tests/03-invoice/ tests/04-ecpay/ tests/05-paynow/ tests/B-invoice/B1-carrier-ui.spec.ts tests/P-payuni-matrix/",
+    "test:happy-headed": "npx playwright test --headed tests/01-core/ tests/02-checkout/ tests/03-invoice/ tests/04-ecpay/ tests/05-paynow/ tests/B-invoice/B1-carrier-ui.spec.ts tests/P-payuni-matrix/",
+    "test:happy-ci": "npx playwright test --grep @P0 tests/01-core/ tests/02-checkout/ tests/03-invoice/ tests/04-ecpay/ tests/05-paynow/ tests/B-invoice/B1-carrier-ui.spec.ts tests/P-payuni-matrix/",
+    "test:happy": "npx playwright test --grep @P0 --grep-invert @edge",
+    "test:core": "npx playwright test tests/01-core/",
+    "test:ecpay": "npx playwright test tests/04-ecpay/",
+    "test:paynow": "npx playwright test tests/05-paynow/",
+    "test:admin": "npx playwright test tests/07-admin/",
+    "test:frontend": "npx playwright test tests/08-frontend/",
+    "test:integration": "npx playwright test --project=integration",
+    "test:all": "npx playwright test --project=all",
+    "report": "npx playwright show-report",
+    "env:start": "npx @wordpress/env start",
+    "env:stop": "npx @wordpress/env stop",
+    "env:clean": "npx @wordpress/env clean all",
+    "env:seed": "node scripts/seed-wp-env.mjs",
+    "env:setup": "npm run env:start && npm run env:seed",
+    "env:reset": "npm run env:clean && npm run env:setup"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "dotenv": "^16.4.0"
+  }
+}

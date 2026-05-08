@@ -105,25 +105,32 @@ abstract class PayNow_Abstract_Payment_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
-	 * Admin meta boxes
+	 * 後台訂單頁面註冊 meta box（HPOS 相容）
 	 *
 	 * @deprecated
+	 * @param string                $post_type Post type 或 screen ID
+	 * @param \WP_Post|\WC_Order $post_or_order Post 或 Order 物件
 	 * @return void
 	 */
-	public function paynow_add_meta_boxes() {
-		global $post;
-		if ( get_post_meta( $post->ID, '_payment_method', true ) === $this->id ) {
-			add_meta_box(
-				'paynow-order-meta-boxes',
-				__( 'PayNow Payment Detail', 'paynow-payment' ),
-				[
-					$this,
-					'paynow_admin_meta',
-				],
-				'shop_order',
-				'side',
-				'default'
-			);
+	public function paynow_add_meta_boxes( $post_type, $post_or_order ) {
+		$order = Woomp_HPOS_Helper::get_order( $post_or_order );
+		if ( ! $order ) {
+			return;
+		}
+		if ( $order->get_payment_method() === $this->id ) {
+			foreach ( Woomp_HPOS_Helper::get_order_screen_ids() as $screen ) {
+				add_meta_box(
+					'paynow-order-meta-boxes',
+					__( 'PayNow Payment Detail', 'paynow-payment' ),
+					[
+						$this,
+						'paynow_admin_meta',
+					],
+					$screen,
+					'side',
+					'default'
+				);
+			}
 		}
 	}
 

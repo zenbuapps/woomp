@@ -12,9 +12,15 @@ class Admin {
 	public static function init() {
 		$class = new self();
 		add_action( 'admin_enqueue_scripts', [ $class, 'enqueue_script' ] );
+
+		// 訂單列表欄位（傳統 + HPOS 雙重掛載）
 		add_filter( 'manage_shop_order_posts_columns', [ $class, 'shop_order_columns' ], 11, 1 );
 		add_action( 'manage_shop_order_posts_custom_column', [ $class, 'shop_order_column' ], 11, 2 );
-		add_action( 'save_post_shop_order', [ $class, 'update_invoice_data' ], 10, 3 );
+		add_filter( 'manage_woocommerce_page_wc-orders_columns', [ $class, 'shop_order_columns' ], 11, 1 );
+		add_action( 'manage_woocommerce_page_wc-orders_custom_column', [ $class, 'shop_order_column' ], 11, 2 );
+
+		// 訂單儲存（HPOS 相容）
+		add_action( 'woocommerce_process_shop_order_meta', [ $class, 'update_invoice_data_hpos' ], 10, 2 );
 		add_action( 'admin_init', [ $class, 'update_invoice_exist_data' ], 20 );
 
 		if ( 'auto' === get_option( 'wc_woomp_ecpay_invoice_issue_mode' ) ) {
@@ -138,17 +144,38 @@ class Admin {
 	}
 
 	/**
+	 * HPOS 相容：透過 woocommerce_process_shop_order_meta 更新電子發票資訊
+	 *
+	 * @param int             $order_id 訂單 ID
+	 * @param \WC_Order|null  $order    訂單物件（WC 傳入）
+	 */
+	public function update_invoice_data_hpos( $order_id, $order = null ) {
+		$this->update_invoice_data( $order_id, null, true );
+	}
+
+	/**
 	 * 讀取既有的訂單電子發票資訊
 	 */
 	public function update_invoice_exist_data() {
-		if ( ! isset( $_GET['post'] ) ) {
+		if ( ! isset( $_GET['post'] ) && ! ( isset( $_GET['page'] ) && 'wc-orders' === $_GET['page'] && isset( $_GET['id'] ) ) ) {
 			return;
 		}
 
 		global $pagenow;
-		if ( get_option( 'wc_woomp_enabled_ecpay_invoice' ) && 'post.php' === $pagenow && 'shop_order' === get_post_type( $_GET['post'] ) ) {
 
-			$order        = \wc_get_order( $_GET['post'] );
+		// HPOS 相容：傳統模式 post.php + shop_order，HPOS 模式 admin.php + wc-orders
+		$is_order_edit = false;
+		$order         = null;
+
+		if ( 'post.php' === $pagenow && isset( $_GET['post'] ) && 'shop_order' === get_post_type( absint( $_GET['post'] ) ) ) {
+			$is_order_edit = true;
+			$order         = \wc_get_order( absint( $_GET['post'] ) );
+		} elseif ( 'admin.php' === $pagenow && isset( $_GET['page'] ) && 'wc-orders' === $_GET['page'] && isset( $_GET['id'] ) ) {
+			$is_order_edit = true;
+			$order         = \wc_get_order( absint( $_GET['id'] ) );
+		}
+
+		if ( get_option( 'wc_woomp_enabled_ecpay_invoice' ) && $is_order_edit && $order ) {
 			$invoice_data = [];
 
 			// 電子發票類型.

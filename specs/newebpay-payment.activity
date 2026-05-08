@@ -1,0 +1,76 @@
+Activity: 藍新金流付款流程
+Description: 顧客透過藍新金流（NewebPay）提供的多種付款方式完成線上付款，使用 AES-256-CBC 加密與 SHA256 雜湊驗證
+
+Actors:
+  - Customer: 結帳的消費者
+  - WooCommerce: WordPress 電商系統
+  - NewebPay_Gateway: 藍新金流閘道（RY_NewebPay_Gateway_Base 及其子類別）
+  - NewebPay_API: 藍新金流 MPG API 伺服器
+  - NewebPay_Response: 藍新回調處理器（RY_NewebPay_Gateway_Response）
+
+Triggers:
+  - Customer 在結帳頁面選擇藍新付款方式並提交訂單
+
+Flow:
+  1. WooCommerce 載入藍新金流模組
+     → 條件：RY_WT_enabled_newebpay_gateway = yes
+     → 註冊閘道至 woocommerce_payment_gateways：
+       ry_newebpay_credit（信用卡，CREDIT）
+       ry_newebpay_credit_installment（信用卡分期，InstFlag）
+       ry_newebpay_webatm（WebATM，WEBATM）
+       ry_newebpay_atm（ATM 虛擬帳號，VACC）
+       ry_newebpay_cvs（超商代碼，CVS）
+       ry_newebpay_barcode（條碼繳費，BARCODE）
+     → 獨立分期閘道（3/6/12/18/24/30 期）：需啟用 wmp_newebpay_credit_installment
+
+  2. Customer 選擇藍新付款方式並提交訂單
+     → 閘道 process_payment() 執行：新增訂單備註、減少庫存、釋放保留庫存
+     → 重導至收據頁（receipt page）
+
+  3. RY_NewebPay_Gateway_Api::checkout_form() 產生付款表單
+     → 產生 MerchantOrderNo（格式：{prefix}{order_id}TS{rand}{reversed_time}，最長 30 字元）
+     → 組建 TradeInfo 參數（包含所有付款資訊）
+     → TradeInfo 加密：AES-256-CBC 加密 → bin2hex
+     → TradeSha 驗證：SHA256('HashKey={key}&{TradeInfo}&HashIV={iv}') → 大寫
+     → 儲存 _newebpay_MerchantOrderNo 至訂單 meta
+     → 付款類型開關：根據 gateway->payment_type 設定對應參數為 1（CREDIT/VACC/CVS/BARCODE/WEBATM/InstFlag）
+     → ATM/CVS/BARCODE：加入 ExpireDate（格式 Ymd）
+     → 分期付款：InstFlag 設為期數值
+     → 藍新超商物流整合：若使用 ry_newebpay_shipping_cvs，設定 CVSCOM=1（付款取貨）或 CVSCOM=2（貨到付款）
+     → 多語系支援
+     → Hook: ry_newebpay_gateway_checkout
+
+  4. 表單自動提交至藍新 MPG
+     → 測試：https://ccore.newebpay.com/MPG/mpg_gateway
+     → 正式：https://core.newebpay.com/MPG/mpg_gateway
+
+  5. 藍新回調至 WooCommerce
+     → Hook: woocommerce_api_ry_newebpay_callback → check_callback()
+     → 同時在 woocommerce_thankyou（priority 8）也處理回調
+     → 驗證 TradeSha 是否匹配
+     → 解密 TradeInfo（AES-256-CBC 解密）→ JSON 解碼
+
+  6. RY_NewebPay_Gateway_Response::doing_callback() 處理回調
+     → 從 Result.MerchantOrderNo 解析 order_id
+     → 設定 transaction_id 和 _newebpay_payment_type
+     → 根據 Status 呼叫對應處理方法：
+       SUCCESS → payment_status_SUCCESS()
+         → 有 PayTime → 信用卡/WebATM 即時付款完成 → payment_complete() → processing
+         → 有 BankCode → ATM 虛擬帳號 → 儲存 BankCode, CodeNo, ExpireDate → on-hold
+         → 有 CodeNo → CVS 代碼 → 儲存 CodeNo, ExpireDate → on-hold
+         → 有 Barcode_1 → 條碼 → 儲存 Barcode_1/2/3, ExpireDate → on-hold
+         → 有 StoreCode → 超商物流取貨 → 儲存門市資訊至 _shipping_cvs_store_*、_newebpay_shipping_info
+       其他 → payment_status_unknow() → failed
+     → Hook: ry_newebpay_gateway_response_status_{status}, ry_newebpay_gateway_response
+
+Side Effects:
+  - 加密使用 AES-256-CBC（openssl_encrypt/decrypt），金鑰填充採 PKCS#7
+  - 藍新不區分測試/正式 API 金鑰（無 testmode 切換 MerchantID，直接使用設定值）
+  - 藍新超商物流回調在金流回調中一併處理（StoreCode 欄位）
+  - die_error 也回應 '1|OK'（與綠界不同）
+  - ATM 過期天數允許 1-180 天（比綠界的 1-60 天更長）
+  - 支援第三方商品名稱設定（payment_item_name option）
+
+Related Features:
+  - newebpay-payment.feature
+  - newebpay-shipping.activity

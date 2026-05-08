@@ -1,0 +1,128 @@
+Activity: 設定系統（好用版擴充頁籤）
+Description: WooCommerce 設定頁面中的好用版擴充設定管理，包含主設定、金流設定、物流設定、電子發票設定四個子頁籤
+
+Actors:
+  - 管理員: 擁有 manage_options 權限的 WordPress 管理員
+  - Woomp_Setting: 主設定頁類別，管理「好用版擴充」頁籤
+  - Woomp_Setting_Gateway: 金流設定頁類別 (extends WC_Settings_Page)
+  - Woomp_Setting_Shipping: 物流設定頁類別 (extends WC_Settings_Page)
+  - Woomp_Setting_Invoice: 電子發票設定頁類別 (extends WC_Settings_Page)
+  - WooCommerce Settings API: WooCommerce 後台設定框架
+
+Triggers:
+  - 管理員進入 WooCommerce > 設定 頁面
+  - 管理員點擊任一設定子頁籤
+  - 管理員儲存設定
+
+Flow:
+  1. Woomp_Setting::init() 在外掛載入時初始化
+     → Filter: woocommerce_settings_tabs_array (priority 50) → add_settings_tab()
+       → 新增「好用版擴充」(woomp_setting) 頁籤
+     → Action: woocommerce_settings_tabs_woomp_setting → settings_tab()
+     → Action: woocommerce_update_options_woomp_setting → update_settings()
+     → Action: admin_head → set_checkbox_toggle()
+     → Filter: woocommerce_get_settings_pages → set_more_tabs()
+       → 載入並註冊 Woomp_Setting_Gateway、Woomp_Setting_Shipping、Woomp_Setting_Invoice
+
+  2. 管理員進入主設定頁 (woomp_setting)
+     → settings_tab() → woocommerce_admin_fields(get_settings())
+     → 顯示設定區段：
+       a. 統一金流 PAYUNi 設定
+          - wc_woomp_enabled_payuni_gateway (checkbox/toggle)
+       b. 綠界設定
+          - RY_WT::$option_prefix . 'enabled_ecpay_gateway' (checkbox/toggle)
+          - RY_WT::$option_prefix . 'enabled_ecpay_shipping' (checkbox/toggle)
+          - wc_woomp_enabled_ecpay_invoice (checkbox/toggle)
+       c. 藍新設定
+          - RY_WT::$option_prefix . 'enabled_newebpay_gateway' (checkbox/toggle)
+          - RY_WT::$option_prefix . 'enabled_newebpay_shipping' (checkbox/toggle)
+          - wc_woomp_enabled_ezpay_invoice (checkbox/toggle)
+       d. 速買配設定
+          - RY_WT::$option_prefix . 'enabled_smilepay_gateway' (checkbox/toggle)
+          - RY_WT::$option_prefix . 'enabled_smilepay_shipping' (checkbox/toggle)
+       e. 立吉富設定
+          - wc_woomp_setting_paynow_gateway (checkbox/toggle)
+          - wc_woomp_setting_paynow_shipping (checkbox/toggle)
+          - wc_settings_tab_active_paynow_einvoice (checkbox/toggle)
+       f. LINE Pay 設定
+          - woocommerce_linepay_enabled (checkbox/toggle)
+       g. 支付連設定
+          - woocommerce_pchomepay_enabled (checkbox/toggle)
+       h. 結帳相關設定
+          - wc_woomp_setting_mode (select: default/onepage/twopage)
+          - wc_woomp_setting_mode_twopage_message (textarea)
+          - wc_woomp_setting_billing_country_pos (checkbox/toggle)
+          - wc_woomp_setting_tw_address (checkbox/toggle)
+          - wc_woomp_setting_one_line_address (checkbox/toggle)
+          - wc_woomp_setting_show_phone (checkbox/toggle)
+          - wc_woomp_setting_tw_field_valitdate (checkbox/toggle)
+          - wc_woomp_setting_virtual_product_address (checkbox/toggle)
+          - wc_woomp_setting_cod_payment (checkbox/toggle)
+          - RY_WT::$option_prefix . 'repay_action' (checkbox/toggle)
+          - RY_WT::$option_prefix . 'strength_password' (checkbox/toggle)
+          - RY_WT::$option_prefix . 'show_unpay_title' (checkbox/toggle)
+          - wc_woomp_setting_place_order_text (text)
+       i. 商品相關設定
+          - wc_woomp_setting_product_variations_ui (checkbox/toggle)
+          - wc_woomp_setting_product_variations_frontend_ui (checkbox/toggle)
+          - wc_woomp_setting_product_variations_frontend_ui＿default (checkbox/toggle)
+          - wc_woomp_setting_product_variations_frontend_ui＿bg_color (color)
+          - wc_woomp_setting_product_variations_frontend_ui＿text_color (color)
+          - wc_woomp_setting_virtual_product_order_auto_complete (checkbox/toggle)
+       j. 運送相關設定
+          - RY_WT::$option_prefix . 'show_country_select' (checkbox/toggle)
+          - RY_WT::$option_prefix . 'last_name_first' (checkbox/toggle)
+          - RY_WT::$option_prefix . 'address_zip_first' (checkbox/toggle)
+          - wc_woomp_setting_free_shipping_hint (checkbox/toggle)
+          - wc_woomp_setting_free_shipping_text_left (text)
+          - wc_woomp_setting_free_shipping_text_free_shipping (text)
+          - wc_woomp_setting_free_shipping_bg_color (color)
+          - wc_woomp_setting_free_shipping_text_color (color)
+
+  3. 管理員儲存主設定頁
+     → update_settings() → woocommerce_update_options(get_settings())
+     → 所有設定值寫入 wp_options 表
+
+  4. Woomp_Setting_Gateway 金流設定子頁籤
+     → 子區段 (sections): payuni, ecpay, newebpay, smilepay, paynow, linepay, pchomepay
+     → 進入時無子區段預設跳轉到 payuni
+     → 各區段根據主設定是否啟用來決定顯示完整設定或「尚未啟用」提示
+     → payuni: 載入 includes/payuni/settings/gateway.php
+     → ecpay: 載入 RY_WT 的 settings-ecpay-gateway.php
+     → newebpay: 載入 RY_WT 的 settings-newebpay-gateway.php
+     → smilepay: 載入 RY_WT 的 settings-smilepay-gateway.php
+     → paynow: 內建設定（Debug Log、測試模式、WebNo、Transaction Password、Merchant Name）
+     → linepay: 內建設定（Log、Sandbox、Channel 資料、Payment Type/Action、退款狀態、Logo 大小）
+     → pchomepay: 內建設定（測試模式、APP ID、SECRET、Debug Log、付款方式、信用卡分期、ATM 繳費期限）
+     → 儲存時特殊處理：綠界訂單編號前綴只允許 A-Za-z0-9 且總字數 10 位內
+
+  5. Woomp_Setting_Shipping 物流設定子頁籤
+     → 子區段: ecpay, newebpay, smilepay, paynow, payuni
+     → 進入時無子區段預設跳轉到 ecpay
+     → 各區段根據主設定是否啟用來決定顯示完整設定或「尚未啟用」提示
+     → ecpay: 載入 RY_WT 的 settings-ecpay-shipping.php
+     → newebpay: 載入 RY_WT 的 settings-newebpay-shipping.php
+     → smilepay: 載入 RY_WT 的 settings-smilepay-shipping.php
+     → paynow: 內建設定（Debug Log、寄件人資訊、物流訂單狀態對應、API 設定）
+     → payuni: 載入 includes/payuni/settings/shipping.php
+
+  6. Woomp_Setting_Invoice 電子發票設定子頁籤
+     → 子區段: ecpay, ezpay, paynow
+     → 進入時無子區段預設跳轉到 ecpay
+     → ecpay (好用版): 設定包含 Debug Log、訂單編號前綴、開立模式（手動/自動）、開立狀態、作廢模式、載具類型、捐贈機構、API 金鑰
+     → ezpay: 設定包含 Debug Log、訂單編號前綴、開立/作廢模式及狀態、載具類型、捐贈機構、測試/正式環境 API 金鑰
+     → paynow: 設定包含測試模式、Debug Log、Merchant ID/Password、開立模式（自動/手動）、開立狀態、稅別、載具類型（雲端/手機/自然人/悠遊卡）、捐贈機構
+
+  7. set_checkbox_toggle() 在 admin_head 注入 CSS/JS
+     → 將 checkbox 樣式轉為 toggle 開關
+     → 加入標題的裝飾樣式
+
+Side Effects:
+  - 金流/物流/發票的啟用/停用設定會影響 init.php 中的條件式載入
+  - 結帳模式切換會影響結帳頁面模板與行為
+  - WooCommerce 子選單在 admin_menu hook 時新增好用版擴充相關連結
+  - 外掛列表頁新增「設定」、「金流」、「物流」、「電子發票」快捷連結
+
+Related Features:
+  - admin-settings.feature
+  - core-initialization.feature

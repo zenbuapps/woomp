@@ -1,0 +1,139 @@
+Activity: PayUni v3 UNi Embed 信用卡付款
+Description: 消費者透過 PayUni v3 UNi Embed SDK（iframe 免跳轉）完成信用卡付款
+
+Actors:
+  - Consumer: 結帳頁面的購物消費者
+  - Browser: 消費者瀏覽器中的前端 ES6 模組系統
+  - PayUniSDK: PayUni UNi Embed JavaScript SDK（uni-payment.js）
+  - WooCommerce: WooCommerce 結帳核心
+  - CreditV3Gateway: PAYUNI\Gateways\CreditV3 閘道類別（id: payuni-credit-v3）
+  - Bootstrap: J7\Payuni\Bootstrap，負責 Hook 註冊與腳本載入
+  - TradeReqDTO: J7\Payuni\Contracts\DTOs\TradeReqDTO，組裝加密交易請求
+  - TradeHandler: J7\Payuni\Infrastructure\Http\TradeHandler，處理幕後交易授權
+  - HttpClient: J7\Payuni\Infrastructure\Http\HttpClient，API 通訊
+  - PayUniAPI: PayUni 外部 API 端點
+  - OrderUtils: J7\Payuni\Shared\Utils\OrderUtils，訂單暫存資料管理
+  - EncryptUtils: J7\Payuni\Shared\Utils\EncryptUtils，加解密工具
+
+Triggers:
+  - Consumer 在結帳頁選擇「統一金流 PAYUNi 信用卡 v3」付款方式並點擊下單
+
+Flow:
+  1. Bootstrap::register_hooks() 在 plugins_loaded 時註冊所有 Hooks
+     → Hook: wp_enqueue_scripts → enqueue_checkout_scripts()
+     → Hook: script_loader_tag → modify_script_type()（將 checkout.js 設為 type="module"）
+     → Hook: woocommerce_checkout_order_processed → save_payuni_card_hash()
+     → Hook: woocommerce_checkout_fields → OrderUtils::extend_checkout_field()
+     → Hook: woocommerce_api_payuni_notify → handle_notify()
+
+  2. Consumer 進入結帳頁面，Bootstrap 載入前端資源
+     → 載入 PayUni SDK（sandbox-vendor 或 vendor.payuni.com.tw/sdk/uni-payment.js）
+     → 載入 checkout.js（ES6 module entry point）
+     → HttpClient::get_sdk_token() 取得 SDK Token
+       → POST /iframe/token_get（含 MerID, Timestamp, IFrameDomain, UseTokenType=2, CreditToken, CreditTokenType=1）
+       → 回應經 SdkDTO::from() 解密取得 Token
+     → wp_localize_script 傳遞 ENV, SDK_TOKEN, USE_INST, ENABLE_3D_AUTH, INST_OPTIONS, ENABLE_TOKENIZATION, ERROR_MAPPER 給前端
+
+  3. Browser 初始化 ES6 模組系統
+     → checkout.js 監聽 updated_checkout 事件
+     → 建立 Elements 實例（單例模式）
+     → Elements 建立 PayUniService 實例
+     → PayUniService 初始化 SDK：UniPayment.createSession(SDK_TOKEN, options)
+       → options: {env, useInst, elements: {CardNo, CardExp, CardCvc, CardTokenType}, style}
+     → SDK onUpdate 監聽器接收表單狀態更新
+     → FormState 追蹤 {CardNo, CardExp, CardCvc} 驗證狀態
+
+  4. PayUniSDK 在 put_card_no, put_card_exp, put_card_cvc 容器中渲染 iframe
+     → iframe 包含安全的信用卡輸入欄位
+     → SDK 透過 onUpdate 回報欄位驗證狀態
+
+  5. Consumer 填寫信用卡資料並點擊下單按鈕
+     → PayUniService 攔截 #place_order click 事件（e.preventDefault）
+     → 驗證 FormState 所有欄位是否通過（isAllValid）
+
+  6. Browser 呼叫 SDK getTradeResult(config)
+     → config: {cardInst, useDefault, useTokenType?}
+     → SDK 回傳加密的交易結果
+
+  7. Browser 透過 ApiService::submitCheckout() 送出 WooCommerce 結帳
+     → POST 到 wc_checkout_params.checkout_url
+     → 攜帶表單資料 + additionalData（sdk_token_tmp, payuni_save_card, payuni_installment, 載具資料）
+
+  8. WooCommerce 處理結帳
+     → Hook: woocommerce_checkout_order_processed
+       → Bootstrap::save_payuni_card_hash() 呼叫 OrderUtils::update_tmp_data() 暫存前端資料到訂單 meta
+     → 呼叫 CreditV3Gateway::process_payment($order_id)
+
+  9. CreditV3Gateway 處理付款
+     → TradeReqDTO::of($order) 組裝加密交易請求
+       → TradeReqHashDTO::of($order) 組裝明文參數
+         → OrderUtils::get_tmp_data() 取得暫存資料（sdk_token, save_card, installment, use_saved_token, saved_token_id, carrier_type, carrier_info, inv_buyer_name）
+         → 參數：MerID, MerTradeNo, Token, TradeAmt, Timestamp, ReturnURL, NotifyURL, UsrMail, ProdDesc
+         → Condition: 啟用 3D 驗證 → API3D=1
+         → Condition: 分期期數 > 1 → CardInst
+         → Condition: 勾選記憶卡號 → UseTokenType=2, CreditToken=email
+         → Condition: 使用已存卡片 → UseTokenType=2, CreditToken=email
+         → Condition: 有載具類型 → CarrierType, CarrierInfo, InvBuyerName
+         → Condition: 有消費者 IP → UserIP
+       → EncryptUtils::encrypt() AES-256-GCM 加密
+       → EncryptUtils::hash_info() SHA-256 雜湊
+       → 組成 {MerID, Version:'1.0', EncryptInfo, HashInfo, ApiUrl}
+
+  10. CreditV3Gateway 透過 TradeHandler 執行幕後交易
+      → TradeHandler::execute_trade() POST 到 /iframe/merchant_trade
+      → Condition: 回應包含 EncryptInfo
+        Yes → 非 3D 直接授權流程
+          → TradeHandler::process_notify() 驗證 HashInfo 並解密
+          → 進入 Step 11（update_order_status）
+        No → 3D 驗證流程（raw response 不含交易結果）
+          → 儲存 _payuni_v3_resp（raw response）到訂單 meta
+          → 訂單備註記錄「3D 驗證已建立，等待 webhook 回傳交易結果（狀態碼：{Status}，交易訊息：{Message}）」
+          → ★ 不呼叫 update_order_status()，訂單維持「等待付款中」
+          → ★ 不清除暫存資料（供 Webhook 處理時使用）
+          → 直接跳到 Step 12（回傳 success）
+
+  11. TradeHandler::update_order_status() 更新訂單（僅非 3D 直接授權路徑）
+      → 儲存 _payuni_v3_resp（完整解密陣列）
+      → 儲存 _payuni_resp_status, _payuni_resp_message, _payuni_resp_trade_no, _payuni_card_number
+      → Condition: Status = 'SUCCESS'
+        Yes → $order->payment_complete($trade_no)
+          → 訂單備註記錄「統一金流 PAYUNi 交易紀錄（前景授權）」
+          → Condition: 需要儲存卡號（payuni_save_card meta 且有 card_hash）
+            Yes → save_payment_token() 建立 WC_Payment_Token_CC
+        No → $order->update_status('failed')
+      → OrderUtils::delete_tmp_data() 清除暫存
+
+  12. CreditV3Gateway 回傳 {result:'success', redirect: order_received_url, order_id}
+
+  13. Browser 收到回應
+      → ApiService 判斷回應是否包含 PayUni 交易參數（EncryptInfo, HashInfo, MerID, Version, ApiUrl）
+      → Condition: 回應包含交易參數
+        Yes → ApiService::sendTradeRequest() POST 到 ApiUrl
+          → 交易成功 → handleTradeSuccess() 導向 redirect URL
+        No → 直接導向 redirect URL
+
+  14. Consumer 看到訂單完成頁面
+
+  15. PayUni 背景通知（webhook）
+      → POST 到 wc-api/payuni_notify
+      → Bootstrap::handle_notify()
+        → TradeHandler::process_notify() 解密驗證
+        → 防重複檢查（相同 TradeNo 且已付款）
+          → 是 → 訂單備註記錄「PayUni Webhook: Payment successful」→ 略過後續處理
+          → 否 → TradeHandler::update_order_status() 更新訂單
+            → 成功時訂單備註記錄「PayUni Webhook: Payment successful」
+
+Side Effects:
+  - 訂單 meta 暫存前端資料（sdk_token_tmp, payuni_save_card 等），交易完成後清除
+  - 訂單 meta 儲存交易回應資料（_payuni_v3_resp, _payuni_resp_* 系列）
+  - 若勾選記憶卡號，建立 WC_Payment_Token_CC（gateway_id: payuni-credit-v3）
+  - 卡片類型依卡號前綴判斷（4=visa, 5=mastercard, 3=amex, 6=discover）
+  - 重複 Token 不會重複儲存（檢查 existing_tokens）
+  - WC Logger 記錄交易日誌（來源: payuni_payment_v3）
+  - Hook: woomp_payuni_log 觸發日誌記錄
+
+Related Features:
+  - payuni-credit-v3-embed.feature
+  - payuni-frontend-sdk.feature
+  - payuni-tokenization.feature
+  - payuni-trade-notification.feature

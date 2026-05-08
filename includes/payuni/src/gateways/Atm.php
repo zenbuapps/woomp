@@ -133,7 +133,14 @@ class Atm extends AbstractGateway {
 	 */
 	public function process_payment( $order_id ): array {
 
-		$order = new \WC_Order( $order_id );
+		$order = \wc_get_order( $order_id );
+
+		if ( ! $order ) {
+			return [
+				'result'   => 'failure',
+				'redirect' => \wc_get_cart_url(),
+			];
+		}
 
 		if ( isset( $_POST[ $this->id . '-bank' ] ) && ! empty( $_POST[ $this->id . '-bank' ] ) ) {
 			$order->update_meta_data( '_' . $this->id . '-bank', sanitize_text_field( $_POST[ $this->id . '-bank' ] ) );

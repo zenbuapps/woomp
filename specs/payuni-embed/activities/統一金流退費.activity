@@ -1,0 +1,6 @@
+[ACTIVITY] 統一金流退費
+[ACTOR] 管理員 -> {specs/actors/管理員.md}
+[ACTOR] 系統 -> {specs/actors/系統.md}
+[ACTOR] PayUni -> {specs/actors/PayUni.md}
+
+[STEP:1] @管理員 {features/refund/處理退費.feature} -- 支援部分退費，金額上限由 PayUni API 驗證

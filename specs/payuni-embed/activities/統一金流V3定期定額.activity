@@ -1,0 +1,21 @@
+[ACTIVITY] 統一金流 V3 UNi Embed 定期定額付款
+[ACTOR] 消費者 -> {specs/actors/消費者.md}
+[ACTOR] 系統 -> {specs/actors/系統.md}
+[ACTOR] PayUni -> {specs/actors/PayUni.md}
+[ACTOR] WCSubscriptions -> {specs/actors/WCSubscriptions.md}
+
+[STEP:1] @系統 {features/subscription/閘道條件顯示.feature} -- gateway_id = payuni-credit-subscription-v3；V1/V3 共存由 WooCommerce 原生閘道啟用/停用控制，不需額外版本選擇機制；V3 method_title 為「信用卡定期定額（免跳轉）」
+[STEP:2] @消費者 {features/subscription/首次訂閱付款.feature}
+  [DECISION:2a] 訂單金額是否為 0（無註冊費）
+    [BRANCH:2a:訂單金額大於0] @系統 {features/payment/執行PayUni交易.feature} -- 複用現有 V3 交易流程，強制啟用 CreditToken
+    [BRANCH:2a:訂單金額為0且無已存Token] @系統 {features/subscription/零元取Token.feature} -- V3 走 UNi Embed iframe 扣 5 元 + merchant_trade 取 CreditHash，排程 2 分鐘取消授權
+    [BRANCH:2a:訂單金額為0且有已存Token] @系統 {features/subscription/已存Token直接啟用.feature}
+  [MERGE:2a]
+[STEP:3] @系統 {features/token/儲存付款Token.feature} -- 新 Token gateway_id = payuni-credit-subscription-v3；續扣 get_card_hash() 同時搜尋 payuni-credit-subscription-v3 + payuni-credit-subscription 兩個 gateway_id
+[STEP:4] @WCSubscriptions {features/subscription/排程續扣.feature} -- 續扣走 /iframe/merchant_trade + CreditHash（優先），fallback 為 /api/credit + CreditHash
+  [DECISION:4a] 續扣結果
+    [BRANCH:4a:扣款成功] @系統 {features/subscription/續扣成功處理.feature}
+    [BRANCH:4a:扣款失敗] @系統 {features/subscription/續扣失敗處理.feature} -- 與 V1 一致：failed -> pending，由 WC Subscriptions 內建重試排程管理
+  [MERGE:4a]
+[STEP:5] @消費者 {features/subscription/訂閱生命週期管理.feature} -- 完全由 WC Subscriptions 管理（暫停/恢復/取消不通知 PayUni），與 V1 一致
+[STEP:6] @消費者 {features/subscription/換卡付款.feature} -- WC Subscriptions 內建換卡流程，導向結帳頁面重新綁卡（結帳頁已有 UNi Embed SDK）；允許跨版本切換（V1->V3 或 V3->V1），換卡後 payment_method 更新為所選閘道

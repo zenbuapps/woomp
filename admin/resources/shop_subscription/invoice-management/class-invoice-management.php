@@ -66,6 +66,13 @@ final class InoviceManagement {
 	 * @return void
 	 */
 	public function render_meta_box_content( $post ): void {
+		// HPOS 相容：從 $post 取得訂單或訂閱物件
+		$order_or_subscription = Woomp_HPOS_Helper::get_order( $post );
+		if ( ! $order_or_subscription ) {
+			// 若為訂閱，嘗試以 wcs_get_subscription 取得
+			$post_id = $post instanceof \WP_Post ? $post->ID : $post->get_id();
+			$order_or_subscription = function_exists( 'wcs_get_subscription' ) ? \wcs_get_subscription( $post_id ) : null;
+		}
 
 		echo '<div class="woomp">';
 
@@ -91,7 +98,8 @@ final class InoviceManagement {
 				default => 'woocommerce_wp_text_input',
 			};
 
-			$value = \get_post_meta( $post->ID, "_{$field}", true );
+			// HPOS 相容：使用物件方法取代 get_post_meta
+			$value = $order_or_subscription ? $order_or_subscription->get_meta( "_{$field}", true ) : '';
 
 			$input_type(
 				[
@@ -137,11 +145,24 @@ final class InoviceManagement {
 			return;
 		}
 
+		// HPOS 相容：使用物件方法操作 meta
+		$object = null;
+		if ( 'shop_subscription' === $post_type && function_exists( 'wcs_get_subscription' ) ) {
+			$object = \wcs_get_subscription( $post_id );
+		} else {
+			$object = \wc_get_order( $post_id );
+		}
+
+		if ( ! $object ) {
+			return;
+		}
+
 		$fields = \Paynow_Einvoice::get_einvoice_fields();
 		foreach ($fields as $field => $args) {
 			$value = \sanitize_text_field( $_POST[ $field ] ?? '' ); // phpcs:ignore
-			\update_post_meta( $post_id, "_{$field}", $value );
+			$object->update_meta_data( "_{$field}", $value );
 		}
+		$object->save();
 	}
 }
 

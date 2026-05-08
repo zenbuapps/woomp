@@ -1,0 +1,141 @@
+Activity: PayUni 記憶卡號（Tokenization）
+Description: 消費者儲存信用卡資訊供未來快速結帳使用，包含新增、使用、刪除已儲存卡片
+
+Actors:
+  - Consumer: 登入的消費者
+  - WooCommerce: WooCommerce 付款 Token 管理系統
+  - AbstractGateway: PAYUNI\Gateways\AbstractGateway（v1 記憶卡號）
+  - CreditV3Gateway: PAYUNI\Gateways\CreditV3（v3 記憶卡號）
+  - ResponseHandler: PAYUNI\Gateways\Response（v1 Token 儲存）
+  - TradeHandler: J7\Payuni\Infrastructure\Http\TradeHandler（v3 Token 儲存）
+  - RequestBuilder: PAYUNI\Gateways\Request（v1 Hash 請求）
+  - HttpClient: J7\Payuni\Infrastructure\Http\HttpClient（v3 SDK Token 請求）
+  - PayUniAPI: PayUni 外部 API
+  - PaymentAPI: PAYUNI\APIs\Payment（v1 卡片刪除 AJAX）
+
+Triggers:
+  - Consumer 在結帳時勾選「儲存付款資訊」
+  - Consumer 在 My Account 頁面新增付款方式
+  - Consumer 使用已儲存的卡片結帳
+  - Consumer 在 My Account 頁面刪除已儲存的卡片
+
+Flow:
+  【v1 記憶卡號 — 結帳時儲存】
+
+  1. Consumer 在結帳頁面勾選「儲存付款資訊，下次付款更方便」
+     → AbstractGateway::save_payment_method_checkbox() 輸出 checkbox HTML
+     → Hook: woocommerce_payment_gateway_save_new_payment_method_option_html (apply_filters)
+     → Hook: default_checked_save_payment_method (apply_filters)
+
+  2. 結帳時 RequestBuilder::get_transaction_args() 處理
+     → save_new_card = 'yes'（或訂閱閘道強制為 yes）
+     → 交易參數加入 CreditToken = $order->get_billing_email()
+     → 訂單 meta 儲存 _payuni_token_maybe_save = 'yes'
+
+  3. PayUni API 回傳包含 CreditHash 的回應
+
+  4. ResponseHandler::card_response() 處理
+     → Condition: _payuni_token_maybe_save = 'yes' 或是 hash request
+       Yes → ResponseHandler::save_card_to_payment_method()
+         → 建立 WC_Payment_Token_CC
+           → set_token(CreditHash)
+           → set_gateway_id(付款方式 id)
+           → set_card_type('visa')（v1 統一設為 visa）
+           → set_last4(Card4No)
+           → set_expiry_month(CreditLife 前 2 碼)
+           → set_expiry_year('20' + CreditLife 後 2 碼)
+           → set_user_id($user_id)
+           → set_default(true)
+           → save()
+
+  【v1 記憶卡號 — My Account 新增付款方式】
+
+  5. Consumer 在 My Account > Payment Methods 頁面新增卡片
+     → AbstractGateway::add_payment_method()
+     → 建立金額 5 元的臨時訂單
+     → 禁止發送 email（所有 email 類型過濾為 false）
+     → 呼叫 RequestBuilder::build_hash_request()
+
+  6. build_hash_request() 組裝 5 元扣款請求
+     → TradeAmt = 5
+     → ProdDesc = '新增信用卡'
+     → CreditToken = 用戶 email
+     → Condition: 3D 驗證啟用 → API3D=1, ReturnURL
+
+  7. 發送 POST 到 PayUni api/credit
+
+  8. ResponseHandler::handle_hash_response() 處理回應
+     → Condition: 3D 驗證
+       Yes → redirect 到 3D 驗證頁面
+       No → save_card_to_payment_method() 儲存 Token
+     → Condition: 5 元扣款成功
+       Yes → 排程 2 分鐘後取消授權（as_schedule_single_action → payuni_cancel_trade_by_trade_no）
+
+  9. 臨時訂單被刪除（$order->delete()）
+
+  【v3 記憶卡號 — UNi Embed】
+
+  10. v3 SDK Token 請求包含記憶卡號參數
+      → HttpClient::get_sdk_token()
+        → UseTokenType = 2（記憶卡號功能）
+        → CreditToken = 用戶的 billing_email 或 user_email
+        → CreditTokenType = 1（會員級別）
+
+  11. 前端處理記憶卡號 checkbox
+      → PayUni SDK 在 put_token_type 容器中渲染 checkbox（id: type-checkbox）
+      → SDK onUpdate 觸發 useTokenType 事件
+      → PayUniService::handleTokenTypeEvent() 處理
+        → 顯示 token_type_checkbox_area
+        → 若 tokenType='2' 且 cardNo 非 null → 顯示已綁定卡號資訊
+
+  12. 結帳時傳遞記憶卡號資訊
+      → shouldSaveCard = params.ENABLE_TOKENIZATION && type-checkbox 已勾選
+      → additionalData: payuni_save_card = '1'
+      → 後端 TradeReqHashDTO::of() 處理
+        → UseTokenType = 2
+        → CreditToken = buyer email
+
+  13. v3 Token 儲存（TradeHandler::save_payment_token）
+      → token_key = CreditHash 或 card_6no + **** + card_4no（fallback）
+      → 檢查重複：遍歷 existing_tokens 比對 token_key
+      → 卡片類型判斷：4=visa, 5=mastercard, 3=amex, 6=discover
+      → 有效期限解析：CreditLife MMYY 格式，Sandbox fallback 為 12/2099
+      → 第一張卡自動設為預設
+
+  【使用已儲存卡片付款】
+
+  14. v1 使用已存 Token
+      → validate_fields() 檢測 wc-{gateway_id}-payment-token 為數字 → return true
+      → get_transaction_args() 中 CreditHash = Token::get_token()
+      → 移除 CardNo, CardExpired, CardCVC
+
+  15. v3 使用已存卡片
+      → 前端選擇 saved token radio → payuni_use_saved_token='1', payuni_saved_token_id
+      → 前端呼叫 SDK getTradeResult({ useDefault: true })
+      → 後端 TradeReqHashDTO::of() 從 WC_Payment_Tokens 取得 CreditHash
+
+  【刪除已儲存卡片】
+
+  16. Consumer 在 My Account 頁面刪除卡片
+      → WooCommerce 內建的 Token 刪除功能
+
+  17. v1 額外的卡片更換 AJAX
+      → card.js 中的 card-change click handler
+      → AJAX action: payuni_card_change
+      → 刪除 user meta: __{method}_4no, __{method}_hash
+      → 觸發 update_checkout
+
+Side Effects:
+  - WC_Payment_Token_CC 儲存在 wp_woocommerce_payment_tokens 表
+  - v1 Token gateway_id 為具體閘道 id（payuni-credit, payuni-credit-subscription 等）
+  - v3 Token gateway_id 統一為 payuni-credit-v3
+  - v1 card_type 統一為 'visa'
+  - v3 card_type 依卡號前綴判斷
+  - 5 元 hash request 完成後排程取消授權
+  - Token 可設定為 default，影響 UI 預選
+
+Related Features:
+  - payuni-tokenization.feature
+  - payuni-credit-card-payment.feature
+  - payuni-credit-v3-embed.feature
+  - payuni-subscription.feature

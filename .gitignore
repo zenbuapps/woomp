@@ -1,3 +1,6 @@
+# Environment variables (sensitive credentials)
+.env
+
 # Logs
 logs
 *.log
@@ -9,7 +12,14 @@ pnpm-lock.yaml
 lerna-debug.log*
 
 **/node_modules/**
+e2e/screenshots
+tests/e2e/playwright-report/
+tests/e2e/test-results-validation*
+tests/e2e/test-results/
+tests/e2e/.env
+tests/phpunit/.phpunit.result.cache
 dist
+build
 dist-ssr
 *.local
 
@@ -25,5 +35,8 @@ dist-ssr
 *.sln
 *.sw?
 
-
-
+# Debug screenshots & temp artifacts (root level)
+/*.png
+/*.md
+!README.md
+.playwright-mcp/

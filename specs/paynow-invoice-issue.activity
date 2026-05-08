@@ -1,0 +1,108 @@
+Activity: 立吉富電子發票開立
+Description: 透過立吉富 PayNow SOAP Web Service API 為 WooCommerce 訂單開立電子發票，支援自動、手動與批次三種模式。
+
+Actors:
+  - 店家管理員: 在後台手動觸發發票開立、批次開立或設定自動開立規則
+  - WooCommerce: 訂單狀態變更時觸發自動開立
+  - PayNow API: 接收 SOAP 請求（UploadInvoice_Patch）並回傳結果
+  - 顧客: 在結帳頁面選擇發票索取方式與載具
+
+Triggers:
+  - 自動模式：訂單狀態變更為管理員設定的指定狀態（wc_settings_tab_issue_at）
+  - 手動模式：管理員在訂單編輯頁點擊「Issue E-Invoice」按鈕
+  - 批次模式：管理員在訂單列表選取多筆訂單後執行「Issue PayNow E-Invoice」批次動作
+
+Flow:
+  1. [觸發開立]
+     → 自動模式 Hook: woocommerce_order_status_changed
+       → 呼叫 paynow_after_order_status_changed($order_id, $old_status, $new_status)
+       → 檢查：非手動模式 且 new_status === wc_settings_tab_issue_at 且未已發行
+     → 手動模式 Hook: wp_ajax_paynow_issue_einvoice
+       → 呼叫 paynow_ajax_issue_einvoice()
+       → Nonce 驗證：check_ajax_referer('paynow_issue_einvoice')
+     → 批次模式 Hook: handle_bulk_actions-edit-shop_order
+       → 呼叫 paynow_bulk_action_handler()
+
+  2. [系統] 檢查是否已發行
+     → Condition: _paynow_ei_issued === 'yes'
+       Yes → 回傳錯誤「E-Invoice is already issued.」
+       No → 繼續
+
+  3. [Paynow_Einvoice] 呼叫 issue_einvoice($order_ids)
+     → 支援多筆訂單批次開立
+
+  4. [issue_einvoice] 逐一處理每筆訂單
+     → 讀取 _paynow_ei_issue_type（b2b / b2c / donate）
+     → 檢查 subtotal 不為 0
+
+  5. [issue_einvoice] 依發票類型組裝資料
+     → B2B（公司發票）：
+       ubn = _paynow_ei_ubn
+       buyer_name = _paynow_ei_buyer_name
+     → B2C（個人發票）：
+       ubn = ''
+       buyer_name = billing 姓名
+       根據 _paynow_ei_carrier_type 設定 carrier_type：
+         ei_carrier_type_easycard_code → '1K0001'（悠遊卡）
+         ei_carrier_type_cdc_code → 'CQ0001'（自然人憑證）
+         ei_carrier_type_mobile_code → '3J0002'（通用載具/手機條碼）
+           → carrier_id1 = _paynow_ei_carrier_num
+         空值 → ''（雲端會員載具）
+     → Donate（捐贈）：
+       ubn = '', buyer_addr = ''
+       love_code = _paynow_ei_donate_org
+
+  6. [issue_einvoice] 設定稅務參數
+     → tax_type 從 wc_settings_tab_tax_type 讀取（1=應稅, 2=零稅率, 3=免稅）
+     → tax_rate：應稅 → 5, 零稅率/免稅 → 0
+
+  7. [issue_einvoice] 組裝商品明細
+     → 遍歷 $order->get_items(['line_item', 'fee', 'shipping'])
+     → 每個 item 產生一列 CSV 格式資料（欄位以逗號分隔）
+     → 欄位：orderno, buyer_id, buyer_name, buyer_add, buyer_phone, buyer_email,
+              CarrierType, CarrierID_1, CarrierID_2, LoveCode,
+              Description, Quantity, UnitPrice, Amount, Remark,
+              ItemTaxtype, IsPassCustoms
+     → 每個欄位前加 ' 防止 Excel 格式化
+
+  8. [issue_einvoice] 呼叫 do_issue($ei_datas)
+
+  9. [do_issue] 透過 SOAP 呼叫 PayNow API
+     → 建立 SoapClient（PayNowEInvoice.asmx?wsdl）
+     → 將 CSV 字串 base64 編碼後 urlencode
+     → 呼叫 UploadInvoice_Patch 方法
+     → API URL (測試): https://testinvoice.paynow.com.tw
+     → API URL (正式): https://invoice.paynow.com.tw
+
+  10. [PayNow API] 回傳結果
+      → 成功：S_ 開頭，後接 order_id_invoice_no 格式
+      → 失敗：錯誤訊息字串
+
+  11. [Paynow_Einvoice] 處理回傳結果
+      → 解析回傳字串，建立 order_id → invoice_no 對應表
+      → 成功時：
+        更新 _paynow_ei_issued = 'yes'
+        更新 _paynow_ei_result_invoice_number = invoice_no
+        訂單備註「E-Invoice issued successfully.」+ 發票號碼
+        觸發 do_action('paynow_einvoice_after_issued_success', $order_id, $invoice_no)
+          → 此 action 呼叫 paynow_get_einvoice_url()
+          → 透過 SOAP 呼叫 Get_InvoiceURL_I 取得發票查詢 URL
+          → 儲存至 _paynow_invoice_url
+      → 失敗時：
+        訂單備註「E-Invoice issued failed.」+ 錯誤訊息
+
+Side Effects:
+  - 訂單 meta 更新：_paynow_ei_issued, _paynow_ei_result_invoice_number, _paynow_invoice_url
+  - 訂單備註新增開立結果
+  - 觸發 paynow_einvoice_after_issued_success action
+
+Related Features:
+  - paynow-invoice-issue.feature
+  - invoice-carrier.feature
+  - invoice-settings.feature
+
+備註:
+  - 立吉富使用 SOAP Web Service（非 REST API），需要 PHP SoapClient 擴展
+  - 立吉富支援批次開立（一次傳送多筆訂單的 CSV 資料）
+  - 立吉富支援悠遊卡載具（ei_carrier_type_easycard_code），這是綠界/EZPAY 沒有的
+  - 立吉富開立成功後會額外呼叫 Get_InvoiceURL_I 取得發票查詢 URL
