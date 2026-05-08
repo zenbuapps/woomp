@@ -40,10 +40,6 @@ class RY_ECPay_Gateway_Credit_Installment extends RY_ECPay_Gateway_Base {
 
 	public function payment_fields() {
 		parent::payment_fields();
-		$description = $this->get_description();
-		if ( $description ) {
-			echo wpautop( wptexturize( $description ) );
-		}
 		echo '<p>' . _x( 'Number of periods', 'Checkout info', 'ry-woocommerce-tools' );
 		echo ' <select name="ecpay_number_of_periods">';
 		foreach ( $this->number_of_periods as $number_of_periods ) {
