@@ -442,8 +442,9 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
             $currency = $order->get_currency();
             
             // 直接從訂單物件取得訂單金額，確認是否被竄改
+            // HPOS 下 `_order_total` 不在 postmeta，需用 WC_Order::get_total()。
             $reserved_std_amount = $this->get_standardized(
-                $order->get_meta( '_order_total' ), $currency
+                $order->get_total(), $currency
             );
             $std_amount = $this->get_standardized( $amount );
             
