@@ -22,6 +22,7 @@
 		<testsuite name="smoke">
 			<file>integration/CoreInitializationTest.php</file>
 			<file>integration/HookRegistrationTest.php</file>
+			<file>integration/HookCallableValidityTest.php</file>
 			<file>integration/GatewayRegistrationTest.php</file>
 			<file>integration/HposDeclarationTest.php</file>
 			<file>integration/SettingsPersistenceTest.php</file>
