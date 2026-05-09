@@ -178,7 +178,9 @@ final class RY_Shipping {
 
 							// HPOS 相容：使用物件方法操作 meta
 							$shipping_address = $order->get_address( 'shipping' );
-							$order->update_meta_data( '_shipping_address_1', wc_clean( wp_unslash( $_POST['_shipping_cvs_store_address'] ) ) );
+							// `_shipping_address_1` 是 wc_order_addresses 的核心欄位，
+							// HPOS 下 update_meta_data 會被靜默丟棄，必須用 setter。
+							$order->set_shipping_address_1( wc_clean( wp_unslash( $_POST['_shipping_cvs_store_address'] ) ) );
 							$order->update_meta_data( '_shipping_address_index', implode( ' ', $shipping_address ) );
 							$order->save();
 						}
