@@ -185,14 +185,14 @@ final class RY_Shipping {
 								$order->update_meta_data( '_shipping_cvs_store_telephone', wc_clean( wp_unslash( $_POST['_shipping_cvs_store_telephone'] ) ) );
 								$order->save_meta_data();
 
-								// HPOS 相容：使用物件方法操作 meta。
-								// 改用 save_meta_data() 而非 save()，避免再次觸發 woocommerce_update_order 造成遞迴。
-								// 因為這裡僅更新 meta（_shipping_address_1 與 _shipping_address_index 均屬訂單 meta），
-								// 不涉及訂單核心欄位，save_meta_data() 已足以在 HPOS 與傳統儲存模式下正確寫入。
+								// HPOS：_shipping_address_1 對應 wc_order_addresses.address_1，屬訂單核心欄位，
+								// 在 HPOS 下透過 update_meta_data 寫入會被靜默丟棄，必須改用 setter；_shipping_address_index 才是 meta。
+								// setter 更新的是物件 prop，需 $order->save() 才會持久化（save_meta_data() 只寫 meta、不寫核心欄位）。
+								// 遞迴由本函式頂端的 $processing 守衛阻擋，此處呼叫 save() 安全。
 								$shipping_address = $order->get_address( 'shipping' );
-								$order->update_meta_data( '_shipping_address_1', wc_clean( wp_unslash( $_POST['_shipping_cvs_store_address'] ) ) );
+								$order->set_shipping_address_1( wc_clean( wp_unslash( $_POST['_shipping_cvs_store_address'] ) ) );
 								$order->update_meta_data( '_shipping_address_index', implode( ' ', $shipping_address ) );
-								$order->save_meta_data();
+								$order->save();
 							}
 						}
 					}

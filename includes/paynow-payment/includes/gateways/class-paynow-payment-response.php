@@ -203,7 +203,9 @@ class PayNow_Payment_Response {
 
 			$order->update_meta_data( '_paynow_tran_id', $buysafe_no );
 			$order->update_meta_data( '_paynow_tran_status', $tran_status );
-			$order->update_meta_data( '_transaction_id', $buysafe_no );
+			// HPOS 下 `_transaction_id` 是 wc_orders.transaction_id 欄位，
+			// 透過 update_meta_data 寫入會被靜默丟棄，必須使用 setter。
+			$order->set_transaction_id( $buysafe_no );
 
 			// 虛擬帳號 virtual account pay type = 03.
 			if ( PayNow_Pay_Type::VIRTUAL_ACCOUNT === $pay_type ) {
