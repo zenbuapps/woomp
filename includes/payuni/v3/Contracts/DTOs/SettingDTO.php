@@ -61,15 +61,15 @@ final class SettingDTO {
                 ) : [],
                 'enable_tokenization'  => \wc_string_to_bool( $gateway_settings['enable_tokenization'] ?? 'no' ),
                 'enable_invoice_carrier' => \wc_string_to_bool( $gateway_settings['enable_invoice_carrier'] ?? 'no' ),
-                'merchant_id'         => $is_test ? \get_option( 'payuni_payment_merchant_no_test' ) : \get_option(
-                    'payuni_payment_merchant_no'
-                ),
-                'hash_key'            => $is_test ? \get_option( 'payuni_payment_hash_key_test' ) : \get_option(
-                    'payuni_payment_hash_key'
-                ),
-                'hash_iv'             => $is_test ? \get_option( 'payuni_payment_hash_iv_test' ) : \get_option(
-                    'payuni_payment_hash_iv'
-                ),
+                'merchant_id'         => (string) ( $is_test ? \get_option( 'payuni_payment_merchant_no_test', '' ) : \get_option(
+                    'payuni_payment_merchant_no', ''
+                ) ),
+                'hash_key'            => (string) ( $is_test ? \get_option( 'payuni_payment_hash_key_test', '' ) : \get_option(
+                    'payuni_payment_hash_key', ''
+                ) ),
+                'hash_iv'             => (string) ( $is_test ? \get_option( 'payuni_payment_hash_iv_test', '' ) : \get_option(
+                    'payuni_payment_hash_iv', ''
+                ) ),
             ];
             
             self::$instance = new self( $args );
