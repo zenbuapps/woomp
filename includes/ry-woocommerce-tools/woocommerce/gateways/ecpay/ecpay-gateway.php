@@ -48,7 +48,6 @@ final class RY_ECPay_Gateway {
 
 			add_filter( 'woocommerce_payment_gateways', [ __CLASS__, 'add_method' ] );
 			add_filter( 'woocommerce_email_classes', [ __CLASS__, 'add_email_class' ] );
-			add_filter( 'woocommerce_email_actions', [ __CLASS__, 'add_email_action' ] );
 		}
 	}
 
