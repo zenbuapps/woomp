@@ -20,10 +20,11 @@ add_action(
 				wp_die( 'WC_Payment_Gateway not found' );
 			}
 			\PAYUNI\APIs\Payment::init();
+
+			// 註冊統一金流 v3 入口；V3 程式碼會跨 namespace 引用 PAYUNI\Gateways\* (V1)，
+			// 必須與 V1 src autoload 同步啟用，否則後台訂單頁等 hook 會 fatal Class not found。
+			Bootstrap::register_hooks();
 		}
-        
-        // 註冊統一金流 v3 入口
-        Bootstrap::register_hooks();
 	}
 );
 
