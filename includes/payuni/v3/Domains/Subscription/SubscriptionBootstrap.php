@@ -94,6 +94,14 @@ final class SubscriptionBootstrap {
 	 * @return array 過濾後的付款閘道
 	 */
 	public static function conditional_payment_gateways( array $available_gateways ): array {
+		// 僅在結帳流程中依購物車內容過濾訂閱閘道。
+		// 在 My Account → 新增付款方式 / 管理付款方式 等頁面，
+		// 購物車通常為空或不含訂閱商品，過濾會把 V1/V3 全部移除，
+		// 導致用戶看不到任何信用卡欄位、無法新增或更換卡片。
+		if ( ! \is_checkout() ) {
+			return $available_gateways;
+		}
+
 		// 收集購物車中的商品類型
 		$product_types = self::get_cart_product_types();
 
