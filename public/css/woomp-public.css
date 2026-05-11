@@ -12,11 +12,23 @@ label[for$="new-payment-method"] {
 	position: relative;
 }
 
-.woocommerce-SavedPaymentMethods,
-.woocommerce-SavedPaymentMethods li {
-	list-style: none;
-	padding-left: 0;
-	margin-left: 0;
+#payment .woocommerce-SavedPaymentMethods,
+#payment .woocommerce-SavedPaymentMethods li {
+	list-style: none !important;
+}
+
+#payment .woocommerce-SavedPaymentMethods {
+	margin: 0.25rem 0 0.5rem 2rem !important;
+	padding: 0 !important;
+}
+
+#payment .woocommerce-SavedPaymentMethods li {
+	margin: 0 !important;
+	padding: 0.2rem 0 !important;
+}
+
+#payment .woocommerce-SavedPaymentMethods li label {
+	margin-left: 0.35rem;
 }
 .change-save-card-label {
 	cursor: pointer;
