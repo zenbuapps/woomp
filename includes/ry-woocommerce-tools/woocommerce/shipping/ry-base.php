@@ -151,40 +151,55 @@ final class RY_Shipping {
 	}
 
 	public static function save_order_update( $order_id ) {
-		if ( $order = wc_get_order( $order_id ) ) {
-			foreach ( $order->get_items( 'shipping' ) as $item_id => $item ) {
-				$shipping_method = false;
-				if ( class_exists( 'RY_ECPay_Shipping' ) ) {
-					$shipping_method = RY_ECPay_Shipping::get_order_support_shipping( $item );
-				}
-				if ( class_exists( 'RY_NewebPay_Shipping' ) ) {
-					$shipping_method = RY_NewebPay_Shipping::get_order_support_shipping( $item );
-				}
-				if ( $shipping_method ) {
-					if ( version_compare( WC_VERSION, '5.6.0', '<' ) ) {
-						if ( isset( $_POST['_shipping_phone'] ) ) {
-							$order->update_meta_data( '_shipping_phone', wc_clean( wp_unslash( $_POST['_shipping_phone'] ) ) );
-							$order->save_meta_data();
-						}
+		// 防遞迴保護：當 $order->save() 觸發 woocommerce_update_order 時，避免本函式重入造成無限遞迴。
+		// 主要對應 HPOS 環境下訂單 #53817 反覆寫入 _shipping_address_index 的問題。
+		static $processing = [];
+		if ( isset( $processing[ $order_id ] ) ) {
+			return;
+		}
+		$processing[ $order_id ] = true;
+
+		try {
+			if ( $order = wc_get_order( $order_id ) ) {
+				foreach ( $order->get_items( 'shipping' ) as $item_id => $item ) {
+					$shipping_method = false;
+					if ( class_exists( 'RY_ECPay_Shipping' ) ) {
+						$shipping_method = RY_ECPay_Shipping::get_order_support_shipping( $item );
 					}
+					if ( class_exists( 'RY_NewebPay_Shipping' ) ) {
+						$shipping_method = RY_NewebPay_Shipping::get_order_support_shipping( $item );
+					}
+					if ( $shipping_method ) {
+						if ( version_compare( WC_VERSION, '5.6.0', '<' ) ) {
+							if ( isset( $_POST['_shipping_phone'] ) ) {
+								$order->update_meta_data( '_shipping_phone', wc_clean( wp_unslash( $_POST['_shipping_phone'] ) ) );
+								$order->save_meta_data();
+							}
+						}
 
-					if ( strpos( $shipping_method, 'cvs' ) !== false ) {
-						if ( isset( $_POST['_shipping_cvs_store_ID'] ) ) {
-							$order->update_meta_data( '_shipping_cvs_store_ID', wc_clean( wp_unslash( $_POST['_shipping_cvs_store_ID'] ) ) );
-							$order->update_meta_data( '_shipping_cvs_store_name', wc_clean( wp_unslash( $_POST['_shipping_cvs_store_name'] ) ) );
-							$order->update_meta_data( '_shipping_cvs_store_address', wc_clean( wp_unslash( $_POST['_shipping_cvs_store_address'] ) ) );
-							$order->update_meta_data( '_shipping_cvs_store_telephone', wc_clean( wp_unslash( $_POST['_shipping_cvs_store_telephone'] ) ) );
-							$order->save_meta_data();
+						if ( strpos( $shipping_method, 'cvs' ) !== false ) {
+							if ( isset( $_POST['_shipping_cvs_store_ID'] ) ) {
+								$order->update_meta_data( '_shipping_cvs_store_ID', wc_clean( wp_unslash( $_POST['_shipping_cvs_store_ID'] ) ) );
+								$order->update_meta_data( '_shipping_cvs_store_name', wc_clean( wp_unslash( $_POST['_shipping_cvs_store_name'] ) ) );
+								$order->update_meta_data( '_shipping_cvs_store_address', wc_clean( wp_unslash( $_POST['_shipping_cvs_store_address'] ) ) );
+								$order->update_meta_data( '_shipping_cvs_store_telephone', wc_clean( wp_unslash( $_POST['_shipping_cvs_store_telephone'] ) ) );
+								$order->save_meta_data();
 
-							// HPOS 相容：使用物件方法操作 meta
-							$shipping_address = $order->get_address( 'shipping' );
-							$order->update_meta_data( '_shipping_address_1', wc_clean( wp_unslash( $_POST['_shipping_cvs_store_address'] ) ) );
-							$order->update_meta_data( '_shipping_address_index', implode( ' ', $shipping_address ) );
-							$order->save();
+								// HPOS 相容：使用物件方法操作 meta。
+								// 改用 save_meta_data() 而非 save()，避免再次觸發 woocommerce_update_order 造成遞迴。
+								// 因為這裡僅更新 meta（_shipping_address_1 與 _shipping_address_index 均屬訂單 meta），
+								// 不涉及訂單核心欄位，save_meta_data() 已足以在 HPOS 與傳統儲存模式下正確寫入。
+								$shipping_address = $order->get_address( 'shipping' );
+								$order->update_meta_data( '_shipping_address_1', wc_clean( wp_unslash( $_POST['_shipping_cvs_store_address'] ) ) );
+								$order->update_meta_data( '_shipping_address_index', implode( ' ', $shipping_address ) );
+								$order->save_meta_data();
+							}
 						}
 					}
 				}
 			}
+		} finally {
+			unset( $processing[ $order_id ] );
 		}
 	}
 
