@@ -261,4 +261,50 @@ final class SubscriptionV3BootstrapTest extends WP_UnitTestCase {
 			'一般商品應保留一般信用卡閘道'
 		);
 	}
+
+	// ──────────────────────────────────────────────
+	// 5. 非結帳頁面不應過濾訂閱閘道（#114）
+	// ──────────────────────────────────────────────
+
+	/**
+	 * @testdox 非結帳頁面（例如 My Account 新增付款方式）不應移除訂閱閘道
+	 *
+	 * Regression test for #114: 修正前 conditional_payment_gateways 沒有
+	 * is_checkout() 保護，導致在 /my-account/add-payment-method/ 頁面，
+	 * V1 和 V3 訂閱閘道會被一併移除，用戶看不到任何信用卡欄位、無法新增
+	 * 或更換付款方式。
+	 */
+	public function test_keeps_subscription_gateways_outside_checkout(): void {
+		$previous = error_reporting( E_ALL & ~E_DEPRECATED );
+		$gateways = [
+			'payuni-credit-v3'               => new \PAYUNI\Gateways\CreditV3(),
+			'payuni-credit-subscription'     => new \PAYUNI\Gateways\CreditSubscription(),
+			'payuni-credit-subscription-v3'  => new \PAYUNI\Gateways\CreditSubscriptionV3(),
+		];
+		error_reporting( $previous );
+
+		// PHPUnit 預設不是 checkout context，所以 is_checkout() 回傳 false
+		$this->assertFalse(
+			is_checkout(),
+			'測試前提：當前不是 checkout 頁面'
+		);
+
+		$result = \J7\Payuni\Domains\Subscription\SubscriptionBootstrap::conditional_payment_gateways( $gateways );
+
+		$this->assertArrayHasKey(
+			'payuni-credit-subscription',
+			$result,
+			'非結帳頁應保留 V1 訂閱閘道（讓用戶能在 My Account 新增付款方式）'
+		);
+		$this->assertArrayHasKey(
+			'payuni-credit-subscription-v3',
+			$result,
+			'非結帳頁應保留 V3 訂閱閘道（讓用戶能在 My Account 新增付款方式）'
+		);
+		$this->assertArrayHasKey(
+			'payuni-credit-v3',
+			$result,
+			'非結帳頁應保留一般信用卡閘道'
+		);
+	}
 }
