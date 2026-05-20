@@ -340,9 +340,14 @@ class WC_Gateway_LINEPay_Handler {
 			return;
 		}
 
+		$date_created = $order->get_date_created();
+		if ( ! $date_created ) {
+			return;
+		}
+
 		$order_status   = $order->get_status();
 		$payment_method = $order->get_payment_method();
-		$refund_expired = strtotime( $order->get_date_created()->date( 'Y-m-d H:i:s' ) . ' -8 hour' ) + ( 60 * 86400 );
+		$refund_expired = strtotime( $date_created->date( 'Y-m-d H:i:s' ) . ' -8 hour' ) + ( 60 * 86400 );
 		$output         = '';
 		if ( get_option( 'linepay_customer_refund' ) && time() > $refund_expired && $payment_method === 'linepay' ) {
 
