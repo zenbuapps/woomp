@@ -80,20 +80,28 @@ final class OrderUtils {
     
     /** 擴展暫存資料欄位 */
     public static function extend_checkout_field( array $fields ): array {
+        // 加上 .hidden class，避免 WooCommerce 將 hidden input 包進 <p class="form-row"> 後
+        // 仍占用版面（每個 <p> 約 27px 高度，5 個就會在表單裡產生 ~135px 空白）。
+        // .hidden 在本外掛 form-checkout.php 已定義 display: none !important。
         $fields['billing']['sdk_token_tmp'] = [
-            'type' => 'hidden',
+            'type'  => 'hidden',
+            'class' => [ 'hidden' ],
         ];
         $fields['billing']['payuni_save_card'] = [
-            'type' => 'hidden',
+            'type'  => 'hidden',
+            'class' => [ 'hidden' ],
         ];
         $fields['billing']['payuni_installment'] = [
-            'type' => 'hidden',
+            'type'  => 'hidden',
+            'class' => [ 'hidden' ],
         ];
         $fields['billing']['payuni_use_saved_token'] = [
-            'type' => 'hidden',
+            'type'  => 'hidden',
+            'class' => [ 'hidden' ],
         ];
         $fields['billing']['payuni_saved_token_id'] = [
-            'type' => 'hidden',
+            'type'  => 'hidden',
+            'class' => [ 'hidden' ],
         ];
         return $fields;
     }

@@ -141,15 +141,21 @@ if ( ! $checkout->is_registration_enabled() && $checkout->is_registration_requir
 		display: flex;
 		flex-wrap: wrap;
 	}
-	form.checkout.woocommerce-checkout #customer_details {
+	form.checkout.woocommerce-checkout #customer_details,
+	form.checkout.woocommerce-checkout > .ct-customer-details {
 		order: 2;
 		width: 100%!important;
+		max-width: 100%!important;
+		flex: 1 1 100%!important;
 		float: none!important;
 		margin-right: 0!important;
 	}
-	form.checkout.woocommerce-checkout #order_review {
+	form.checkout.woocommerce-checkout #order_review,
+	form.checkout.woocommerce-checkout > .ct-order-review {
 		order: 1;
 		width: 100%!important;
+		max-width: 100%!important;
+		flex: 1 1 100%!important;
 		float: none!important;
 		margin-left: 0!important;
 		padding: 0!important;
