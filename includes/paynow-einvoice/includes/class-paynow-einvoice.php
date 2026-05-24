@@ -477,25 +477,71 @@ class Paynow_Einvoice {
 		return $result;
 	}
 
+	/**
+	 * SOAP 1.2 over plain HTTP — avoids dependency on PHP ext-soap.
+	 *
+	 * Mimics SoapClient::__soapCall return shape for simple operations whose
+	 * inputs are flat scalar parameters and output is a single string result.
+	 *
+	 * @param string               $method SOAP operation name (e.g. UploadInvoice_Patch).
+	 * @param array<string,string> $params Flat string parameters.
+	 * @return \stdClass Object with `$method . 'Result'` property holding the response string.
+	 * @throws \Exception When the HTTP request fails or the response cannot be parsed.
+	 */
+	private function pn_soap_post( $method, $params ) {
+		$ns       = 'https://invoice.PayNow.com.tw/';
+		$endpoint = $this->api_url . '/PayNowEInvoice.asmx';
+
+		$param_xml = '';
+		foreach ( $params as $key => $value ) {
+			$param_xml .= sprintf(
+				'<%1$s>%2$s</%1$s>',
+				$key,
+				htmlspecialchars( (string) $value, ENT_XML1 | ENT_QUOTES, 'UTF-8' )
+			);
+		}
+		$envelope = '<?xml version="1.0" encoding="utf-8"?>'
+			. '<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">'
+			. '<soap12:Body><' . $method . ' xmlns="' . $ns . '">' . $param_xml . '</' . $method . '></soap12:Body>'
+			. '</soap12:Envelope>';
+
+		$response = \wp_remote_post(
+			$endpoint,
+			[
+				'timeout'   => 30,
+				'headers'   => [ 'Content-Type' => 'application/soap+xml; charset=utf-8' ],
+				'body'      => $envelope,
+				'sslverify' => false,
+			]
+		);
+
+		if ( \is_wp_error( $response ) ) {
+			throw new \Exception( 'PayNow SOAP request failed: ' . $response->get_error_message() );
+		}
+
+		$code = \wp_remote_retrieve_response_code( $response );
+		$body = \wp_remote_retrieve_body( $response );
+		if ( 200 !== (int) $code ) {
+			throw new \Exception( 'PayNow SOAP HTTP ' . $code . ': ' . substr( (string) $body, 0, 200 ) );
+		}
+
+		$prev_errors = libxml_use_internal_errors( true );
+		$xml         = simplexml_load_string( (string) $body );
+		libxml_use_internal_errors( $prev_errors );
+		if ( false === $xml ) {
+			throw new \Exception( 'PayNow SOAP invalid XML response: ' . substr( (string) $body, 0, 200 ) );
+		}
+
+		$xml->registerXPathNamespace( 'pn', $ns );
+		$nodes        = $xml->xpath( '//pn:' . $method . 'Result' );
+		$result_value = ( ! empty( $nodes ) ) ? (string) $nodes[0] : '';
+
+		$obj                       = new \stdClass();
+		$obj->{$method . 'Result'} = $result_value;
+		return $obj;
+	}
+
 	private function do_issue( $ei_datas ) {
-		$context_options = [
-			'ssl' => [
-				'verify_peer'       => false,
-				'verify_peer_name'  => false,
-				'allow_self_signed' => true,
-				'crypto_method'     => STREAM_CRYPTO_METHOD_TLS_CLIENT,
-			],
-		];
-		$options         = [
-			'soap_version'   => SOAP_1_2,
-			'exceptions'     => true,
-			'trace'          => 1,
-			'cache_wsdl'     => WSDL_CACHE_NONE,
-			'stream_context' => stream_context_create( $context_options ),
-		];
-
-		$client = new \SoapClient( $this->api_url . '/PayNowEInvoice.asmx?wsdl', $options );
-
 		$str = $this->build_invoice_str( $ei_datas );
 		// $this->pn_write_log( 'csvStr:' . $str );
 
@@ -508,7 +554,7 @@ class Paynow_Einvoice {
 		];
 
 		// $this->pn_write_log( $param_ary );
-		$aryResult = $client->__soapCall( 'UploadInvoice_Patch', [ 'parameters' => $param_ary ] );
+		$aryResult = $this->pn_soap_post( 'UploadInvoice_Patch', $param_ary );
 		// $this->pn_write_log( '====>UploadInvoice_Patch' );
 		// $this->pn_write_log( $aryResult );
 		$result = $aryResult->UploadInvoice_PatchResult;
@@ -534,37 +580,15 @@ class Paynow_Einvoice {
 	 *
 	 * @param string $invoice_no 發票號碼
 	 * @return string 'S' | 'F_XXXXXXXXXX'
-	 * @throws \Exception SoapClient class not found.
+	 * @throws \Exception When the HTTP request to PayNow fails.
 	 */
 	private function cancel_invoice( string $invoice_no ): string {
-		$context_options = [
-			'ssl' => [
-				'verify_peer'       => false,
-				'verify_peer_name'  => false,
-				'allow_self_signed' => true,
-				'crypto_method'     => STREAM_CRYPTO_METHOD_TLS_CLIENT,
-			],
-		];
-		$options         = [
-			'soap_version'   => SOAP_1_2,
-			'exceptions'     => true,
-			'trace'          => 1,
-			'cache_wsdl'     => WSDL_CACHE_NONE,
-			'stream_context' => stream_context_create( $context_options ),
-		];
-
 		$params = [
 			'mem_cid'   => $this->mem_cid,
 			'InvoiceNo' => $invoice_no,
 		];
 
-		if (!class_exists('SoapClient')) {
-			return 'SoapClient class not found';
-		}
-
-		$client = new \SoapClient( $this->api_url . '/PayNowEInvoice.asmx?wsdl', $options );
-
-		$soap_result = $client->__soapCall( 'CancelInvoice_I', [ 'parameters' => $params ] );
+		$soap_result = $this->pn_soap_post( 'CancelInvoice_I', $params );
 
 		/** @var string $result 成功:S 失敗:F_  EX: S | F_電子發票(開立/作廢)失敗:資料庫存取失敗 */
 		$result = $soap_result->CancelInvoice_IResult; // phpcs:ignore
@@ -803,30 +827,12 @@ class Paynow_Einvoice {
 
 	function paynow_get_einvoice_url( $order_id, $invoice_no ) {
 
-		$context_options = [
-			'ssl' => [
-				'verify_peer'       => false,
-				'verify_peer_name'  => false,
-				'allow_self_signed' => true,
-				'crypto_method'     => STREAM_CRYPTO_METHOD_TLS_CLIENT,
-			],
-		];
-		$options         = [
-			'soap_version'   => SOAP_1_2,
-			'exceptions'     => true,
-			'trace'          => 1,
-			'cache_wsdl'     => WSDL_CACHE_NONE,
-			'stream_context' => stream_context_create( $context_options ),
-		];
-
-		$client = new SoapClient( $this->api_url . '/PayNowEInvoice.asmx?wsdl', $options );
-
 		$params = [
 			'mem_cid'   => $this->mem_cid,
 			'InvoiceNo' => $invoice_no,
 		];
 
-		$aryResult = $client->__soapCall( 'Get_InvoiceURL_I', [ 'parameters' => $params ] );
+		$aryResult = $this->pn_soap_post( 'Get_InvoiceURL_I', $params );
 		// $this->pn_write_log( '===>Get_InvoiceURL_I' );
 		// $this->pn_write_log( $aryResult );
 		$invoice_url = ( empty( $aryResult->Get_InvoiceURL_IResult ) ) ? '' : $aryResult->Get_InvoiceURL_IResult;
