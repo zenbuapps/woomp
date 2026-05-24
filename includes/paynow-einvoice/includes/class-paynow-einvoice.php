@@ -407,8 +407,12 @@ class Paynow_Einvoice {
 				$selected_carrier_type = $order->get_meta( '_paynow_ei_carrier_type' );
 				if ( $selected_carrier_type === 'ei_carrier_type_easycard_code' ) {
 					$carrier_type = '1K0001'; // 悠遊卡
+					$carrier_id1  = $order->get_meta( '_paynow_ei_carrier_num' );
+					$carrier_id2  = $carrier_id1;
 				} elseif ( $selected_carrier_type === 'ei_carrier_type_cdc_code' ) {
 					$carrier_type = 'CQ0001'; // 自然人憑證
+					$carrier_id1  = $order->get_meta( '_paynow_ei_carrier_num' );
+					$carrier_id2  = $carrier_id1;
 				} elseif ( $selected_carrier_type === 'ei_carrier_type_mobile_code' ) {
 					$carrier_type = '3J0002'; // 通用載具
 					$carrier_id1  = $order->get_meta( '_paynow_ei_carrier_num' );
