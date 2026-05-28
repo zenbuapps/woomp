@@ -455,7 +455,7 @@ class Paynow_Einvoice {
 
 						'CarrierType'   => "'" . $carrier_type,
 						'CarrierID_1'   => "'" . $carrier_id1,
-						'CarrierID_2'   => "'" . $carrier_id1, // 發票隱碼
+						'CarrierID_2'   => "'" . $carrier_id2, // 發票隱碼
 						'LoveCode'      => "'" . substr( $love_code, 0, 8 ),
 
 						'Description'   => "'" . str_replace( ',', ' ', $order_item->get_name() ),
@@ -513,7 +513,8 @@ class Paynow_Einvoice {
 			$endpoint,
 			[
 				'timeout'   => 30,
-				'headers'   => [ 'Content-Type' => 'application/soap+xml; charset=utf-8' ],
+				// SOAP 1.2 將 action 帶在 Content-Type 內，對齊 WSDL soapAction，避免嚴格伺服器拒絕派發。
+				'headers'   => [ 'Content-Type' => 'application/soap+xml; charset=utf-8; action="' . $ns . $method . '"' ],
 				'body'      => $envelope,
 				'sslverify' => false,
 			]
@@ -558,7 +559,12 @@ class Paynow_Einvoice {
 		];
 
 		// $this->pn_write_log( $param_ary );
-		$aryResult = $this->pn_soap_post( 'UploadInvoice_Patch', $param_ary );
+		try {
+			$aryResult = $this->pn_soap_post( 'UploadInvoice_Patch', $param_ary );
+		} catch ( \Exception $e ) {
+			// 維持既有失敗契約：回傳單元素陣列，由批次處理器顯示錯誤訊息。
+			return [ 'F_' . $e->getMessage() ];
+		}
 		// $this->pn_write_log( '====>UploadInvoice_Patch' );
 		// $this->pn_write_log( $aryResult );
 		$result = $aryResult->UploadInvoice_PatchResult;
@@ -592,7 +598,12 @@ class Paynow_Einvoice {
 			'InvoiceNo' => $invoice_no,
 		];
 
-		$soap_result = $this->pn_soap_post( 'CancelInvoice_I', $params );
+		try {
+			$soap_result = $this->pn_soap_post( 'CancelInvoice_I', $params );
+		} catch ( \Exception $e ) {
+			// 維持既有失敗契約：回傳 F_ 前綴字串，AJAX callback 視為作廢失敗。
+			return 'F_' . $e->getMessage();
+		}
 
 		/** @var string $result 成功:S 失敗:F_  EX: S | F_電子發票(開立/作廢)失敗:資料庫存取失敗 */
 		$result = $soap_result->CancelInvoice_IResult; // phpcs:ignore
@@ -836,10 +847,13 @@ class Paynow_Einvoice {
 			'InvoiceNo' => $invoice_no,
 		];
 
-		$aryResult = $this->pn_soap_post( 'Get_InvoiceURL_I', $params );
-		// $this->pn_write_log( '===>Get_InvoiceURL_I' );
-		// $this->pn_write_log( $aryResult );
-		$invoice_url = ( empty( $aryResult->Get_InvoiceURL_IResult ) ) ? '' : $aryResult->Get_InvoiceURL_IResult;
+		// 此方法掛於 paynow_einvoice_after_issued_success action，未捕捉的例外會中斷後續訂單處理。
+		try {
+			$aryResult   = $this->pn_soap_post( 'Get_InvoiceURL_I', $params );
+			$invoice_url = ( empty( $aryResult->Get_InvoiceURL_IResult ) ) ? '' : $aryResult->Get_InvoiceURL_IResult;
+		} catch ( \Exception $e ) {
+			$invoice_url = '';
+		}
 
 		$order = \wc_get_order( $order_id );
 		if ( $order ) {
