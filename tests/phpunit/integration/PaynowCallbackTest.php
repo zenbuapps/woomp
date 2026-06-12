@@ -42,6 +42,11 @@ class PaynowCallbackTest extends WP_UnitTestCase {
 			$this->markTestSkipped( 'WooCommerce 未載入，跳過立吉富回呼測試' );
 		}
 
+		// 背景通知處理內會呼叫 $woocommerce->cart->empty_cart()，CLI 測試環境需先初始化 cart。
+		if ( function_exists( 'wc_load_cart' ) && null === WC()->cart ) {
+			wc_load_cart();
+		}
+
 		$this->order = wc_create_order();
 		$this->order->set_status( 'pending' );
 		$this->order->set_total( 800 );
@@ -116,6 +121,131 @@ class PaynowCallbackTest extends WP_UnitTestCase {
 			$valid_statuses,
 			'完成付款後訂單狀態應為 processing 或 completed'
 		);
+	}
+
+	/**
+	 * 建立模擬 PayNow ATM 付款完成背景通知的 POST 資料
+	 *
+	 * @param array $overrides 要覆寫的欄位.
+	 * @return array
+	 */
+	private function build_background_notification( array $overrides = [] ) {
+		return array_merge(
+			[
+				'WebNo'      => 'TESTWEB1',
+				'BuysafeNo'  => 'BS_TEST_001',
+				'PassCode'   => 'dummy',
+				'OrderNo'    => (string) $this->order->get_id(),
+				'TranStatus' => 'S',
+				'PayType'    => '03',
+				'Pan_no4'    => '',
+				'method'     => 'paynow_return',
+			],
+			$overrides
+		);
+	}
+
+	/**
+	 * 測試 WebNo 大小寫不一致時背景通知仍完成訂單
+	 *
+	 * 送出交易時 WebNo 會經過 strtoupper()（PayNow_Abstract_Payment_Gateway），
+	 * PayNow 回傳大寫 WebNo；後台設定若為小寫，比對必須不分大小寫，
+	 * 否則付款完成通知會被靜默擋下、訂單卡在等待付款中。
+	 *
+	 * @testdox 驗證後台 WebNo 為小寫時，PayNow 回傳大寫 WebNo 的背景通知仍完成訂單
+	 */
+	public function test_background_notification_completes_order_with_case_insensitive_webno() {
+		update_option( 'paynow_payment_web_no', 'testweb1' ); // 商家後台填小寫.
+
+		$posted = $this->build_background_notification( [ 'WebNo' => 'TESTWEB1' ] );
+
+		$this->expectOutputString( '1' );
+		PayNow_Payment_Response::paynow_background_notification( $posted );
+
+		$order = wc_get_order( $this->order->get_id() );
+		$this->assertTrue(
+			$order->is_paid(),
+			'WebNo 僅大小寫不同時，背景通知應仍完成付款'
+		);
+		$this->assertEquals( 'BS_TEST_001', $order->get_transaction_id(), '收款編號應寫入 transaction_id' );
+	}
+
+	/**
+	 * 測試 WebNo 真正不符時背景通知被拒絕
+	 *
+	 * 回歸保護：大小寫正規化不可放行真正錯誤的 WebNo。
+	 *
+	 * @testdox 驗證 WebNo 不符（非大小寫差異）的背景通知不改變訂單
+	 */
+	public function test_background_notification_rejects_wrong_webno() {
+		update_option( 'paynow_payment_web_no', 'TESTWEB1' );
+
+		$posted = $this->build_background_notification( [ 'WebNo' => 'OTHERWEB' ] );
+
+		PayNow_Payment_Response::paynow_background_notification( $posted );
+
+		$order = wc_get_order( $this->order->get_id() );
+		$this->assertFalse( $order->is_paid(), '錯誤的 WebNo 不應完成訂單' );
+		$this->assertEquals( 'pending', $order->get_status(), '錯誤的 WebNo 不應改變訂單狀態' );
+	}
+
+	/**
+	 * 測試 OrderNo 對不到訂單時以 Note1 反查
+	 *
+	 * 站台若裝有訂單序號外掛改寫顯示編號，PayNow 回傳的 OrderNo 會對不到
+	 * 訂單 ID；下單時已將訂單 ID 寫入 Note1，應以其反查並比對顯示編號。
+	 *
+	 * @testdox 驗證 OrderNo 對不到訂單時以 Note1（訂單 ID）反查完成訂單
+	 */
+	public function test_background_notification_falls_back_to_note1() {
+		update_option( 'paynow_payment_web_no', 'TESTWEB1' );
+
+		// 模擬序號外掛改寫訂單顯示編號.
+		add_filter(
+			'woocommerce_order_number',
+			static function ( $number, $order ) {
+				return 'PN-' . $order->get_id();
+			},
+			10,
+			2
+		);
+
+		$posted = $this->build_background_notification(
+			[
+				'OrderNo' => 'PN-' . $this->order->get_id(), // 下單時送出的是顯示編號.
+				'Note1'   => (string) $this->order->get_id(),
+			]
+		);
+
+		$this->expectOutputString( '1' );
+		PayNow_Payment_Response::paynow_background_notification( $posted );
+
+		$order = wc_get_order( $this->order->get_id() );
+		$this->assertTrue(
+			$order->is_paid(),
+			'OrderNo 對不到訂單時應以 Note1 反查並完成付款'
+		);
+	}
+
+	/**
+	 * 測試背景通知缺少非必要欄位時不噴錯
+	 *
+	 * ATM 背景通知不帶信用卡末四碼（Pan_no4）等欄位，
+	 * 直接取陣列鍵在 PHP 8 會產生 undefined array key warning。
+	 *
+	 * @testdox 驗證背景通知缺少 Pan_no4 等欄位時不噴錯且仍完成訂單
+	 */
+	public function test_background_notification_with_missing_optional_keys() {
+		update_option( 'paynow_payment_web_no', 'TESTWEB1' );
+
+		$posted = $this->build_background_notification();
+		unset( $posted['Pan_no4'] ); // ATM 通知不帶信用卡欄位.
+
+		$this->expectOutputString( '1' );
+		PayNow_Payment_Response::paynow_background_notification( $posted );
+
+		$order = wc_get_order( $this->order->get_id() );
+		$this->assertTrue( $order->is_paid(), '缺少非必要欄位不應阻斷付款完成' );
 	}
 
 	/**

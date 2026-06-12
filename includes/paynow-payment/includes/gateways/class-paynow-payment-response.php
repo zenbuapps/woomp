@@ -105,19 +105,18 @@ class PayNow_Payment_Response {
 			return;
 		}
 
-		$web_no      = $posted['WebNo'];
-		$buysafe_no  = $posted['BuysafeNo']; // PayNow訂單編號.
-		$pass_code   = $posted['PassCode'];
-		$order_no    = $posted['OrderNo'];
-		$tran_status = $posted['TranStatus'];// 交易結果 S or F.
-		$pay_type    = $posted['PayType'];
-		$pan_no4     = $posted['pan_no4'];// 信用卡末四碼.
+		$web_no      = $posted['WebNo'] ?? '';
+		$buysafe_no  = $posted['BuysafeNo'] ?? ''; // PayNow訂單編號.
+		$pass_code   = $posted['PassCode'] ?? '';
+		$order_no    = $posted['OrderNo'] ?? '';
+		$tran_status = $posted['TranStatus'] ?? '';// 交易結果 S or F.
+		$pay_type    = $posted['PayType'] ?? '';
+		$pan_no4     = $posted['pan_no4'] ?? '';// 信用卡末四碼.
 
 		PayNow_Payment::log( 'Order ' . $order_no . ' response received from PayNow. ' . wc_print_r( $posted, true ) );
 
-		$site_web_no = get_option( 'paynow_payment_web_no' );
-		if ( $web_no !== $site_web_no ) {
-			PayNow_Payment::log( 'Received WebNo ' . $web_no . ' is not the same as the site WebNo ' . $site_web_no . ' do nothing' );
+		if ( ! self::is_valid_web_no( $web_no ) ) {
+			PayNow_Payment::log( 'Received WebNo ' . $web_no . ' is not the same as the site WebNo ' . get_option( 'paynow_payment_web_no' ) . ' do nothing' );
 			return;
 		}
 
@@ -148,7 +147,7 @@ class PayNow_Payment_Response {
 
 			} else {
 
-				$err_desc = $posted['ErrDesc'];
+				$err_desc = $posted['ErrDesc'] ?? '';
 
 				$order->update_meta_data( '_paynow_errdesc', urldecode( $err_desc ) );
 				$order->save();
@@ -176,23 +175,22 @@ class PayNow_Payment_Response {
 			return;
 		}
 
-		$web_no     = $posted['WebNo'];
-		$buysafe_no = $posted['BuysafeNo'];// paynow訂單編號.
-		$pass_code  = $posted['PassCode'];
-		$order_no   = $posted['OrderNo'];
-		$pay_type   = $posted['PayType'];
+		$web_no     = $posted['WebNo'] ?? '';
+		$buysafe_no = $posted['BuysafeNo'] ?? '';// paynow訂單編號.
+		$pass_code  = $posted['PassCode'] ?? '';
+		$order_no   = $posted['OrderNo'] ?? '';
+		$pay_type   = $posted['PayType'] ?? '';
 
-		$new_date = urldecode( $posted['NewDate'] );
-		$due_date = urldecode( $posted['DueDate'] );
+		$new_date = urldecode( $posted['NewDate'] ?? '' );
+		$due_date = urldecode( $posted['DueDate'] ?? '' );
 
-		$tran_status = $posted['TranStatus'];
+		$tran_status = $posted['TranStatus'] ?? '';
 
 		$order = self::get_paynow_order( $posted );
 		PayNow_Payment::log( 'Order ' . $order_no . ' offline payment response received from PayNow. ' . wc_print_r( $posted, true ) );
 
-		$site_web_no = get_option( 'paynow_payment_web_no' );
-		if ( $web_no !== $site_web_no ) {
-			PayNow_Payment::log( 'Received WebNo ' . $web_no . ' is not the same as the site WebNo ' . $site_web_no . ' do nothing' );
+		if ( ! self::is_valid_web_no( $web_no ) ) {
+			PayNow_Payment::log( 'Received WebNo ' . $web_no . ' is not the same as the site WebNo ' . get_option( 'paynow_payment_web_no' ) . ' do nothing' );
 			return;
 		}
 
@@ -210,8 +208,8 @@ class PayNow_Payment_Response {
 			// 虛擬帳號 virtual account pay type = 03.
 			if ( PayNow_Pay_Type::VIRTUAL_ACCOUNT === $pay_type ) {
 
-				$bank_code = $posted['BankCode'];
-				$atm_no    = $posted['ATMNo'];
+				$bank_code = $posted['BankCode'] ?? '';
+				$atm_no    = $posted['ATMNo'] ?? '';
 				$order->update_meta_data( '_paynow_bank_code', $bank_code );
 				$order->update_meta_data( '_paynow_atm_no', $atm_no );
 
@@ -220,9 +218,9 @@ class PayNow_Payment_Response {
 			// 條碼 barcode pay type=10.
 			if ( PayNow_Pay_Type::BARCODE === $pay_type ) {
 
-				$barcode1 = $posted['BarCode1'];
-				$barcode2 = $posted['BarCode2'];
-				$barcode3 = $posted['BarCode3'];
+				$barcode1 = $posted['BarCode1'] ?? '';
+				$barcode2 = $posted['BarCode2'] ?? '';
+				$barcode3 = $posted['BarCode3'] ?? '';
 				$order->update_meta_data( 'barcode1', $barcode1 );
 				$order->update_meta_data( 'barcode2', $barcode2 );
 				$order->update_meta_data( 'barcode3', $barcode3 );
@@ -232,8 +230,8 @@ class PayNow_Payment_Response {
 			// ibon 超商代碼(ibon) pay type = 05.
 			if ( PayNow_Pay_Type::IBON === $pay_type ) {
 
-				$ibon_no   = $posted['IBONNO'];
-				$passcode2 = $posted['PassCode2'];
+				$ibon_no   = $posted['IBONNO'] ?? '';
+				$passcode2 = $posted['PassCode2'] ?? '';
 				$order->update_meta_data( '_paynow_ibon_no', $ibon_no );
 				// TODO: should validate passcode2.
 				$order->update_meta_data( '_paynow_passcode2', $passcode2 );
@@ -270,19 +268,18 @@ class PayNow_Payment_Response {
 	public static function paynow_background_notification( $posted ) {
 		global $woocommerce;
 
-		$web_no      = $posted['WebNo'];
-		$buysafe_no  = $posted['BuysafeNo']; // PayNow訂單編號.
-		$pass_code   = $posted['PassCode'];
-		$order_no    = $posted['OrderNo'];
-		$tran_status = $posted['TranStatus'];// 交易結果 S or F.
-		$pay_type    = $posted['PayType'];// 交易類別
-		$pan_no4     = $posted['Pan_no4'];// 信用卡末四碼.
+		$web_no      = $posted['WebNo'] ?? '';
+		$buysafe_no  = $posted['BuysafeNo'] ?? ''; // PayNow訂單編號.
+		$pass_code   = $posted['PassCode'] ?? '';
+		$order_no    = $posted['OrderNo'] ?? '';
+		$tran_status = $posted['TranStatus'] ?? '';// 交易結果 S or F.
+		$pay_type    = $posted['PayType'] ?? '';// 交易類別
+		$pan_no4     = $posted['Pan_no4'] ?? '';// 信用卡末四碼.
 
 		PayNow_Payment::log( 'Order ' . $order_no . ' background notification received from PayNow. ' . wc_print_r( $posted, true ) );
 
-		$site_web_no = get_option( 'paynow_payment_web_no' );
-		if ( $web_no !== $site_web_no ) {
-			PayNow_Payment::log( 'Received WebNo ' . $web_no . ' is not the same as the site WebNo ' . $site_web_no . ' do nothing' );
+		if ( ! self::is_valid_web_no( $web_no ) ) {
+			PayNow_Payment::log( 'Received WebNo ' . $web_no . ' is not the same as the site WebNo ' . get_option( 'paynow_payment_web_no' ) . ' do nothing' );
 			return;
 		}
 
@@ -321,17 +318,47 @@ class PayNow_Payment_Response {
 	private static function validate_passcode() {
 		// TODO: need validate passcode.
 		$posted   = wc_clean( wp_unslash( $_POST ) );
-		$passcode = $posted['PassCode'];
+		$passcode = $posted['PassCode'] ?? '';
 		return true;
+	}
+
+	/**
+	 * 檢查 PayNow 回傳的 WebNo 是否與站台設定相符
+	 *
+	 * 送出交易時 WebNo 會先經過 strtoupper()（見 PayNow_Abstract_Payment_Gateway），
+	 * PayNow 回傳的大小寫因此可能與後台設定值不同，必須正規化後再比對。
+	 *
+	 * @param string $web_no PayNow 回傳的 WebNo.
+	 * @return bool
+	 */
+	private static function is_valid_web_no( $web_no ) {
+		$site_web_no = (string) get_option( 'paynow_payment_web_no' );
+		return '' !== $site_web_no && strtoupper( $web_no ) === strtoupper( $site_web_no );
 	}
 
 	/**
 	 * Get PayNow order from posted data.
 	 *
 	 * @param array $posted The posted data.
-	 * @return WC_Order
+	 * @return WC_Order|false
 	 */
 	private static function get_paynow_order( $posted ) {
-		return wc_get_order( $posted['OrderNo'] );
+		$order_no = $posted['OrderNo'] ?? '';
+		$order    = wc_get_order( $order_no );
+
+		// 站台若以外掛改寫訂單顯示編號，OrderNo 會對不到訂單 ID，
+		// 改用下單時寫入 Note1 的訂單 ID 反查，並比對顯示編號確認是同一張訂單。
+		if ( ! $order && ! empty( $posted['Note1'] ) ) {
+			$candidate = wc_get_order( absint( $posted['Note1'] ) );
+			if ( $candidate && (string) $candidate->get_order_number() === (string) $order_no ) {
+				$order = $candidate;
+			}
+		}
+
+		if ( ! $order ) {
+			PayNow_Payment::log( 'Order not found. OrderNo=' . $order_no . ' Note1=' . ( $posted['Note1'] ?? '' ), 'error' );
+		}
+
+		return $order;
 	}
 }
