@@ -25,7 +25,7 @@ class EcpayInvoiceHandler {
 		// 訂購人資料.
 		$customerName = $order_info['last_name'] . $order_info['first_name'];
 		$orderEmail   = $order_info['email'];
-		$orderPhone   = str_replace( '+886', '0', $order_info['phone'] );
+		$orderPhone   = preg_replace( '/[^0-9]/', '', str_replace( '+886', '0', $order_info['phone'] ) ); // 清成純數字，避免海外號碼的 + 破壞 CheckMacValue
 		$orderAddress = $order_info['country'] . $order_info['state'] . $order_info['city'] . $order_info['address_1'] . $order_info['address_2'];
 
 		$customerIdentifier = EcpayInvoiceFields::get_meta( $order_id, 'tax_id' ); // 統一編號
@@ -207,8 +207,8 @@ class EcpayInvoiceHandler {
 				$order_total = $order_total_summed_by_items;
 			}
 
-			// 測試用使用時間標記，正式上線只能單一不重複。
-			$relateNumber = date( 'YmdHis' );
+			// 自訂編號必須唯一：時間(秒) + 訂單編號 + 亂數，避免同一秒批次開立時撞號。
+			$relateNumber = date( 'YmdHis' ) . $order_id . wp_rand( 10, 99 );
 
 			$ecpay_invoice->Send['RelateNumber']       = get_option( 'wc_woomp_ecpay_invoice_order_prefix' ) . $relateNumber;
 			$ecpay_invoice->Send['CustomerID']         = '';
@@ -311,7 +311,7 @@ class EcpayInvoiceHandler {
 		}
 		$orderStatus  = $order->get_status();
 		$orderInfo    = [];
-		$relateNumber = date( 'YmdHis' );
+		$relateNumber = date( 'YmdHis' ) . $order_id . wp_rand( 10, 99 );
 
 		// 付款成功最後的次 第一次付款或沒有此欄位則設定為空值
 		// $totalSuccessTimes = ( isset( $orderInfo['_total_success_times'][0] ) && $orderInfo['_total_success_times'][0] == '' ) ? '' : $orderInfo['_total_success_times'][0];
