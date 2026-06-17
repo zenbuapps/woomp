@@ -383,6 +383,18 @@ class CreditV3 extends AbstractGateway
 				$order->save();
 			}
 
+			// 3D 驗證流程：merchant_trade 成功時會回傳 3D 驗證頁網址（$trade_result['URL']），
+			// 必須將顧客導向該頁完成 OTP，否則 3D session 不會完成，訂單會一直停在「等待付款」，
+			// 約 15 分鐘後 PayUni webhook 才回授權失敗（未取得結果 / Transaction not exists）。
+			if (! empty($trade_result['URL'])) {
+				return [
+					'result'   => 'success',
+					'redirect' => $trade_result['URL'],
+					'order_id' => $order_id,
+				];
+			}
+
+			// 無 3D（已直接授權，有 TradeNo）或回應未帶導向網址時，導回訂單完成頁
 			return [
 				'result'   => 'success',
 				'redirect' => $order->get_checkout_order_received_url(),
