@@ -60,6 +60,23 @@ Feature: PayUni v3 UNi Embed 信用卡付款
       Then SDK Token 為空字串
       And 前端 console 顯示 '[PayUni] SDK Token 未設定'
       And SDK 不會初始化
+      And 結帳頁顯示可見錯誤訊息「信用卡付款目前無法使用，請稍後再試或改用其他付款方式」
+      And FormState 設為 isReady = false
+      And 消費者點擊下單時被攔截並再次顯示該錯誤訊息
+
+    Scenario: SDK Token 取得失敗（管理員檢視）
+      Given SDK Token 取得過程中發生錯誤
+      And 目前登入者具 manage_woocommerce 權限
+      When 結帳頁面載入
+      Then 後端透過 INIT_ERROR_DETAIL 帶出失敗原因
+      And 結帳頁錯誤訊息額外附上「（管理員資訊：取得 SDK Token 失敗: ...）」
+
+    Scenario: SDK 主程式未載入
+      Given PayUni uni-payment.js 因網路或載入失敗未就緒
+      When 結帳頁面載入且消費者選擇「統一金流 PAYUNi 信用卡 v3」
+      Then 前端 console 顯示 '[PayUni] SDK 未載入，請確認 uni-payment.js 已正確引入'
+      And 結帳頁顯示可見錯誤訊息「信用卡付款元件載入失敗，請重新整理頁面，若持續發生請聯繫網站管理員」
+      And FormState 設為 isReady = false
 
   Rule: 分期付款整合
 

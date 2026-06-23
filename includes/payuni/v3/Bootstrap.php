@@ -117,13 +117,16 @@ final class Bootstrap
 			true
 		);
 
+		$sdk_token        = '';
+		$sdk_error_detail = '';
 		try {
 			$token = (new HttpClient())->get_sdk_token();
 			$sdk = SdkDTO::from($token);
 			$sdk_token = $sdk->Token;
 		} catch (\Throwable $e) {
 			\do_action('woomp_payuni_log', 'error', '取得 SDK Token 失敗: ' . $e->getMessage(), []);
-			$sdk_token = '';
+			// 僅對具 manage_woocommerce 權限者揭露失敗原因，供管理員於結帳頁直接定位問題；一般顧客看通用訊息
+			$sdk_error_detail = \current_user_can('manage_woocommerce') ? '取得 SDK Token 失敗: ' . $e->getMessage() : '';
 		}
 
 		\wp_localize_script(
@@ -132,6 +135,7 @@ final class Bootstrap
 			[
 				'ENV'                 => $setting->mode === EMode::PROD ? 'P' : 'S',
 				'SDK_TOKEN'           => $sdk_token,
+				'INIT_ERROR_DETAIL'   => $sdk_error_detail,
 				'USE_INST'            => $setting->enable_installment,
 				'ENABLE_3D_AUTH'      => $setting->enable_3d_auth,
 				'INST_OPTIONS'        => $setting->installment_options,

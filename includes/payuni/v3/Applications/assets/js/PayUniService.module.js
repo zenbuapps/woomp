@@ -85,6 +85,9 @@ class PayUniService {
     /** @type {boolean} 是否已初始化 */
     #initialized = false;
 
+    /** @type {boolean} 初始化是否失敗（SDK 未載入 / Token 未取得 / 連線建立失敗），用於在結帳頁顯示錯誤並阻擋下單 */
+    #initFailed = false;
+
     /** @type {boolean} 是否已綁定事件 */
     #eventsBound = false;
 
@@ -125,12 +128,14 @@ class PayUniService {
         // 檢查 SDK 是否已載入
         if (typeof UniPayment === 'undefined') {
             console.error('[PayUni] SDK 未載入，請確認 uni-payment.js 已正確引入');
+            this.#failInit('信用卡付款元件載入失敗，請重新整理頁面，若持續發生請聯繫網站管理員');
             return;
         }
 
         // 檢查 SDK Token
         if (!params.SDK_TOKEN) {
             console.error('[PayUni] SDK Token 未設定');
+            this.#failInit(this.#getInitErrorMessage());
             return;
         }
 
@@ -142,11 +147,43 @@ class PayUniService {
             style: DEFAULT_IFRAME_STYLE
         };
 
-        // 建立 SDK 連線
-        this.#payuniSDK = UniPayment.createSession(params.SDK_TOKEN, options);
+        // 建立 SDK 連線（createSession 可能因 Token 無效而拋錯，需攔截以免靜默失敗）
+        try {
+            this.#payuniSDK = UniPayment.createSession(params.SDK_TOKEN, options);
+            // 設定狀態更新監聽
+            this.#payuniSDK.onUpdate((update) => this.#handleSDKUpdate(update));
+        } catch (error) {
+            console.error('[PayUni] SDK 建立連線失敗:', error);
+            this.#failInit(this.#getInitErrorMessage());
+        }
+    }
 
-        // 設定狀態更新監聽
-        this.#payuniSDK.onUpdate((update) => this.#handleSDKUpdate(update));
+    /**
+     * 標記初始化失敗並在結帳頁顯示可見錯誤
+     *
+     * @param {string} message - 顯示給消費者的錯誤訊息
+     * @private
+     * @description 統一所有初始化失敗路徑（SDK 未載入 / Token 未取得 / 連線建立失敗）。
+     *              除了 console.error 外，額外在結帳頁彈出 WooCommerce 風格通知並將表單設為未就緒，
+     *              避免顧客面對空白的信用卡欄位卻無任何提示。
+     */
+    #failInit(message) {
+        this.#initFailed = true;
+        this.#formState.setReady(false);
+        this.#uiHelper.showError(message);
+    }
+
+    /**
+     * 取得初始化失敗時顯示的錯誤訊息
+     *
+     * @returns {string} 錯誤訊息（具 manage_woocommerce 權限者會額外看到後端失敗原因）
+     * @private
+     */
+    #getInitErrorMessage() {
+        const base = '信用卡付款目前無法使用，請稍後再試或改用其他付款方式';
+        // INIT_ERROR_DETAIL 僅在具 manage_woocommerce 權限時由後端帶出，方便管理員當場定位問題
+        const detail = params?.INIT_ERROR_DETAIL;
+        return detail ? `${base}（管理員資訊：${detail}）` : base;
     }
 
     /**
@@ -224,8 +261,14 @@ class PayUniService {
      * @description 驗證 origin 或 token，並在頁面上顯示信用卡輸入框
      */
     async render() {
+        // 初始化已失敗（SDK 未載入 / Token 未取得 / 連線建立失敗）— 錯誤已於 #initSDK 顯示，直接中止
+        if (this.#initFailed) {
+            return;
+        }
+
         if (!this.#payuniSDK) {
             console.error('[PayUni] SDK 未初始化');
+            this.#failInit(this.#getInitErrorMessage());
             return;
         }
 
@@ -378,6 +421,12 @@ class PayUniService {
     async #processCheckout() {
         // 避免重複提交
         if (this.#uiHelper.isProcessing()) {
+            return;
+        }
+
+        // 初始化失敗時，下單前重新提示真正原因，避免顯示誤導性的「請稍候」
+        if (this.#initFailed) {
+            this.#uiHelper.showError(this.#getInitErrorMessage());
             return;
         }
 
