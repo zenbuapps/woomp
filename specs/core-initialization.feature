@@ -152,7 +152,7 @@ Feature: 外掛初始化與模組載入
 
     Scenario: 檢查 GitHub 更新
       When plugins_loaded hook 觸發
-      Then PucFactory 建立 update checker 連接 https://github.com/j7-dev/woomp
+      Then PucFactory 建立 update checker 連接 https://github.com/zenbuapps/woomp
       And 追蹤 master 分支
       And 啟用 Release Assets
 

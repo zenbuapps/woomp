@@ -127,7 +127,7 @@ Flow:
 
   18. init.php 註冊自動更新機制
       → Hook: plugins_loaded → woomp_plugin_update_checker()
-      → 使用 PucFactory 連接 GitHub j7-dev/woomp，追蹤 master 分支
+      → 使用 PucFactory 連接 GitHub zenbuapps/woomp，追蹤 master 分支
 
   19. init.php 註冊全域修正
       → Filter: woocommerce_order_received_verify_known_shoppers → __return_false（修正感謝頁登入問題）

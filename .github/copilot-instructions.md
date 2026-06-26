@@ -11,7 +11,7 @@ Woomp（好用版擴充 MorePower Addon for WooCommerce）是一個以**台灣�
 - **授權**：GPL-2.0+
 - **需求**：WooCommerce 5.3+、PHP 8.0+
 - **主分支**：`master`
-- **更新來源**：GitHub（`j7-dev/woomp`），透過 Plugin Update Checker 自動更新
+- **更新來源**：GitHub（`zenbuapps/woomp`），透過 Plugin Update Checker 自動更新
 
 ## 技術棧
 

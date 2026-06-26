@@ -382,7 +382,7 @@ function woomp_plugin_update_checker(): void {
 
 	try {
 		$update_checker = YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
-			'https://github.com/j7-dev/woomp',
+			'https://github.com/zenbuapps/woomp',
 			WOOMP_PLUGIN_DIR . 'woomp.php',
 			'woomp'
 		);

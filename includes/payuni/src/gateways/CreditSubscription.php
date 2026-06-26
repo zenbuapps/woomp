@@ -130,7 +130,7 @@ class CreditSubscription extends AbstractGateway {
 		 * 如果沒有註冊費，需要扣 5 元來取得 token
 		 * 如果有註冊費，那就直接扣訂單金額就好
 		 *
-		 * @see https://github.com/j7-dev/woomp/issues/46#issuecomment-2143679058
+		 * @see https://github.com/zenbuapps/woomp/issues/46#issuecomment-2143679058
 	*/
 		$order = \wc_get_order( $order_id );
 		// 刷卡有最小金額 20 元限制

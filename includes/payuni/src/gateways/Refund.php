@@ -60,7 +60,7 @@ class Refund {
 	 * 取消交易授權 by order
 	 * 當交易的 CloseStatus 為 7=請款處理中 時，只能用取消授權的方式退款
 	 *
-	 * @see https://github.com/j7-dev/woomp/issues/20
+	 * @see https://github.com/zenbuapps/woomp/issues/20
 	 * @param \WC_Order $order
 	 *
 	 * @return void
@@ -96,7 +96,7 @@ class Refund {
 	 * 取消交易授權 by trade_no
 	 * 定期定額退款 5 元，取消授權，不是真的退款，比較像取消授權交易
 	 *
-	 * @see https://github.com/j7-dev/woomp/issues/20
+	 * @see https://github.com/zenbuapps/woomp/issues/20
 	 * @param string $trade_no
 	 * @param int    $order_id
 	 *

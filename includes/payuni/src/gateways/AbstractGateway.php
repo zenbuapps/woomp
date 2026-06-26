@@ -705,7 +705,7 @@ if( class_exists( 'WC_Payment_Gateway' ) ) {
         /**
          * 記住卡號 html
          *
-         * @see https://github.com/j7-dev/woomp/issues/27
+         * @see https://github.com/zenbuapps/woomp/issues/27
          */
         public function save_payment_method_checkbox(): void {
             $default_checked = \apply_filters( 'default_checked_save_payment_method', false );

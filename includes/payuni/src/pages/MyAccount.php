@@ -71,7 +71,7 @@ class MyAccount {
 	/**
 	 * 當用戶設定信用卡為預設時，更新訂閱的上層訂單中的信用卡資訊
 	 *
-	 * @see https://github.com/j7-dev/woomp/issues/37
+	 * @see https://github.com/zenbuapps/woomp/issues/37
 	 *
 	 * @param integer              $token_id token_id.
 	 * @param \WC_PAYMENT_TOKEN_CC $token 信用卡 token 資訊.
