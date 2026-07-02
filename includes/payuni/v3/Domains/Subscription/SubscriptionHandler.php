@@ -90,25 +90,44 @@ final class SubscriptionHandler {
 			$trade_result = $handler->process_notify( $raw_response );
 
 			$trade_no = $trade_result['TradeNo'] ?? '';
+			$url_3d   = $trade_result['URL'] ?? '';
 
 			if ( ! empty( $trade_no ) ) {
-				// 直接授權成功（有 TradeNo）
+				// 直接授權成功（無 3D）
 				$order->update_meta_data( 'payuni_save_card', 'yes' );
 				$handler->update_order_status( $order, $trade_result );
 
 				// 排程 2 分鐘後取消授權
 				$this->schedule_cancel_authorization( $trade_no );
-			} else {
-				// 3D 驗證流程
-				$order->update_meta_data( 'payuni_save_card', 'yes' );
-				$order->update_meta_data( '_payuni_v3_resp', $trade_result );
-				$order->add_order_note( '3D 驗證已建立（零元取 Token），等待 webhook 回傳' );
-				$order->save();
+
+				return [
+					'result'   => 'success',
+					'redirect' => $order->get_checkout_order_received_url(),
+				];
 			}
 
+			// 需 3D 驗證：PayUni 回傳 OTP 驗證頁網址（URL，Message「建立幕後3D成功」）。
+			// 必須導向該頁讓顧客完成驗證（輸入簡訊 OTP），否則顧客收不到簡訊、
+			// 訂單卡在「等待付款」、webhook 也不會回傳。與 process_positive_amount 同修。
+			if ( ! empty( $url_3d ) ) {
+				$order->update_meta_data( 'payuni_save_card', 'yes' );
+				$order->update_meta_data( '_payuni_v3_resp', $trade_result );
+				$order->add_order_note( '3D 驗證已建立（零元取 Token），導向 OTP 驗證頁' );
+				$order->save();
+
+				return [
+					'result'   => 'success',
+					'redirect' => $url_3d,
+				];
+			}
+
+			// 無 TradeNo 也無 URL → 交易失敗
+			$status  = $trade_result['Status'] ?? '';
+			$message = $trade_result['Message'] ?? '';
+			\wc_add_notice( \esc_html( \sprintf( '零元取 Token 失敗（%s）：%s', $status, $message ?: '未取得交易結果' ) ), 'error' );
+
 			return [
-				'result'   => 'success',
-				'redirect' => $order->get_checkout_order_received_url(),
+				'result' => 'failure',
 			];
 		} catch ( \Throwable $e ) {
 			\do_action( 'woomp_payuni_log', 'error', "#{$order->get_id()} 零元取 Token 失敗: {$e->getMessage()}", [] );
