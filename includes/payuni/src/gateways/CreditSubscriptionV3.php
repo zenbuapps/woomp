@@ -108,6 +108,20 @@ class CreditSubscriptionV3 extends AbstractGateway {
 	}
 
 	/**
+	 * 驗證付款欄位
+	 *
+	 * 定期定額走 UNi Embed，卡號在 PayUni iframe 內、不會 POST 到 WC，
+	 * 故不沿用 AbstractGateway 以 POST 欄位驗證卡號的邏輯（否則新卡結帳
+	 * 永遠回「Credit card number is required」）。卡號有效性由前端 SDK
+	 * （getTradeResult）與幕後 merchant_trade 驗證。
+	 *
+	 * @return bool
+	 */
+	public function validate_fields(): bool {
+		return true;
+	}
+
+	/**
 	 * 輸出付款表單欄位
 	 *
 	 * 於結帳頁輸出信用卡輸入框容器，供 PayUni UNi Embed SDK iframe 渲染。
