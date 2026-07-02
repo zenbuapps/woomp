@@ -286,6 +286,19 @@ final class SubscriptionV3PaymentTest extends WP_UnitTestCase {
 		$handler = new \J7\Payuni\Domains\Subscription\SubscriptionHandler();
 		$handler->schedule_cancel_authorization( 'TEST_TRADE_NO_123' );
 
+		// 排程優先走 Action Scheduler（WP-cron 事件於高流量/頁面快取站點會遺失），無 AS 時 fallback WP-cron。
+		if ( \function_exists( 'as_next_scheduled_action' ) ) {
+			$scheduled = \as_next_scheduled_action( 'payuni_cancel_zero_authorization', [ 'TEST_TRADE_NO_123' ] );
+
+			$this->assertNotFalse( $scheduled, '應以 Action Scheduler 排程 payuni_cancel_zero_authorization' );
+			$this->assertGreaterThanOrEqual( time() + 110, $scheduled, '排程時間應約在 2 分鐘後' );
+			$this->assertLessThanOrEqual( time() + 130, $scheduled, '排程時間應約在 2 分鐘後' );
+
+			// 清理
+			\as_unschedule_all_actions( 'payuni_cancel_zero_authorization', [ 'TEST_TRADE_NO_123' ] );
+			return;
+		}
+
 		$scheduled = \wp_next_scheduled( 'payuni_cancel_zero_authorization', [ 'TEST_TRADE_NO_123' ] );
 
 		$this->assertNotFalse( $scheduled, '應排程 payuni_cancel_zero_authorization 事件' );
