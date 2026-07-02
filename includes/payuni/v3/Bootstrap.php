@@ -221,6 +221,20 @@ final class Bootstrap
 			// 更新訂單狀態
 			$handler->update_order_status($order, $trade_result, true);
 
+			// 零元取 Token（3D 流程）：webhook 授權成功後補排程取消 5 元授權。
+			// 直接授權路徑已於 process_zero_amount_token 排程；3D 路徑當下無 TradeNo，故於此補上。
+			if ('pending' === $order->get_meta('_payuni_zero_token_authcancel', true)
+				&& 'SUCCESS' === ($trade_result['Status'] ?? '')
+				&& $incoming_trade_no) {
+				(new \J7\Payuni\Domains\Subscription\SubscriptionHandler())->schedule_cancel_authorization($incoming_trade_no);
+				$order->update_meta_data('_payuni_zero_token_authcancel', 'scheduled');
+				$order->save();
+				\do_action('woomp_payuni_log', 'info', "#{$order->get_id()} 零元取 Token（3D）已補排程取消 5 元授權", [
+					'order_id' => $order->get_id(),
+					'trade_no' => $incoming_trade_no,
+				]);
+			}
+
 			// 回應成功
 			\wp_send_json_success();
 		} catch (\Throwable $e) {

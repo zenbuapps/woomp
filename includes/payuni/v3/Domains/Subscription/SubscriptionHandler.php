@@ -112,6 +112,8 @@ final class SubscriptionHandler {
 			if ( ! empty( $url_3d ) ) {
 				$order->update_meta_data( 'payuni_save_card', 'yes' );
 				$order->update_meta_data( '_payuni_v3_resp', $trade_result );
+				// 標記：3D 授權成功（webhook 回傳）後需補排程取消這筆 5 元授權（3D 路徑當下無 TradeNo）。
+				$order->update_meta_data( '_payuni_zero_token_authcancel', 'pending' );
 				$order->add_order_note( '3D 驗證已建立（零元取 Token），導向 OTP 驗證頁' );
 				$order->save();
 
