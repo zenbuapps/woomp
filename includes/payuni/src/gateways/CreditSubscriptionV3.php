@@ -138,6 +138,17 @@ class CreditSubscriptionV3 extends AbstractGateway {
 		echo '<label for="put_card_cvc">' . \esc_html__( '安全碼', 'woomp' ) . '</label>';
 		echo '<div id="put_card_cvc"></div>';
 		echo '</div>';
+
+		// 記憶卡號容器：get_sdk_token 對登入會員送 UseTokenType=2，SDK 會在 #put_token_type 內渲染 type-checkbox。
+		// 定期定額強制記憶卡號（續扣需 CreditHash）；若缺此容器，token 模式下卡號被遮蔽，
+		// getTradeResult 讀不到卡號 → 回「Credit card number is required」。
+		if ( \is_user_logged_in() ) {
+			echo '<div id="token_type_checkbox_area" style="display: flex; align-items: center; display: none;">';
+			echo '<div id="put_token_type" style="display: flex; align-items: center;"></div>';
+			echo '<label id="token_type_text" for="type-checkbox" style="margin-left: 8px;"></label>';
+			echo '</div>';
+		}
+
 		echo '</div>';
 	}
 

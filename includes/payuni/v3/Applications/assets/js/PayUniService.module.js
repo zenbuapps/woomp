@@ -600,6 +600,9 @@ class PayUniService {
         // 檢查是否需要記憶卡號（需要啟用記憶卡號功能且勾選了儲存卡片）
         // SDK 會在 put_token_type 容器中產生一個 id 為 type-checkbox 的 checkbox
         const shouldSaveCard = params.ENABLE_TOKENIZATION && $(WC_SELECTORS.TOKEN_TYPE_CHECKBOX).is(':checked');
+        // 定期定額 gateway 強制記憶卡號（續扣需 CreditHash），不受全域 ENABLE_TOKENIZATION / checkbox 影響。
+        // 缺此強制設定時 SDK token 為 UseTokenType=2 但 getTradeResult 未帶 useTokenType → 卡號遮蔽 → 「Credit card number is required」。
+        const isSubscription = $(WC_SELECTORS.PAYUNI_CREDIT_SUBSCRIPTION_V3).is(':checked');
 
         const config = {
             cardInst,
@@ -608,9 +611,8 @@ class PayUniService {
             useDefault: this.#sdkTokenCardActive
         };
 
-        // 如果要記憶卡號，設定 useTokenType
-        // SDK 會在回傳結果中包含 CardHash
-        if (shouldSaveCard) {
+        // 記憶卡號 / 定期定額：設定 useTokenType，SDK 會在回傳結果中包含 CardHash
+        if (shouldSaveCard || isSubscription) {
             config.useTokenType = TOKEN_TYPE.REMEMBER_CARD;
         }
 
