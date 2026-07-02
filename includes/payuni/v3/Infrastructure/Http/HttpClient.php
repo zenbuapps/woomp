@@ -255,14 +255,23 @@ final class HttpClient {
             if( \is_wp_error( $response ) ) {
                 throw new \Exception( $response->get_error_message() );
             }
-            /** @var array<string, mixed>|array{code: int, msg: string} $response_body */
-            $response_body = \json_decode( \wp_remote_retrieve_body( $response ), true );
+            $raw_body = \wp_remote_retrieve_body( $response );
+            /** @var array<string, mixed>|array{code: int, msg: string}|null $response_body */
+            $response_body = \json_decode( $raw_body, true );
 
             \do_action( 'woomp_payuni_log', 'info', "{$endpoint} API 發送結果", [
                 'endpoint' => $api_url,
                 'body'     => $request_body,
                 'result'   => $response_body
             ] );
+
+            // 非 JSON 回應（如 404 HTML）→ 給出可診斷的錯誤，避免後續對 null 操作噴 TypeError。
+            if ( ! \is_array( $response_body ) ) {
+                $http_code = \wp_remote_retrieve_response_code( $response );
+                throw new \Exception(
+                    \sprintf( 'PayUni API 回應非 JSON（HTTP %s，endpoint: %s）：%s', $http_code, $api_url, \mb_substr( (string) $raw_body, 0, 200 ) )
+                );
+            }
 
 
             self::ensure_response_success( $response_body );
@@ -334,7 +343,8 @@ final class HttpClient {
         $request_body            = $this->get_auth_body_params( $encrypt_info );
         $request_body['Version'] = '2.0';
 
-        $response = $this->post( '/api/trade/query', $request_body );
+        // base_api_url() 已含 /api 結尾，endpoint 不可再帶 /api 前綴（否則 /api/api/... 404）。
+        $response = $this->post( '/trade/query', $request_body );
 
         return EncryptUtils::decrypt( $response['EncryptInfo'] ?? '' );
     }
@@ -358,7 +368,8 @@ final class HttpClient {
 
         $request_body = $this->get_auth_body_params( $encrypt_info );
 
-        $response = $this->post( '/api/trade/cancel', $request_body );
+        // base_api_url() 已含 /api 結尾，endpoint 不可再帶 /api 前綴（否則 /api/api/... 404）。
+        $response = $this->post( '/trade/cancel', $request_body );
 
         return EncryptUtils::decrypt( $response['EncryptInfo'] ?? '' );
     }
@@ -385,7 +396,8 @@ final class HttpClient {
 
         $request_body = $this->get_auth_body_params( $encrypt_info );
 
-        $response = $this->post( '/api/trade/close', $request_body );
+        // base_api_url() 已含 /api 結尾，endpoint 不可再帶 /api 前綴（否則 /api/api/... 404）。
+        $response = $this->post( '/trade/close', $request_body );
 
         return EncryptUtils::decrypt( $response['EncryptInfo'] ?? '' );
     }
