@@ -85,6 +85,8 @@ export const WC_SELECTORS = Object.freeze({
     PLACE_ORDER_BTN: '#place_order',
     /** PayUni 信用卡 V3 付款方式 */
     PAYUNI_CREDIT_V3: '#payment_method_payuni-credit-v3',
+    /** PayUni 信用卡定期定額 V3 付款方式（UNi Embed 免跳轉，與信用卡 V3 共用前端流程） */
+    PAYUNI_CREDIT_SUBSCRIPTION_V3: '#payment_method_payuni-credit-subscription-v3',
     /** 付款方式選項 */
     PAYMENT_METHODS: 'input[type="radio"][name="payment_method"]',
     /** 錯誤訊息區塊 */

@@ -15,6 +15,7 @@ use J7\Payuni\Contracts\DTOs\SettingDTO;
 use J7\Payuni\Contracts\DTOs\TradeReqHashDTO;
 use J7\Payuni\Domains\Subscription\SubscriptionHandler;
 use J7\Payuni\Infrastructure\Http\TradeHandler;
+use J7\Payuni\Shared\Utils\CreditTokenUtils;
 use J7\Payuni\Shared\Utils\EncryptUtils;
 use J7\Payuni\Shared\Utils\OrderUtils;
 
@@ -104,6 +105,40 @@ class CreditSubscriptionV3 extends AbstractGateway {
 				'desc_tip'    => true,
 			],
 		];
+	}
+
+	/**
+	 * 輸出付款表單欄位
+	 *
+	 * 於結帳頁輸出信用卡輸入框容器，供 PayUni UNi Embed SDK iframe 渲染。
+	 * 與 CreditV3 共用同一組容器 ID（put_card_no / put_card_exp / put_card_cvc）與前端流程，
+	 * 使定期定額首次付款能正確走 UNi Embed（在 iframe 內完成 3D）。
+	 *
+	 * 注意：若同時啟用「信用卡 v3」與本閘道，兩者會輸出相同容器 ID，SDK 只會綁定 DOM 中第一個；
+	 * 建議兩者擇一啟用，或後續改為讓 SDK 依「當前選取的付款方式」動態綁定對應容器。
+	 *
+	 * @return void
+	 */
+	public function payment_fields(): void {
+		if ( $this->description ) {
+			echo \wpautop( \wptexturize( $this->description ) );
+		}
+
+		// UNi Embed 信用卡輸入容器（SDK 依這些 id 渲染 iframe 輸入框）
+		echo '<div class="payuni-credit-v3-form payuni-new-card-form">';
+		echo '<div class="payuni-form-group">';
+		echo '<label for="put_card_no">' . \esc_html__( '信用卡號碼', 'woomp' ) . '</label>';
+		echo '<div id="put_card_no"></div>';
+		echo '</div>';
+		echo '<div class="payuni-form-group">';
+		echo '<label for="put_card_exp">' . \esc_html__( '有效期限', 'woomp' ) . '</label>';
+		echo '<div id="put_card_exp"></div>';
+		echo '</div>';
+		echo '<div class="payuni-form-group">';
+		echo '<label for="put_card_cvc">' . \esc_html__( '安全碼', 'woomp' ) . '</label>';
+		echo '<div id="put_card_cvc"></div>';
+		echo '</div>';
+		echo '</div>';
 	}
 
 	/**
@@ -217,7 +252,7 @@ class CreditSubscriptionV3 extends AbstractGateway {
 				'UsrMail'      => $buyer_email,
 				'ProdDesc'     => $this->get_product_desc( $order ),
 				'UseTokenType' => 2,
-				'CreditToken'  => $buyer_email,
+				'CreditToken'  => CreditTokenUtils::sanitize( $buyer_email, $order->get_customer_id() ),
 			];
 
 			// 訂閱強制記住卡號
@@ -247,27 +282,59 @@ class CreditSubscriptionV3 extends AbstractGateway {
 			$trade_result = $handler->process_notify( $raw_response );
 
 			$trade_no = $trade_result['TradeNo'] ?? '';
+			$status   = $trade_result['Status'] ?? '';
+			$message  = $trade_result['Message'] ?? '';
+			$url_3d   = $trade_result['URL'] ?? '';
 
+			// 直接授權成功（有 TradeNo）
 			if ( ! empty( $trade_no ) ) {
-				// 直接授權成功
 				$handler->update_order_status( $order, $trade_result );
-			} else {
-				// 3D 驗證流程
-				$order->update_meta_data( '_payuni_v3_resp', $trade_result );
-				$order->add_order_note(
-					\sprintf(
-						'3D 驗證已建立（訂閱首次付款），等待 webhook 回傳（狀態碼：%s）',
-						$trade_result['Status'] ?? ''
-					)
-				);
-				$order->save();
+
+				return [
+					'result'   => 'success',
+					'redirect' => $order->get_checkout_order_received_url(),
+					'order_id' => $order->get_id(),
+				];
 			}
 
-			return [
-				'result'   => 'success',
-				'redirect' => $order->get_checkout_order_received_url(),
-				'order_id' => $order->get_id(),
-			];
+			// 需 3D 驗證：merchant_trade 於 3D 流程會回傳 OTP 驗證頁網址（URL），
+			// 必須將顧客導向該頁完成驗證，否則 3D session 不會完成，訂單會停在「等待付款」，
+			// 約 15 分鐘後才由 webhook 回授權失敗——此為先前定期定額未跳轉 3D 的主因。
+			if ( ! empty( $url_3d ) ) {
+				$order->update_meta_data( '_payuni_v3_resp', $trade_result );
+				$order->add_order_note(
+					\sprintf( '3D 驗證已建立（訂閱首次付款），導向 OTP 驗證頁（狀態碼：%s）', $status )
+				);
+				$order->save();
+
+				return [
+					'result'   => 'success',
+					'redirect' => $url_3d,
+					'order_id' => $order->get_id(),
+				];
+			}
+
+			// 無 TradeNo 也無 3D URL：僅 Status=SUCCESS 才視為等待 webhook 的 pending；
+			// 其餘（如 IFTRADE02004 未有交易Token 等錯誤）一律視為交易失敗，
+			// 避免把錯誤誤判為「3D 已建立」並靜默導向感謝頁。
+			if ( 'SUCCESS' === $status ) {
+				$order->update_meta_data( '_payuni_v3_resp', $trade_result );
+				$order->add_order_note(
+					\sprintf( '交易已建立，等待 webhook 回傳結果（狀態碼：%s）', $status )
+				);
+				$order->save();
+
+				return [
+					'result'   => 'success',
+					'redirect' => $order->get_checkout_order_received_url(),
+					'order_id' => $order->get_id(),
+				];
+			}
+
+			// 交易失敗：拋出交由下方 catch 統一處理（wc_add_notice + result=failure），訂單維持 pending 供顧客重試。
+			throw new \Exception(
+				\sprintf( '付款失敗（%s）：%s', $status, $message ?: '未取得交易結果' )
+			);
 		} catch ( \Throwable $e ) {
 			\do_action( 'woomp_payuni_log', 'error', "#{$order->get_id()} V3 訂閱 process_payment 失敗: {$e->getMessage()}", [
 				'order_id' => $order->get_id(),

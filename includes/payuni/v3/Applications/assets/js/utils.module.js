@@ -14,8 +14,9 @@ import {WC_SELECTORS} from './constants.module.js';
  * @returns {boolean} 是否選中 PayUni 信用卡 V3 付款方式
  */
 function isPayuni() {
-    const $input = $(WC_SELECTORS.PAYUNI_CREDIT_V3);
-    return !!$input.is(':checked');
+    // 信用卡 V3 與 信用卡定期定額 V3 皆使用同一套 UNi Embed 前端流程
+    const selectors = [WC_SELECTORS.PAYUNI_CREDIT_V3, WC_SELECTORS.PAYUNI_CREDIT_SUBSCRIPTION_V3];
+    return selectors.some((selector) => $(selector).is(':checked'));
 }
 
 /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace J7\Payuni\Contracts\DTOs;
 
+use J7\Payuni\Shared\Utils\CreditTokenUtils;
 use J7\Payuni\Shared\Utils\OrderUtils;
 
 final class TradeReqHashDTO
@@ -136,13 +137,13 @@ final class TradeReqHashDTO
 		// 記憶卡號：首次付款時記憶卡號（UseTokenType=2）
 		if ($save_card) {
 			$args['UseTokenType'] = 2;
-			$args['CreditToken']  = $buyer_email;
+			$args['CreditToken']  = CreditTokenUtils::sanitize( $buyer_email, $order->get_customer_id() );
 		}
 
 		// 使用已儲存卡片：CreditToken 讓 PayUni 找到對應的記憶卡號
 		if ($use_saved_token && $saved_token_id) {
 			$args['UseTokenType'] = 2;
-			$args['CreditToken']  = $buyer_email;
+			$args['CreditToken']  = CreditTokenUtils::sanitize( $buyer_email, $order->get_customer_id() );
 		}
 
 		$ip = $order->get_customer_ip_address();

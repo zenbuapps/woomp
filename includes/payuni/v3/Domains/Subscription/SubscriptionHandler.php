@@ -14,6 +14,7 @@ namespace J7\Payuni\Domains\Subscription;
 use J7\Payuni\Contracts\DTOs\SettingDTO;
 use J7\Payuni\Infrastructure\Http\HttpClient;
 use J7\Payuni\Infrastructure\Http\TradeHandler;
+use J7\Payuni\Shared\Utils\CreditTokenUtils;
 use J7\Payuni\Shared\Utils\EncryptUtils;
 use PAYUNI\Gateways\CreditSubscriptionV3;
 
@@ -67,7 +68,7 @@ final class SubscriptionHandler {
 			'UsrMail'      => $buyer_email,
 			'ProdDesc'     => '訂閱取得信用卡 Token',
 			'UseTokenType' => 2,
-			'CreditToken'  => $buyer_email,
+			'CreditToken'  => CreditTokenUtils::sanitize( $buyer_email, $order->get_customer_id() ),
 		];
 
 		if ( $setting->enable_3d_auth ) {
@@ -238,7 +239,7 @@ final class SubscriptionHandler {
 			'Timestamp'    => \time(),
 			'UsrMail'      => $order->get_billing_email(),
 			'ProdDesc'     => '訂閱續扣',
-			'CreditToken'  => $order->get_billing_email(),
+			'CreditToken'  => CreditTokenUtils::sanitize( $order->get_billing_email(), $order->get_customer_id() ),
 			'CreditHash'   => $card_hash,
 			'UseTokenType' => 2,
 		];
@@ -305,7 +306,7 @@ final class SubscriptionHandler {
 			'Timestamp'   => \time(),
 			'UsrMail'     => $order->get_billing_email(),
 			'ProdDesc'    => '訂閱續扣',
-			'CreditToken' => $order->get_billing_email(),
+			'CreditToken' => CreditTokenUtils::sanitize( $order->get_billing_email(), $order->get_customer_id() ),
 			'CreditHash'  => $card_hash,
 		];
 

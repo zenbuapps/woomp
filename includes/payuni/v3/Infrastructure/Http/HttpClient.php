@@ -5,6 +5,7 @@ declare( strict_types = 1 );
 namespace J7\Payuni\Infrastructure\Http;
 
 use J7\Payuni\Contracts\DTOs\SettingDTO;
+use J7\Payuni\Shared\Utils\CreditTokenUtils;
 use J7\Payuni\Shared\Utils\EncryptUtils;
 
 /**
@@ -217,11 +218,11 @@ final class HttpClient {
             'IFrameDomain' => self::get_site_url(),
         ];
         $current_user = \wp_get_current_user();
-        if( $current_user ) {
+        if( $current_user && $current_user->ID ) {
+            $raw_credit_token = \get_user_meta( $current_user->ID, 'billing_email', true ) ?: $current_user->user_email;
             $encrypt_info['UseTokenType'] = 2;
-            $encrypt_info['CreditToken'] = \get_user_meta(
-                $current_user->ID, 'billing_email', true
-            ) ?: $current_user->user_email;
+            // 淨化 CreditToken：email 含非法字元（如 Gmail plus-alias 的 "+"）會被 PayUni 以 TOKEN02019（綁定Token，格式錯誤）拒絕。
+            $encrypt_info['CreditToken'] = CreditTokenUtils::sanitize( (string) $raw_credit_token, (int) $current_user->ID );
             $encrypt_info['CreditTokenType'] = 1;
         }
 
@@ -299,10 +300,9 @@ final class HttpClient {
      */
     private function get_auth_body_params( array $encrypt_info = [] ): array {
         $setting = SettingDTO::instance();
+        // 安全性：不得將 hash_key / hash_iv（AES 金鑰）寫入日誌。
         \do_action( 'woomp_payuni_log', 'debug', 'encrypt_info', [
             'encrypt_info' => $encrypt_info,
-            'hash_key'     => $setting->hash_key,
-            'hash_iv'      => $setting->hash_iv,
         ] );
         $parameter = [];
         $parameter['MerID'] = $setting->merchant_id;
