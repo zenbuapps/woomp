@@ -148,6 +148,18 @@ final class SubscriptionHandler {
 	 * @return void
 	 */
 	public function schedule_cancel_authorization( string $trade_no ): void {
+		// 優先使用 Action Scheduler（WooCommerce 內建，具自有 queue runner 與重試機制）。
+		// wp_schedule_single_event 在高流量 + 頁面快取站點常因 cron option 寫入競態而遺失，
+		// 或因主機停用/攔截 wp-cron 而永不執行（實測 icba 即發生事件遺失）。
+		if ( \function_exists( 'as_schedule_single_action' ) ) {
+			\as_schedule_single_action(
+				\time() + 120,
+				'payuni_cancel_zero_authorization',
+				[ $trade_no ]
+			);
+			return;
+		}
+
 		\wp_schedule_single_event(
 			\time() + 120,
 			'payuni_cancel_zero_authorization',
