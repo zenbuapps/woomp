@@ -367,6 +367,8 @@ final class HttpClient {
         ];
 
         $request_body = $this->get_auth_body_params( $encrypt_info );
+        // 官方 PHP SDK trade_cancel 預設 Version 1.0；帶 3.0 會回 API00003（無API對應程式）。
+        $request_body['Version'] = '1.0';
 
         // base_api_url() 已含 /api 結尾，endpoint 不可再帶 /api 前綴（否則 /api/api/... 404）。
         $response = $this->post( '/trade/cancel', $request_body );
@@ -395,6 +397,8 @@ final class HttpClient {
         ];
 
         $request_body = $this->get_auth_body_params( $encrypt_info );
+        // 官方 PHP SDK trade_close 預設 Version 1.0；帶 3.0 會回 API00003（無API對應程式）。
+        $request_body['Version'] = '1.0';
 
         // base_api_url() 已含 /api 結尾，endpoint 不可再帶 /api 前綴（否則 /api/api/... 404）。
         $response = $this->post( '/trade/close', $request_body );
