@@ -76,6 +76,8 @@ woomp/
 ### 金流閘道模式
 所有金流閘道繼承 `WC_Payment_Gateway`（或 `WC_Payment_Gateway_CC`）。PayUni v1 使用 `PAYUNI\Gateways\AbstractGateway`。PayUni v3 使用 PSR-4 命名空間 `J7\Payuni\`，搭配 DTO/Infrastructure 分層架構。
 
+ECPay（綠界）閘道基底 `RY_ECPay_Gateway_Base` 已實作後台退款（`supports[] = 'refunds'` + `process_refund()`）：信用卡類（`payment_type = Credit`）退款會同步呼叫綠界 `CreditDetail/DoAction` API 退刷（前置以 `QueryTradeInfo` 驗證交易狀態，未關帳且全額退款時降級為放棄授權 `Action=N`）；非信用卡（ATM／超商代碼／超商條碼／WebATM）無線上退款 API，回傳 `WP_Error` 引導商家至綠界後台人工退款。
+
 ### HPOS 相容性
 
 WooCommerce 7.1 起引入高效能訂單儲存（HPOS），訂單資料改存於專屬資料表而非 `wp_postmeta`。本外掛已完整宣告並實作 HPOS 相容。

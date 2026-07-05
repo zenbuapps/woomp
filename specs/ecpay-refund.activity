@@ -1,0 +1,75 @@
+Activity: 綠界 ECPay 後台退款流程
+Description: 管理員於 WooCommerce 後台對綠界訂單發起退款，信用卡類會同步呼叫綠界 CreditDetail/DoAction API 完成退刷；非信用卡類回傳人工退款指引
+
+Actors:
+  - Admin: 網站管理員（後台操作退款）
+  - WooCommerce: WooCommerce 訂單管理（觸發 process_refund）
+  - ECPay_Gateway_Base: RY_ECPay_Gateway_Base 及其子類別（process_refund 進入點）
+  - ECPay_Gateway_Api: RY_ECPay_Gateway_Api 類別（退款 API 編排）
+  - ECPay_API: 綠界金流 API 伺服器（payment.ecpay.com.tw / payment-stage.ecpay.com.tw）
+
+Triggers:
+  - Admin 在後台訂單頁面點擊「退款」按鈕並輸入退款金額
+
+Flow:
+  1. Admin 在後台發起部分或全額退款
+     → WooCommerce 呼叫 ECPay_Gateway_Base::process_refund($order_id, $amount, $reason)
+
+  2. 驗證訂單與付款方式
+     → Condition: 訂單是否存在
+       No  → 回傳 WP_Error（找不到訂單，無法退款）
+       Yes → 檢查 payment_type
+     → Condition: payment_type 是否為 'Credit'
+       No（ATM／CVS／BARCODE／WebATM）→ 回傳 WP_Error，訊息指引「請登入綠界廠商後台手動辦理退款，或聯繫綠界客服」（非系統故障），流程結束
+       Yes → 轉呼叫 ECPay_Gateway_Api::process_credit_refund($order, $amount, $reason, $gateway)
+
+  3. 信用卡分期全額限制檢查
+     → Condition: gateway id 是否包含 'installment' 且退款金額 < 訂單總額
+       Yes → 回傳 WP_Error「信用卡分期付款僅支援全額退款，無法部分退款」，不呼叫任何 API
+       No  → 繼續下一步
+
+  4. 前置驗證：ECPay_Gateway_Api::query_trade_info($order)
+     → 組裝 MerchantID、MerchantTradeNo（讀取 _ecpay_MerchantTradeNo meta）、TimeStamp
+     → 計算 CheckMacValue（SHA256）
+     → POST 至 ECPay_API（Cashier/QueryTradeInfo/V5，依測試/正式環境切換 get_api_url）
+     → Condition: 連線是否成功
+       No → 回傳 WP_Error，中止（不送出 DoAction）
+     → Condition: 回應 CheckMacValue 是否驗證通過
+       No → 回傳 WP_Error，中止
+     → Condition: TradeStatus 是否為 '1'
+       No → 回傳 WP_Error「訂單尚未完成付款，無法退款」，中止
+       Yes → 繼續下一步
+
+  5. 主路徑：ECPay_Gateway_Api::do_credit_action($order, 'R', $amount)
+     → 組裝 MerchantID、MerchantTradeNo、TradeNo（get_transaction_id）、Action=R、TotalAmount
+     → 計算請求 CheckMacValue（SHA256，供綠界驗證入站請求）
+     → POST 至 ECPay_API（CreditDetail/DoAction；Stage 測試環境不支援真實授權）
+     → Condition: 連線是否成功
+       No → 回傳 WP_Error，中止
+     → Condition: 回應是否含 RtnCode，且回應 MerchantTradeNo／TradeNo 是否與本訂單相符
+       （綠界 DoAction 回應依官方規格 2885.md 不含 CheckMacValue，故此路徑不驗章；改以綁定原訂單防偽，回應真實性由 TLS 保護）
+       No → 回傳 WP_Error，中止
+     → Condition: RtnCode 是否為 '1'
+       Yes → 訂單備註記錄「綠界退款成功（退刷 R，金額 X）」→ WC Logger 記錄 → return true
+       No  → 進入步驟 6
+
+  6. 降級判斷（僅主路徑失敗時執行）
+     → Condition: RtnMsg 是否包含「未關帳」且為全額退款
+       No  → 回傳 WP_Error「綠界退款失敗：{RtnMsg}」，流程結束
+       Yes → 呼叫 do_credit_action($order, 'N', $amount)（放棄授權，同步驟 5 的請求/驗證流程）
+         → Condition: RtnCode 是否為 '1'
+           Yes → 訂單備註記錄「綠界退款成功（尚未關帳，改以放棄授權 N，金額 X）」→ WC Logger 記錄 → return true
+           No  → 回傳 WP_Error「綠界退款失敗（放棄授權 N）：{RtnMsg}」
+
+Side Effects:
+  - 成功退款時於訂單備註記錄「綠界退款成功」與實際採用的動作（R 退刷 或 降級 N 放棄授權）
+  - 所有送出/失敗紀錄可透過 RY_ECPay_Gateway::log()（WC Logger source: ry_ecpay_gateway）查看
+  - 失敗一律回傳 WP_Error、不修改訂單狀態、不標記已退款（fail-closed：任何查詢/API 失敗、QueryTradeInfo 回應 CheckMacValue 不符、或 DoAction 回應綁定不符皆中止）
+  - 非信用卡付款方式（ATM／CVS／BARCODE／WebATM）完全不觸發任何對外 API 呼叫
+  - DoAction 在綠界 Stage 測試環境不支援真實授權，僅正式環境可實際退刷
+
+Related Features:
+  - ecpay-refund.feature
+  - ecpay-payment.feature
+  - ecpay-payment.activity
+  - payuni-refund.feature（同類「查詢後決定退款/取消」退款模式的既有實作參考）

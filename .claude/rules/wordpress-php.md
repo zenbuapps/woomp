@@ -95,6 +95,8 @@ class CreditV3 extends AbstractGateway {
 
 金流閘道關鍵方法：`init_form_fields()`、`process_payment()`、`process_refund()`、`payment_fields()`。
 
+當單一基底類別涵蓋多種付款方式時（如 ECPay `RY_ECPay_Gateway_Base` 同時涵蓋信用卡／ATM／超商代碼／超商條碼／WebATM），`process_refund()` 可依 `payment_type` 等屬性分流：可線上退款的類型轉呼叫廠商 API，其餘類型直接回傳 `WP_Error`（繁中訊息說明並非系統故障、引導商家至廠商後台人工退款），避免整個閘道一律回傳失敗或誤判為錯誤。範例：`includes/ry-woocommerce-tools/woocommerce/gateways/ecpay/includes/ecpay-gateway-base.php`。
+
 ## 物流方式模式
 
 物流方式繼承 `WC_Shipping_Method`，透過 `woocommerce_shipping_methods` 過濾器註冊：
