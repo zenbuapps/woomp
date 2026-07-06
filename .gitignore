@@ -40,3 +40,4 @@ dist-ssr
 /*.md
 !README.md
 .playwright-mcp/
+.playwright-cli
