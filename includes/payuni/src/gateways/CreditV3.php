@@ -9,6 +9,7 @@
 namespace PAYUNI\Gateways;
 
 use J7\Payuni\Contracts\DTOs\TradeReqDTO;
+use J7\Payuni\Domains\Reconciliation\PendingReconciler;
 use J7\Payuni\Infrastructure\Http\HttpClient;
 use J7\Payuni\Infrastructure\Http\TradeHandler;
 
@@ -381,6 +382,11 @@ class CreditV3 extends AbstractGateway
 					)
 				);
 				$order->save();
+
+				// issue #125：3DS 訂單完成 100% 依賴背景 NotifyURL webhook；
+				// 排程 120 秒後主動向 PayUni 查詢，於 webhook 遲到/漏收時補完訂單，
+				// 避免顧客已扣款卻永遠卡在「等待付款中」。
+				PendingReconciler::schedule($order);
 			}
 
 			// 3D 驗證流程：merchant_trade 成功時會回傳 3D 驗證頁網址（$trade_result['URL']），
