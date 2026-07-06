@@ -6,6 +6,7 @@ namespace J7\Payuni;
 
 use J7\Payuni\Contracts\DTOs\SdkDTO;
 use J7\Payuni\Contracts\DTOs\SettingDTO;
+use J7\Payuni\Domains\Reconciliation\PendingReconciler;
 use J7\Payuni\Domains\Subscription\SubscriptionBootstrap;
 use J7\Payuni\Infrastructure\Http\HttpClient;
 use J7\Payuni\Infrastructure\Http\TradeHandler;
@@ -43,6 +44,9 @@ final class Bootstrap
 
 		// 交易回調通知
 		\add_action('woocommerce_api_payuni_notify', [__CLASS__, 'handle_notify']);
+
+		// 待付款訂單補償對帳（issue #125：webhook 遲到/漏收時，於 120 秒後主動查詢補完）
+		\add_action(PendingReconciler::HOOK, [PendingReconciler::class, 'reconcile'], 10, 1);
 
 		// 定期定額訂閱
 		SubscriptionBootstrap::register_hooks();

@@ -350,6 +350,35 @@ final class HttpClient {
     }
 
     /**
+     * 以商店訂單編號查詢交易狀態
+     *
+     * 用於 3DS 待付款訂單的補償對帳（issue #125）：訂單於 3DS 流程中尚未取得 PayUni
+     * TradeNo，無法用 query_trade()，改以送出交易時相同的 MerTradeNo 反查。
+     *
+     * @param string $mer_trade_no 商店訂單編號（= 送出交易時的 MerTradeNo）
+     *
+     * @return array 解密後的交易資料（含 Result 陣列）
+     * @throws \Exception 查詢失敗時拋出例外
+     */
+    public function query_trade_by_mer_no( string $mer_trade_no ): array {
+        $setting = SettingDTO::instance();
+
+        $encrypt_info = [
+            'MerID'      => $setting->merchant_id,
+            'MerTradeNo' => $mer_trade_no,
+            'Timestamp'  => \time(),
+        ];
+
+        $request_body            = $this->get_auth_body_params( $encrypt_info );
+        $request_body['Version'] = '2.0';
+
+        // base_api_url() 已含 /api 結尾，endpoint 不可再帶 /api 前綴（否則 /api/api/... 404）。
+        $response = $this->post( '/trade/query', $request_body );
+
+        return EncryptUtils::decrypt( $response['EncryptInfo'] ?? '' );
+    }
+
+    /**
      * 取消交易授權
      *
      * @param string $trade_no PayUni 交易編號
