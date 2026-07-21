@@ -421,37 +421,37 @@ function woomp_copy_order( \WC_Order $order ): int {
 	$new_order->set_props($props);
 
 	// 複製訂單的所有 meta data
+	//
+	// 注意：value 不可強轉字串，否則陣列型 meta（例如 _ecpay_invoice_data）
+	// 會被毀成字面字串 "Array"，發票載具等資料全部遺失。
 	/**
 	 * @var \WC_Meta_Data[] $meta_data
 	 */
 	$meta_data = $order->get_meta_data();
-	foreach ($meta_data as $meta) {
-		$new_order->update_meta_data( (string) $meta->__get('key'), (string) $meta->__get('value'));
+	foreach ( $meta_data as $meta ) {
+		$new_order->update_meta_data( (string) $meta->__get( 'key' ), $meta->__get( 'value' ) );
 	}
 
-	// 複製訂單項目
-	foreach ($order->get_items() as $item) {
-		$new_order->add_item($item);
-	}
+	// 不可跨訂單沿用的品項層級狀態：已扣庫存 / 已回補庫存的紀錄。
+	// 若一併複製，新訂單付款成功時 wc_maybe_reduce_stock_levels() 會判定已扣而跳過，造成超賣。
+	$item_meta_blocklist = [ '_reduced_stock', '_restock_refunded_items' ];
 
-	// 複製運費項目
-	foreach ($order->get_items('shipping') as $item) {
-		$new_order->add_item($item);
-	}
+	// 複製訂單項目（line_item / shipping / tax / coupon / fee 一次處理）
+	//
+	// 必須 clone 並將 ID 歸零：WC_Abstract_Order::add_item() 不會重置 item ID，
+	// 帶著既有 ID 的 item 於 save_items() 時會走 data store 的 update()，
+	// 執行 `UPDATE ... SET order_id = {新訂單}`，等同把原訂單的品項「搬移」過來，
+	// 使原訂單被清空、總額歸零。
+	// clone 會觸發 WC_Data::__clone()，一併深拷貝 meta 並重置 meta ID。
+	foreach ( $order->get_items( [ 'line_item', 'shipping', 'tax', 'coupon', 'fee' ] ) as $item ) {
+		$new_item = clone $item;
+		$new_item->set_id( 0 );
 
-	// 複製稅金項目
-	foreach ($order->get_items('tax') as $item) {
-		$new_order->add_item($item);
-	}
+		foreach ( $item_meta_blocklist as $meta_key ) {
+			$new_item->delete_meta_data( $meta_key );
+		}
 
-	// 複製優惠券項目
-	foreach ($order->get_items('coupon') as $item) {
-		$new_order->add_item($item);
-	}
-
-	// 複製手續費項目
-	foreach ($order->get_items('fee') as $item) {
-		$new_order->add_item($item);
+		$new_order->add_item( $new_item );
 	}
 
 	// 儲存新訂單
