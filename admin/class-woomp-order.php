@@ -42,6 +42,10 @@ if ( ! class_exists( 'WooMP_Order' ) ) {
 			add_action( 'woocommerce_admin_order_data_after_shipping_address', [ $class, 'add_choose_cvs_btn' ] );
 			add_action( 'admin_enqueue_scripts', [ $class, 'enqueue_choose_cvs_script' ] );
 
+			// 訂單品項 meta 顯示中文化
+			add_filter( 'woocommerce_order_item_display_meta_key', [ $class, 'display_shipping_meta_key' ], 10, 3 );
+			add_filter( 'woocommerce_order_item_display_meta_value', [ $class, 'display_shipping_meta_value' ], 10, 3 );
+
 			// 訂單列表優化（傳統 + HPOS 雙重註冊）
 			add_filter( 'manage_shop_order_posts_columns', [ $class, 'shop_order_columns' ], 11, 1 );
 			add_filter( 'manage_woocommerce_page_wc-orders_columns', [ $class, 'shop_order_columns' ], 11, 1 );
@@ -102,6 +106,69 @@ if ( ! class_exists( 'WooMP_Order' ) ) {
 				}
 			}
 			return $new_order_statuses;
+		}
+
+		/**
+		 * 物流品項 meta 名稱中文化
+		 *
+		 * 運費計算時寫入 WC_Shipping_Rate 的內部欄位 no_count（包裹件數）與
+		 * diff（距免運門檻差額），會被 WooCommerce 原樣複製成訂單品項 meta。
+		 * 直接顯示英文鍵值商家無從理解，故改為中文標籤。
+		 *
+		 * @param string        $display_key 顯示用名稱.
+		 * @param object        $meta        Meta 物件.
+		 * @param WC_Order_Item $item        訂單品項.
+		 * @return string
+		 */
+		public function display_shipping_meta_key( $display_key, $meta, $item ) {
+			if ( ! $item instanceof WC_Order_Item_Shipping ) {
+				return $display_key;
+			}
+
+			$labels = [
+				'no_count' => __( '包裹件數', 'woomp' ),
+				'diff'     => __( '免運門檻差額', 'woomp' ),
+			];
+
+			return $labels[ $meta->key ] ?? $display_key;
+		}
+
+		/**
+		 * 物流品項 meta 數值語意化
+		 *
+		 * 原始值為裸數字（diff 為負數代表已達門檻），加上單位與說明避免誤讀。
+		 *
+		 * @param string        $display_value 顯示用數值.
+		 * @param object        $meta          Meta 物件.
+		 * @param WC_Order_Item $item          訂單品項.
+		 * @return string
+		 */
+		public function display_shipping_meta_value( $display_value, $meta, $item ) {
+			if ( ! $item instanceof WC_Order_Item_Shipping ) {
+				return $display_value;
+			}
+
+			switch ( $meta->key ) {
+				case 'no_count':
+					return sprintf(
+						/* translators: %s: 包裹件數 */
+						__( '%s 件', 'woomp' ),
+						(int) $meta->value
+					);
+
+				case 'diff':
+					$diff = (float) $meta->value;
+					if ( $diff > 0 ) {
+						return sprintf(
+							/* translators: %s: 尚差金額 */
+							__( '尚差 %s 達免運門檻', 'woomp' ),
+							wc_price( $diff )
+						);
+					}
+					return __( '已達免運門檻', 'woomp' );
+			}
+
+			return $display_value;
 		}
 
 		/**
