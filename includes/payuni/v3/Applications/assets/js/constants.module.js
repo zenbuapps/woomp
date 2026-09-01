@@ -60,17 +60,23 @@ export const TRADE_STATUS = Object.freeze({
 });
 
 /**
- * Token 類型（記憶卡號設定）
+ * Token 類型（UseTokenType）
+ *
+ * 數值必須與 PAYUNi 官方文件一致，並與後端 EUseTokenType enum、
+ * token_get 送出的 UseTokenType 相同——前後端不一致時 PAYUNi 不會執行綁定，
+ * 授權雖成功但回傳不含 CreditHash，導致後續無法幕後續扣。
+ *
+ * @see https://docs.payuni.com.tw/web/#/7/512
  * @readonly
  * @enum {number}
  */
 export const TOKEN_TYPE = Object.freeze({
-    /** 不使用 Token（一次性付款） */
-    NONE: 0,
-    /** 記憶卡號 */
-    REMEMBER_CARD: 1,
-    /** 約定信用卡 */
-    SUBSCRIPTION_CARD: 2
+    /** 約定信用卡：可幕後扣款，消費者於付款頁可自行取消約定 */
+    AGREED_CARD: 1,
+    /** 記憶卡號 + 到期日：僅供下次結帳自動帶出卡號，不可幕後扣款 */
+    REMEMBER_CARD: 2,
+    /** 強制約定信用卡：可幕後扣款，消費者無法取消（定期定額適用） */
+    FORCE_AGREED_CARD: 3
 });
 
 /**

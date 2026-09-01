@@ -15,6 +15,7 @@ use J7\Payuni\Contracts\DTOs\SettingDTO;
 use J7\Payuni\Contracts\DTOs\TradeReqHashDTO;
 use J7\Payuni\Domains\Subscription\SubscriptionHandler;
 use J7\Payuni\Infrastructure\Http\TradeHandler;
+use J7\Payuni\Shared\Enums\EUseTokenType;
 use J7\Payuni\Shared\Utils\CreditTokenUtils;
 use J7\Payuni\Shared\Utils\EncryptUtils;
 use J7\Payuni\Shared\Utils\OrderUtils;
@@ -170,7 +171,7 @@ class CreditSubscriptionV3 extends AbstractGateway {
 	 * 處理付款
 	 *
 	 * 三條路徑：
-	 * 1. 金額 > 0：走 UNi Embed iframe 交易（強制 UseTokenType=2、CreditToken=email、不帶 CardInst）
+	 * 1. 金額 > 0：走 UNi Embed iframe 交易（強制約定信用卡 UseTokenType=3、CreditToken=email、不帶 CardInst）
 	 * 2. 金額 = 0 + 有已存 Token：直接 payment_complete
 	 * 3. 金額 = 0 + 無 Token：扣 5 元取 CreditHash
 	 *
@@ -232,7 +233,7 @@ class CreditSubscriptionV3 extends AbstractGateway {
 	/**
 	 * 處理有金額付款（金額 > 0）
 	 *
-	 * 複用 V3 TradeHandler 交易流程，強制 UseTokenType=2、CreditToken=email。
+	 * 複用 V3 TradeHandler 交易流程，強制約定信用卡（UseTokenType=3）、CreditToken=email。
 	 *
 	 * @param \WC_Order $order 訂單物件
 	 *
@@ -276,7 +277,10 @@ class CreditSubscriptionV3 extends AbstractGateway {
 				'NotifyURL'    => \home_url( '/wc-api/payuni_notify' ),
 				'UsrMail'      => $buyer_email,
 				'ProdDesc'     => $this->get_product_desc( $order ),
-				'UseTokenType' => 2,
+				// 訂閱續扣需要可幕後扣款的 CreditHash，只有「約定信用卡」類型 PayUni 才會壓碼。
+				// UseTokenType=2（記憶卡號）僅供下次結帳帶出卡號，授權雖成功但不回 CreditHash。
+				// 此值必須與 token_get 及前端 getTradeResult 送出的 useTokenType 完全一致。
+				'UseTokenType' => EUseTokenType::FORCE_BIND->value,
 				'CreditToken'  => CreditTokenUtils::sanitize( $buyer_email, $order->get_customer_id() ),
 			];
 

@@ -14,6 +14,7 @@ namespace J7\Payuni\Domains\Subscription;
 use J7\Payuni\Contracts\DTOs\SettingDTO;
 use J7\Payuni\Infrastructure\Http\HttpClient;
 use J7\Payuni\Infrastructure\Http\TradeHandler;
+use J7\Payuni\Shared\Enums\EUseTokenType;
 use J7\Payuni\Shared\Utils\CreditTokenUtils;
 use J7\Payuni\Shared\Utils\EncryptUtils;
 use PAYUNI\Gateways\CreditSubscriptionV3;
@@ -67,7 +68,10 @@ final class SubscriptionHandler {
 			'NotifyURL'    => \home_url( '/wc-api/payuni_notify' ),
 			'UsrMail'      => $buyer_email,
 			'ProdDesc'     => '訂閱取得信用卡 Token',
-			'UseTokenType' => 2,
+			// 續扣需要可幕後扣款的 CreditHash，只有「約定信用卡」類型才會由 PayUni 壓碼。
+			// UseTokenType=2（記憶卡號）僅供下次結帳帶出卡號，授權雖成功但不回 CreditHash。
+			// 此值必須與 token_get 及前端 getTradeResult 送出的 useTokenType 完全一致。
+			'UseTokenType' => EUseTokenType::FORCE_BIND->value,
 			'CreditToken'  => CreditTokenUtils::sanitize( $buyer_email, $order->get_customer_id() ),
 		];
 
@@ -265,31 +269,23 @@ final class SubscriptionHandler {
 		$setting = SettingDTO::instance();
 		$order_suffix = $order->get_meta( '_payuni_order_suffix' ) ? '-' . $order->get_meta( '_payuni_order_suffix' ) : '';
 
+		// 續扣為幕後 Token 交易，必須打信用卡幕後端點 /api/credit。
+		// 過去誤打 UNi Embed 的 /iframe/merchant_trade——該端點是給 iframe 前端流程用的，
+		// 必要參數 Token（SDK_TOKEN，10 分鐘有效）只有結帳頁能取得，
+		// 背景排程沒有前端可帶，PayUni 必然回 IFTRADE02004「未有交易 Token」。
 		$trade_params = [
-			'MerID'        => $setting->merchant_id,
-			'MerTradeNo'   => $order->get_id() . $order_suffix,
-			'TradeAmt'     => (int) $amount,
-			'Timestamp'    => \time(),
-			'UsrMail'      => $order->get_billing_email(),
-			'ProdDesc'     => '訂閱續扣',
-			'CreditToken'  => CreditTokenUtils::sanitize( $order->get_billing_email(), $order->get_customer_id() ),
-			'CreditHash'   => $card_hash,
-			'UseTokenType' => 2,
+			'MerID'       => $setting->merchant_id,
+			'MerTradeNo'  => $order->get_id() . $order_suffix,
+			'TradeAmt'    => (int) $amount,
+			'Timestamp'   => \time(),
+			'UsrMail'     => $order->get_billing_email(),
+			'ProdDesc'    => '訂閱續扣',
+			'CreditToken' => CreditTokenUtils::sanitize( $order->get_billing_email(), $order->get_customer_id() ),
+			'CreditHash'  => $card_hash,
 		];
 
-		// 嘗試走 V3 endpoint（iframe/merchant_trade）
 		try {
-			$encrypt_info = EncryptUtils::encrypt( $trade_params );
-			$request_body = [
-				'MerID'       => $setting->merchant_id,
-				'Version'     => '1.0',
-				'EncryptInfo' => $encrypt_info,
-				'HashInfo'    => EncryptUtils::hash_info( $encrypt_info ),
-			];
-
-			$handler = new TradeHandler();
-			$raw_response = $handler->execute_trade( $request_body );
-			$trade_result = $handler->process_notify( $raw_response );
+			$trade_result = $this->request_credit_api( $trade_params );
 
 			$status = $trade_result['Status'] ?? '';
 
@@ -304,7 +300,8 @@ final class SubscriptionHandler {
 
 			// V3 失敗，嘗試 fallback
 			\do_action( 'woomp_payuni_log', 'warning', "#{$order->get_id()} V3 續扣失敗，嘗試 V1 fallback", [
-				'status' => $status,
+				'status'  => $status,
+				'message' => $trade_result['Message'] ?? '',
 			] );
 		} catch ( \Throwable $e ) {
 			\do_action( 'woomp_payuni_log', 'warning', "#{$order->get_id()} V3 續扣例外，嘗試 V1 fallback: {$e->getMessage()}", [] );
@@ -317,6 +314,61 @@ final class SubscriptionHandler {
 			$order->update_status( 'failed', "續扣失敗（V1 fallback）：{$e->getMessage()}" );
 			\do_action( 'woomp_payuni_log', 'error', "#{$order->get_id()} V1 fallback 續扣失敗: {$e->getMessage()}", [] );
 		}
+	}
+
+	/**
+	 * 呼叫信用卡幕後 Token 交易 API（/api/credit）
+	 *
+	 * 這是 PayUni 提供給「已取得 CreditHash 後、由商店自行排程扣款」的端點，
+	 * 不需要前端 SDK_TOKEN，因此適用背景續扣。
+	 *
+	 * @see https://docs.payuni.com.tw/web/#/7/35
+	 *
+	 * @param array $trade_params 未加密的交易參數
+	 *
+	 * @return array 解密後的交易結果
+	 * @throws \Exception 請求失敗或回應格式異常時拋出。
+	 */
+	private function request_credit_api( array $trade_params ): array {
+		$setting      = SettingDTO::instance();
+		$encrypt_info = EncryptUtils::encrypt( $trade_params );
+
+		$request_body = [
+			'MerID'       => $setting->merchant_id,
+			'Version'     => '1.0',
+			'EncryptInfo' => $encrypt_info,
+			'HashInfo'    => EncryptUtils::hash_info( $encrypt_info ),
+		];
+
+		$api_url = $setting->mode->base_api_url() . '/credit';
+
+		$response = \wp_remote_post(
+			$api_url,
+			[
+				'body'       => $request_body,
+				'blocking'   => true,
+				'timeout'    => 60,
+				'user-agent' => 'payuni',
+			]
+		);
+
+		if ( \is_wp_error( $response ) ) {
+			throw new \Exception( $response->get_error_message() );
+		}
+
+		$response_body = \json_decode( \wp_remote_retrieve_body( $response ), true );
+
+		\do_action( 'woomp_payuni_log', 'info', '訂閱續扣幕後授權結果', [
+			'endpoint' => $api_url,
+			'body'     => $request_body,
+			'result'   => $response_body,
+		] );
+
+		if ( empty( $response_body['EncryptInfo'] ) ) {
+			throw new \Exception( '回應格式異常：缺少 EncryptInfo' );
+		}
+
+		return EncryptUtils::decrypt( $response_body['EncryptInfo'] );
 	}
 
 	/**

@@ -11,6 +11,7 @@ use J7\Payuni\Domains\Subscription\SubscriptionBootstrap;
 use J7\Payuni\Infrastructure\Http\HttpClient;
 use J7\Payuni\Infrastructure\Http\TradeHandler;
 use J7\Payuni\Shared\Enums\EMode;
+use J7\Payuni\Shared\Enums\EUseTokenType;
 use J7\Payuni\Shared\Utils\OrderUtils;
 use PAYUNI\Gateways\CreditV3;
 
@@ -123,8 +124,12 @@ final class Bootstrap
 
 		$sdk_token        = '';
 		$sdk_error_detail = '';
+		$use_token_type   = EUseTokenType::REMEMBER_CARD;
 		try {
-			$token = (new HttpClient())->get_sdk_token();
+			// 購物車含訂閱商品時，Token 必須是「強制約定信用卡」(3) 才會壓 CreditHash 供後續幕後續扣；
+			// 一般結帳沿用「記憶卡號」(2)。此值必須與前端 getTradeResult({ useTokenType }) 一致。
+			$use_token_type = self::cart_contains_subscription() ? EUseTokenType::FORCE_BIND : EUseTokenType::REMEMBER_CARD;
+			$token = (new HttpClient())->get_sdk_token($use_token_type);
 			$sdk = SdkDTO::from($token);
 			$sdk_token = $sdk->Token;
 		} catch (\Throwable $e) {
@@ -144,9 +149,36 @@ final class Bootstrap
 				'ENABLE_3D_AUTH'      => $setting->enable_3d_auth,
 				'INST_OPTIONS'        => $setting->installment_options,
 				'ENABLE_TOKENIZATION' => $setting->enable_tokenization,
+				// 前端 getTradeResult({ useTokenType }) 必須送出與 token_get 相同的值，
+				// 否則 PayUni 不執行綁定、授權成功卻不回 CreditHash，後續無法幕後續扣。
+				'USE_TOKEN_TYPE'      => $use_token_type->value,
 				'ERROR_MAPPER'        => HttpClient::$error_mapper
 			]
 		);
+	}
+
+	/**
+	 * 購物車是否含訂閱商品
+	 *
+	 * 與 SubscriptionBootstrap::filter_gateways_by_cart() 採同一套商品類型判斷，
+	 * 避免兩處對「這是不是訂閱結帳」有不同認定。
+	 *
+	 * @return bool
+	 */
+	private static function cart_contains_subscription(): bool
+	{
+		if (empty(\WC()->cart)) {
+			return false;
+		}
+
+		foreach (\WC()->cart->get_cart_contents() as $values) {
+			$product_type = \WC_Product_Factory::get_product_type($values['product_id']);
+			if (\in_array($product_type, ['subscription', 'variable-subscription'], true)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**

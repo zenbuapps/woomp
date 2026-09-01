@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace J7\Payuni\Infrastructure\Http;
 
 use J7\Payuni\Contracts\DTOs\SettingDTO;
+use J7\Payuni\Shared\Enums\EMode;
 use J7\Payuni\Shared\Utils\EncryptUtils;
 use J7\Payuni\Shared\Utils\OrderUtils;
 
@@ -224,6 +225,7 @@ final class TradeHandler
 					$credit_life = $trade_result['CreditLife'] ?? '';
 					$this->save_payment_token($user_id, $card_hash, $card_6no, $card_4no, $credit_life, $token_gateway_id);
 				}
+				$this->warn_if_subscription_token_missing($order, $is_subscription, $card_hash);
 			}
 			$order->save();
 			return;
@@ -244,6 +246,7 @@ final class TradeHandler
 				$credit_life = $trade_result['CreditLife'] ?? '';
 				$this->save_payment_token($user_id, $card_hash, $card_6no, $card_4no, $credit_life, $token_gateway_id);
 			}
+			$this->warn_if_subscription_token_missing($order, $is_subscription, $card_hash);
 		} else {
 			// 交易失敗：維持 pending（允許客戶重試付款），僅寫入失敗備註
 			$note_html = $this->build_order_note_html( '統一金流 PAYUNi 信用卡付款失敗', $trade_result );
@@ -252,6 +255,39 @@ final class TradeHandler
 
 		$order->save();
 		OrderUtils::delete_tmp_data($order);
+	}
+
+	/**
+	 * 訂閱綁卡未取得 CreditHash 時留下明確警示
+	 *
+	 * 授權成功但 PayUni 未壓 CreditHash，代表信用卡 Token 並未建立，
+	 * 該筆訂閱到了扣款日一定會失敗。過去這種情況完全無聲——訂單顯示成功、
+	 * 會員以為綁卡完成，直到首次續扣才爆。這裡把它變成當下就看得見的事實。
+	 *
+	 * @param \WC_Order $order           訂單物件
+	 * @param bool      $is_subscription 是否為定期定額閘道
+	 * @param string    $card_hash       PayUni 回傳的 CreditHash
+	 *
+	 * @return void
+	 */
+	private function warn_if_subscription_token_missing(\WC_Order $order, bool $is_subscription, string $card_hash): void
+	{
+		if (! $is_subscription || $card_hash) {
+			return;
+		}
+
+		$order->update_meta_data('_payuni_token_bind_failed', 'yes');
+		$order->add_order_note(
+			'<strong>⚠ 綁卡未完成</strong><br>'
+			. 'PayUni 授權成功但未回傳 CreditHash，信用卡 Token 並未建立，此訂閱後續續扣將會失敗。<br>'
+			. '請確認 token_get 與前端 getTradeResult 的 UseTokenType 一致（定期定額需為 3 強制約定信用卡），'
+			. '且商店已向 PayUni 申請開通信用卡 Token 功能並綁定 IP。'
+		);
+
+		\do_action('woomp_payuni_log', 'error', "#{$order->get_id()} 訂閱綁卡未取得 CreditHash，續扣將失敗", [
+			'order_id'    => $order->get_id(),
+			'customer_id' => $order->get_customer_id(),
+		]);
 	}
 
 	/**
@@ -347,8 +383,26 @@ final class TradeHandler
 			$gateway_id = \PAYUNI\Gateways\CreditV3::ID;
 		}
 
-		// 若無 CreditHash（Sandbox 模擬授權不回傳），以卡號組合作為 fallback token
-		$token_key = $card_hash ?: sprintf('%s****%s', $card_6no, $card_4no);
+		// PayUni 僅在成功建立信用卡 Token（約定 / 強制約定）時才壓 CreditHash。
+		// 缺 CreditHash 代表綁卡並未成立，此時存入任何替代值都只會讓後續幕後扣款
+		// 被 PayUni 以「約定信用卡不存在」拒絕，並且把綁卡失敗偽裝成成功、
+		// 直到扣款日才爆。正式環境一律拒存；僅 Sandbox 模擬授權（不回傳 CreditHash）
+		// 保留卡號組合作為可測試的替身。
+		$token_key = $card_hash;
+		if (! $token_key) {
+			if (SettingDTO::instance()->mode === EMode::PROD) {
+				\do_action('woomp_payuni_log', 'error', '綁卡未取得 CreditHash，拒絕儲存信用卡 Token', [
+					'customer_id' => $customer_id,
+					'gateway_id'  => $gateway_id,
+					'card_4no'    => $card_4no,
+					'hint'        => 'PayUni 未建立信用卡 Token，請確認 token_get 與 getTradeResult 的 UseTokenType 一致，且商店已開通信用卡 Token 功能',
+				]);
+				return;
+			}
+
+			$token_key = sprintf('%s****%s', $card_6no, $card_4no);
+		}
+
 		if (! $token_key) {
 			return;
 		}

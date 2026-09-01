@@ -5,6 +5,8 @@ declare( strict_types = 1 );
 namespace J7\Payuni\Infrastructure\Http;
 
 use J7\Payuni\Contracts\DTOs\SettingDTO;
+use J7\Payuni\Shared\Enums\ECreditTokenType;
+use J7\Payuni\Shared\Enums\EUseTokenType;
 use J7\Payuni\Shared\Utils\CreditTokenUtils;
 use J7\Payuni\Shared\Utils\EncryptUtils;
 
@@ -234,7 +236,7 @@ final class HttpClient {
      *     HashInfo:string,
      * }
      */
-    public function get_sdk_token(): array {
+    public function get_sdk_token( ?EUseTokenType $use_token_type = null ): array {
         $setting = SettingDTO::instance();
         $encrypt_info = [
             'MerID'        => $setting->merchant_id,
@@ -244,10 +246,14 @@ final class HttpClient {
         $current_user = \wp_get_current_user();
         if( $current_user && $current_user->ID ) {
             $raw_credit_token = \get_user_meta( $current_user->ID, 'billing_email', true ) ?: $current_user->user_email;
-            $encrypt_info['UseTokenType'] = 2;
+            // UseTokenType 決定 PayUni 建立哪一種 Token：
+            //   2（記憶卡號）僅供下次結帳帶出卡號，PayUni 不會壓可幕後扣款的 CreditHash；
+            //   3（強制約定信用卡）才會壓 CreditHash，定期定額續扣必須用這個。
+            // 此值必須與前端 getTradeResult({ useTokenType }) 一致，否則 PayUni 不執行綁定。
+            $encrypt_info['UseTokenType'] = ( $use_token_type ?? EUseTokenType::REMEMBER_CARD )->value;
             // 淨化 CreditToken：email 含非法字元（如 Gmail plus-alias 的 "+"）會被 PayUni 以 TOKEN02019（綁定Token，格式錯誤）拒絕。
             $encrypt_info['CreditToken'] = CreditTokenUtils::sanitize( (string) $raw_credit_token, (int) $current_user->ID );
-            $encrypt_info['CreditTokenType'] = 1;
+            $encrypt_info['CreditTokenType'] = ECreditTokenType::MEMBER->value;
         }
 
 
