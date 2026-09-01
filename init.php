@@ -420,6 +420,28 @@ function woomp_copy_order( \WC_Order $order ): int {
 	unset($props['id']);
 	$new_order->set_props($props);
 
+	// 不可跨訂單沿用的訂單層級狀態：前一張訂單的金流回應與付款完成戳記。
+	//
+	// 若一併複製，新訂單會「天生帶著別人的付款結果」，造成兩個問題：
+	// 1. 訂單明細（Credit::get_detail_after_order_table()）顯示前一張訂單的交易編號，客服會據此查錯交易。
+	// 2. 付款完成的冪等保護若以「這些 meta 有沒有值」判斷，會把新訂單的首次付款誤判為重複通知而整筆
+	// 略過，等於再製造一次掉單（issue #127）。
+	$order_meta_blocklist = [
+		'_payuni_paid_order_id',
+		'_payuni_order_suffix',
+		'_payuni_mer_trade_no',
+		'_payuni_resp_status',
+		'_payuni_resp_message',
+		'_payuni_resp_trade_no',
+		'_payuni_resp_card_bank',
+		'_payuni_resp_card_inst',
+		'_payuni_resp_first_amt',
+		'_payuni_resp_each_amt',
+		'_payuni_card_number',
+		'_payuni_token_bind_failed',
+		'_payuni_v3_resp',
+	];
+
 	// 複製訂單的所有 meta data
 	//
 	// 注意：value 不可強轉字串，否則陣列型 meta（例如 _ecpay_invoice_data）
@@ -429,7 +451,13 @@ function woomp_copy_order( \WC_Order $order ): int {
 	 */
 	$meta_data = $order->get_meta_data();
 	foreach ( $meta_data as $meta ) {
-		$new_order->update_meta_data( (string) $meta->__get( 'key' ), $meta->__get( 'value' ) );
+		$meta_key = (string) $meta->__get( 'key' );
+
+		if ( in_array( $meta_key, $order_meta_blocklist, true ) ) {
+			continue;
+		}
+
+		$new_order->update_meta_data( $meta_key, $meta->__get( 'value' ) );
 	}
 
 	// 不可跨訂單沿用的品項層級狀態：已扣庫存 / 已回補庫存的紀錄。

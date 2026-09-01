@@ -535,4 +535,144 @@ final class CopyOrderTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $reloaded_original->get_items( 'shipping' ), '原訂單的 shipping 品項應保留' );
 		$this->assertCount( 1, $reloaded_original->get_items( 'fee' ), '原訂單的 fee 品項應保留' );
 	}
+
+	// ========================================================================
+	// Rule: 訂單層級的金流回應狀態不可跨訂單複製（issue #127）
+	// ========================================================================
+
+	/**
+	 * 測試前一張訂單的統一金流回應 meta 不會被複製到新訂單。
+	 *
+	 * 若一併複製，新訂單會「天生帶著別人的付款結果」：
+	 * 1. 訂單明細顯示前一張訂單的交易編號，客服會據此查錯交易。
+	 * 2. 付款完成的冪等保護若以「這些 meta 有沒有值」判斷，會把新訂單的
+	 *    首次付款誤判為重複通知而整筆略過，等於再製造一次掉單。
+	 *
+	 * @testdox 統一金流回應 meta（_payuni_resp_* / _payuni_card_number）不應複製到新訂單
+	 */
+	public function test_payuni_response_meta_is_not_copied() {
+		$order = $this->create_order_with_line_items();
+
+		$response_meta = [
+			'_payuni_resp_status'    => 'SUCCESS',
+			'_payuni_resp_message'   => '交易成功',
+			'_payuni_resp_trade_no'  => 'PAYUNI_TRADE_OLD_001',
+			'_payuni_resp_card_bank' => '(822)中國信託',
+			'_payuni_resp_card_inst' => '0',
+			'_payuni_resp_first_amt' => '0',
+			'_payuni_resp_each_amt'  => '0',
+			'_payuni_card_number'    => '4321',
+			'_payuni_v3_resp'        => [ 'TradeNo' => 'PAYUNI_TRADE_OLD_001' ],
+		];
+
+		foreach ( $response_meta as $key => $value ) {
+			$order->update_meta_data( $key, $value );
+		}
+		$order->save();
+
+		$new_order_id      = woomp_copy_order( $order );
+		$this->order_ids[] = $new_order_id;
+
+		$new_order = wc_get_order( $new_order_id );
+
+		foreach ( array_keys( $response_meta ) as $key ) {
+			$this->assertSame(
+				'',
+				$new_order->get_meta( $key ),
+				sprintf( '%s 屬於前一張訂單的交易結果，不應複製到新訂單', $key )
+			);
+		}
+
+		// 原訂單必須保留，否則等於把已成交訂單的金流紀錄抹掉。
+		$reloaded_original = wc_get_order( $order->get_id() );
+		$this->assertSame(
+			'PAYUNI_TRADE_OLD_001',
+			$reloaded_original->get_meta( '_payuni_resp_trade_no' ),
+			'原訂單的交易編號應完整保留'
+		);
+	}
+
+	/**
+	 * 測試付款完成戳記與訂單流水號不會被複製到新訂單。
+	 *
+	 * `_payuni_paid_order_id` 是冪等保護的戳記（值為訂單自己的 ID）；
+	 * `_payuni_order_suffix` 與 `_payuni_mer_trade_no` 決定送往統一金流的
+	 * 商店訂單編號。三者被複製都會讓新訂單的首次付款行為出錯。
+	 *
+	 * @testdox 付款戳記與訂單編號相關 meta 不應複製到新訂單
+	 */
+	public function test_payuni_paid_marker_is_not_copied() {
+		$order = $this->create_order_with_line_items();
+
+		$order->update_meta_data( '_payuni_paid_order_id', $order->get_id() );
+		$order->update_meta_data( '_payuni_order_suffix', 2 );
+		$order->update_meta_data( '_payuni_mer_trade_no', $order->get_id() . '-2' );
+		$order->update_meta_data( '_payuni_token_bind_failed', 'yes' );
+		$order->save();
+
+		$new_order_id      = woomp_copy_order( $order );
+		$this->order_ids[] = $new_order_id;
+
+		$new_order = wc_get_order( $new_order_id );
+
+		$this->assertSame(
+			'',
+			$new_order->get_meta( '_payuni_paid_order_id' ),
+			'付款完成戳記不應複製，否則新訂單首次付款會被冪等保護誤判為重複'
+		);
+		$this->assertSame(
+			'',
+			$new_order->get_meta( '_payuni_order_suffix' ),
+			'訂單流水號不應複製，新訂單應從無後綴的編號重新開始'
+		);
+		$this->assertSame(
+			'',
+			$new_order->get_meta( '_payuni_mer_trade_no' ),
+			'商店訂單編號不應複製，否則反查會查到前一張訂單的交易'
+		);
+		$this->assertSame(
+			'',
+			$new_order->get_meta( '_payuni_token_bind_failed' ),
+			'綁卡失敗標記屬於前一次交易，不應複製'
+		);
+	}
+
+	/**
+	 * 測試 blocklist 沒有誤傷 blocklist 以外的統一金流 meta。
+	 *
+	 * blocklist 只擋「交易結果」類的 meta；結帳當下的設定（例如是否
+	 * 開啟 3D 驗證、顧客是否勾選儲存卡號）仍必須跟著新訂單走，
+	 * 否則重刷時的行為會與原訂單不一致。
+	 *
+	 * @testdox blocklist 不應誤傷結帳設定類的 payuni meta
+	 */
+	public function test_non_blocked_payuni_meta_is_still_copied() {
+		$order = $this->create_order_with_line_items();
+
+		$order->update_meta_data( '_payuni_is_3d_auth', 'yes' );
+		$order->update_meta_data( '_payuni_token_maybe_save', 'yes' );
+		$order->update_meta_data( '_payuni_token_id', 'new' );
+		$order->save();
+
+		$new_order_id      = woomp_copy_order( $order );
+		$this->order_ids[] = $new_order_id;
+
+		$new_order = wc_get_order( $new_order_id );
+
+		$this->assertSame(
+			'yes',
+			$new_order->get_meta( '_payuni_is_3d_auth' ),
+			'3D 驗證設定應跟著新訂單走'
+		);
+		$this->assertSame(
+			'yes',
+			$new_order->get_meta( '_payuni_token_maybe_save' ),
+			'顧客勾選的儲存卡號意願應跟著新訂單走'
+		);
+		$this->assertSame(
+			'new',
+			$new_order->get_meta( '_payuni_token_id' ),
+			'付款方式選擇應跟著新訂單走'
+		);
+	}
 }

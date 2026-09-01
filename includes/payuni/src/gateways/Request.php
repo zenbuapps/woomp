@@ -200,6 +200,12 @@ final class Request {
 			$order->update_meta_data( '_payuni_token_id', $token_id );
 
 			$order->update_meta_data( '_payuni_token_maybe_save', $save_new_card ); // □ 儲存付款資訊，下次付款更方便的 checkbox
+
+			// 送出時實際使用的 MerTradeNo 落地保存，供日後以商店訂單編號向統一金流反查交易狀態。
+			// 不在反查時重新推導：_payuni_order_suffix 會在付款成功後遞增（Response::card_response()），
+			// 屆時推導出的編號會與當初送出的不同，查不到這筆交易。
+			$order->update_meta_data( '_payuni_mer_trade_no', $args['MerTradeNo'] );
+
 			$order->save();
 		}
 
@@ -275,6 +281,10 @@ final class Request {
 			'CreditToken' => $order->get_billing_email(),
 			'CreditHash'  => $this->get_card_hash( $order ),
 		];
+
+		// 送出時實際使用的 MerTradeNo 落地保存，供日後反查交易狀態（理由同 get_transaction_args()）。
+		$order->update_meta_data( '_payuni_mer_trade_no', $args['MerTradeNo'] );
+		$order->save();
 
 		Payment::log( $args );
 
@@ -366,13 +376,17 @@ final class Request {
 			'CreditToken' => get_userdata( $user_id )->user_email,
 		];
 
+		// 送出時實際使用的 MerTradeNo 落地保存，供日後反查交易狀態（理由同 get_transaction_args()）。
+		$order->update_meta_data( '_payuni_mer_trade_no', $args['MerTradeNo'] );
+
 		if ( wc_string_to_bool( get_option( 'payuni_3d_auth', 'yes' ) ) ) {
 			$args['API3D'] = 1;
 			// $data[ 'NotifyURL' ] = home_url('wc-api/payuni_notify_card');
 			$args['ReturnURL'] = home_url( 'wc-api/payuni_notify_card' );
 			$order->update_meta_data( '_payuni_is_3d_auth', 'yes' );
-			$order->save();
 		}
+
+		$order->save();
 
 		Payment::log( $args );
 

@@ -78,6 +78,14 @@ final class Response {
 
 		$data = Payment::decrypt( $encrypt_info );
 
+		// Payment::decrypt() 在 openssl_decrypt() 失敗時會回 false，經 parse_str() 後成為空陣列。
+		// 不擋下來的話：MerTradeNo 為空 → order_id 為 0 → wc_get_order( 0 ) 回 false
+		// → 後續 get_class( false ) 直接 fatal。此路徑對外公開（wc-api），必須防呆。
+		if ( ! $data || empty( $data['MerTradeNo'] ) ) {
+			Payment::log( 'card_response: 解密結果為空或缺少 MerTradeNo，拒絕處理' );
+			return;
+		}
+
 		unset( $data['Card6No'] ); // remove card number from log.
 
 		$formatted_decrypted_data = self::get_formatted_decrypted_data( $data );
@@ -106,7 +114,7 @@ final class Response {
 		Payment::log( $formatted_decrypted_data );
 
 		// 如果金額是 5 且為 一次授權，就是 hash request，就需要執行5元退刷
-		$is_hash_request = '5' === $data['TradeAmt'] && '1' === $data['AuthType'];
+		$is_hash_request = '5' === ( $data['TradeAmt'] ?? '' ) && '1' === ( $data['AuthType'] ?? '' );
 		if ( $is_hash_request ) {
 			// Hash Refund 只執行一次 5 元退款，馬上執行會發生 "訂單處理中，請稍後再試"，所以延遲 1 分鐘再執行.
 
@@ -118,6 +126,13 @@ final class Response {
 		}
 
 		$order = \wc_get_order( $order_id );
+
+		// 找不到訂單就不能再往下走：下方會呼叫 get_class( $order ) 判斷是否為訂閱，
+		// 對 false 呼叫會直接 fatal。
+		if ( ! $order instanceof \WC_Order ) {
+			Payment::log( "card_response: 找不到訂單 #{$order_id}（MerTradeNo={$data['MerTradeNo']}），拒絕處理" );
+			return;
+		}
 
 		// 清空購物車
 		if ( $woocommerce->cart ) {
