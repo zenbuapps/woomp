@@ -187,22 +187,9 @@ endif;
 
 		$result = $request->build_request( $order, $card_data );
 
-		// 如果已存在相同訂單編號，就創立新的訂單編號
+		// 已存在相同訂單編號：先反查前次結果，未成功才開新訂單重刷（見 AbstractGateway::recover_or_copy_on_duplicate）。
 		if ( 'CREDIT04001' === $result['status_code'] ) {
-			$new_order_id = \woomp_copy_order($order);
-			$result       = $this->process_payment($new_order_id);
-			$is_3d_auth   = $order->get_meta('_payuni_is_3d_auth', true) === 'yes';
-			/**
-			* 原本是不需要這段的
-			* 但如果因為統一金判斷"相同訂單編號"，我們需要創建新訂單，重跑一次 process_payment
-			* 但這就不屬於 ajax 請求，不會 redirect
-			* 所以這邊才需要手動作 redirect
-			*
-			* @see WC_Checkout::process_order_payment()
-			*/
-			if ($is_3d_auth) {
-				\add_filter('wp_doing_ajax', '__return_true');
-			}
+			$result = $this->recover_or_copy_on_duplicate( $order );
 		}
 
 		unset($result['status_code']);
