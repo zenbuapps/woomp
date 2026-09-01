@@ -112,6 +112,10 @@ final class Request {
 
 			// 3D 驗證走以下判斷，會 redirect 到 $data['URL'] 去做 3D 驗證
 			if ( $is_3d_auth ) {
+				// issue #127：3D 訂單的最終狀態完全依賴 PayUni 的通知。通知遲到或漏收時，
+				// 訂單會停在 pending 直到被逾期取消排程清掉，但錢已經收了。排程主動查詢作為第二層保險。
+				PendingReconciler::schedule( $order );
+
 				return [
 					'result'      => 'success',
 					'redirect'    => $data['URL'],
