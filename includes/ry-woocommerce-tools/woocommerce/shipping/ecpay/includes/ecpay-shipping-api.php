@@ -137,6 +137,10 @@ class RY_ECPay_Shipping_Api extends RY_ECPay {
 				'ReceiverStoreID'      => '',
 				'ServerReplyURL'       => $notify_url,
 				'LogisticsC2CReplyURL' => $notify_url,
+				// 預設不代收貨款。綠界 IsCollection 為選填、未帶時預設 N，
+				// 明確帶值可避免後續流程漏設定時靜默送出純配送。
+				'IsCollection'         => 'N',
+				'CollectionAmount'     => 0,
 			];
 
 			if ('yes' === RY_WT::get_option('ecpay_shipping_cleanup_receiver_name', 'no')) {
@@ -153,18 +157,16 @@ class RY_ECPay_Shipping_Api extends RY_ECPay {
 				$args['LogisticsSubType'] .= ( 'C2C' == $CVS_type ) ? 'C2C' : '';
 			}
 
-			if (count($shipping_list) == 0) {
-				if ($order->get_payment_method() == 'cod') {
-					$args['IsCollection']     = 'Y';
-					$args['CollectionAmount'] = (int) $total;
-				} else {
-					$args['IsCollection']     = 'N';
-					$args['CollectionAmount'] = 0;
-				}
-			}
-			if ($collection == true) {
+			// 貨到付款一律代收；$collection 為後台「代收貨款」動作的額外強制。
+			// 兩者皆不受「是否為第一張物流單」影響，避免改單後重建物流單時靜默變成純配送。
+			if (true === $collection || 'cod' === $order->get_payment_method()) {
 				$args['IsCollection']     = 'Y';
 				$args['CollectionAmount'] = (int) $total;
+			}
+
+			// 已有物流單又再建一張代收單，提醒商家確認是否重複代收。
+			if (count($shipping_list) > 0 && 'Y' === $args['IsCollection']) {
+				$order->add_order_note(__('This order already has a shipping code. A new cash on delivery shipping code is being created, please confirm the collection amount is not duplicated.', 'ry-woocommerce-tools'));
 			}
 
 			if ($method_class::$LogisticsType == 'CVS') {
@@ -218,7 +220,7 @@ class RY_ECPay_Shipping_Api extends RY_ECPay {
 				$create_datetime           = new DateTime('', new DateTimeZone('Asia/Taipei'));
 				$args['MerchantTradeDate'] = $create_datetime->format('Y/m/d H:i:s');
 				$args['MerchantTradeNo']   = self::generate_trade_no($order->get_id(), RY_WT::get_option('ecpay_shipping_order_prefix'));
-				if ($i > 01) {
+				if ($i > 0) {
 					$args['IsCollection']     = 'N';
 					$args['CollectionAmount'] = 0;
 				}

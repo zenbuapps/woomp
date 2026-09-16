@@ -35,10 +35,20 @@ if ( ! class_exists( 'WooMP_Order_Public' ) ) {
 					$data = $meta->value ?? $meta;
 					if ( is_array( $data ) ) {
 						foreach ( $data as $i ) {
-							if ( isset( $i['PaymentNo'], $i['ValidationNo'] ) ) {
-								$shipping_no = $i['PaymentNo'] . ' ' . $i['ValidationNo'];
-								$ecpay_no[]  = $shipping_no;
+							if ( ! is_array( $i ) ) {
+								continue;
 							}
+							if ( ! empty( $i['PaymentNo'] ) ) {
+								// 超商取貨：寄貨編號 + 驗證碼（B2C 無驗證碼，trim 去掉尾隨空白）。
+								$shipping_no = trim( $i['PaymentNo'] . ' ' . ( $i['ValidationNo'] ?? '' ) );
+							} elseif ( ! empty( $i['BookingNote'] ) ) {
+								// 宅配（黑貓／郵局）：托運單號存在 BookingNote。
+								$shipping_no = $i['BookingNote'];
+							} else {
+								// 尚無可供查詢的單號，整筆略過，避免只印出標題與空白欄位。
+								continue;
+							}
+							$ecpay_no[] = $shipping_no;
 						}
 					}
 				}
