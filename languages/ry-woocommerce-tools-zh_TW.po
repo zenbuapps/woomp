@@ -1841,3 +1841,7 @@ msgstr "必要欄位"
 #: class.ry-wt.admin.php:25
 msgid "Settings"
 msgstr "設定"
+
+#: woocommerce/shipping/ecpay/includes/ecpay-shipping-api.php:168
+msgid "This order already has a shipping code. A new cash on delivery shipping code is being created, please confirm the collection amount is not duplicated."
+msgstr "此訂單已有物流單，本次再次建立代收貨款物流單，請確認代收金額是否重複。"

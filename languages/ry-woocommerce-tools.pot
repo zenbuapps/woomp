@@ -1613,3 +1613,7 @@ msgstr ""
 #: woocommerce/shipping/smilepay/smilepay-shipping.php:98
 msgid "SmilePay shipping method failed to enable!"
 msgstr ""
+
+#: woocommerce/shipping/ecpay/includes/ecpay-shipping-api.php:168
+msgid "This order already has a shipping code. A new cash on delivery shipping code is being created, please confirm the collection amount is not duplicated."
+msgstr ""
