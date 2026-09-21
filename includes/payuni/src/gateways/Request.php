@@ -119,6 +119,10 @@ final class Request {
 
 			// 3D 驗證走以下判斷，會 redirect 到 $data['URL'] 去做 3D 驗證
 			if ( $is_3d_auth ) {
+				// issue #127：3D 訂單的最終狀態完全依賴 PayUni 的通知。通知遲到或漏收時，
+				// 訂單會停在 pending 直到被逾期取消排程清掉，但錢已經收了。排程主動查詢作為第二層保險。
+				PendingReconciler::schedule( $order );
+
 				return [
 					'result'      => 'success',
 					'redirect'    => $data['URL'],
@@ -228,8 +232,26 @@ final class Request {
 			// 是否開啟 3D 驗證
 			if ($this->is_credit && \wc_string_to_bool( \get_option( 'payuni_3d_auth', 'yes' ) ) ) {
 				$args['API3D'] = 1;
-				// $data[ 'NotifyURL' ] = home_url('wc-api/payuni_notify_card');
+
+				// ReturnURL：3D 完成後由「瀏覽器」form POST 回來，顧客關掉分頁就永遠不會到。
+				// NotifyURL：由 PayUni「伺服器對伺服器」送出，不受顧客行為影響，是交易結果的唯一可靠來源。
+				// issue #127：過去只送 ReturnURL，顧客付完款關閉分頁 → 網站永遠收不到結果 →
+				// 訂單停在 pending → 被逾期取消排程清掉，但錢已經收了。
+				// 兩者刻意指向不同端點：幕後通知要回 "1"、瀏覽器導回要 redirect，
+				// 在端點層級就分開，handler 不必猜來源。
 				$args['ReturnURL'] = \home_url( 'wc-api/payuni_notify_card' );
+
+				/**
+				 * 緊急關閉開關：上線初期若 PayUni 對 NotifyURL 的處理有非預期行為，可用此 filter 停送。
+				 * 停送後回到「只靠瀏覽器導回」的舊行為，掉單風險回升但不會有重複通知的問題。
+				 *
+				 * @param bool      $enabled 預設 true。
+				 * @param \WC_Order $order   訂單物件。
+				 */
+				if ( \apply_filters( 'woomp_payuni_v2_enable_notify_url', true, $order ) ) {
+					$args['NotifyURL'] = \home_url( 'wc-api/payuni_notify_card_bg' );
+				}
+
 				$order->update_meta_data( '_payuni_is_3d_auth', 'yes' );
 			}
 
@@ -237,6 +259,12 @@ final class Request {
 			$order->update_meta_data( '_payuni_token_id', $token_id );
 
 			$order->update_meta_data( '_payuni_token_maybe_save', $save_new_card ); // □ 儲存付款資訊，下次付款更方便的 checkbox
+
+			// 送出時實際使用的 MerTradeNo 落地保存，供日後以商店訂單編號向統一金流反查交易狀態。
+			// 不在反查時重新推導：_payuni_order_suffix 是「送出即取號」（burn_order_suffix()），
+			// 每送出一次就 +1，屆時推導出的編號會與當初送出的不同，查不到這筆交易。
+			$order->update_meta_data( '_payuni_mer_trade_no', $args['MerTradeNo'] );
+
 			$order->save();
 		}
 
@@ -312,6 +340,10 @@ final class Request {
 			'CreditToken' => $order->get_billing_email(),
 			'CreditHash'  => $this->get_card_hash( $order ),
 		];
+
+		// 送出時實際使用的 MerTradeNo 落地保存，供日後反查交易狀態（理由同 get_transaction_args()）。
+		$order->update_meta_data( '_payuni_mer_trade_no', $args['MerTradeNo'] );
+		$order->save();
 
 		Payment::log( $args );
 
@@ -403,13 +435,26 @@ final class Request {
 			'CreditToken' => get_userdata( $user_id )->user_email,
 		];
 
+		// 送出時實際使用的 MerTradeNo 落地保存，供日後反查交易狀態（理由同 get_transaction_args()）。
+		$order->update_meta_data( '_payuni_mer_trade_no', $args['MerTradeNo'] );
+
 		if ( wc_string_to_bool( get_option( 'payuni_3d_auth', 'yes' ) ) ) {
 			$args['API3D'] = 1;
-			// $data[ 'NotifyURL' ] = home_url('wc-api/payuni_notify_card');
+
+			// 綁卡的 5 元訂單同樣需要 NotifyURL：沒有它，顧客在 3D 頁關掉分頁時 card_response() 永遠
+			// 不會執行，於是 (1) 信用卡 Token 不會被存進 WC_Payment_Tokens、(2) 5 元退刷不會被排程，
+			// 那 5 元真的沒退。理由同 get_transaction_args()。
 			$args['ReturnURL'] = home_url( 'wc-api/payuni_notify_card' );
+
+			/** This filter is documented in includes/payuni/src/gateways/Request.php */
+			if ( apply_filters( 'woomp_payuni_v2_enable_notify_url', true, $order ) ) {
+				$args['NotifyURL'] = home_url( 'wc-api/payuni_notify_card_bg' );
+			}
+
 			$order->update_meta_data( '_payuni_is_3d_auth', 'yes' );
-			$order->save();
 		}
+
+		$order->save();
 
 		Payment::log( $args );
 

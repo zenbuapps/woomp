@@ -156,36 +156,33 @@ class CreditSubscription extends AbstractGateway {
 
 		$result = $request->build_request( $order, $card_data );
 
-		// 如果已存在相同訂單編號，就創立新的訂單編號
+		// 已存在相同訂單編號：先反查前次結果，未成功才開新訂單重刷（見 AbstractGateway::recover_or_copy_on_duplicate）。
 		if ( 'CREDIT04001' === $result['status_code'] ) {
-			$new_order_id = \woomp_copy_order($order);
-
-			// 更新原本訂閱的上層訂單(parent_id)，改成新的 new_order_id
-			$subscriptions = \wcs_get_subscriptions_for_order($order);
-
-			foreach ($subscriptions as $subscription) {
-				$subscription->set_parent_id($new_order_id);
-				$subscription->save();
-			}
-
-			$result     = $this->process_payment($new_order_id);
-			$is_3d_auth = $order->get_meta('_payuni_is_3d_auth', true) === 'yes';
-			/**
-			* 原本是不需要這段的
-			* 但如果因為統一金判斷"相同訂單編號"，我們需要創建新訂單，重跑一次 process_payment
-			* 但這就不屬於 ajax 請求，不會 redirect
-			* 所以這邊才需要手動作 redirect
-			*
-			* @see WC_Checkout::process_order_payment()
-			*/
-			if ($is_3d_auth) {
-				\add_filter('wp_doing_ajax', '__return_true');
-			}
+			$result = $this->recover_or_copy_on_duplicate( $order );
 		}
 
 		unset($result['status_code']);
 
 		return $result;
+	}
+
+	/**
+	 * 訂閱單複製後需把訂閱的父訂單改指到新訂單
+	 *
+	 * @param \WC_Order $order        原訂單。
+	 * @param int       $new_order_id 新訂單 ID。
+	 *
+	 * @return void
+	 */
+	protected function after_copy_order( \WC_Order $order, int $new_order_id ): void {
+		if ( ! function_exists( 'wcs_get_subscriptions_for_order' ) ) {
+			return;
+		}
+
+		foreach ( \wcs_get_subscriptions_for_order( $order ) as $subscription ) {
+			$subscription->set_parent_id( $new_order_id );
+			$subscription->save();
+		}
 	}
 
 	/**
