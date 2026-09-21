@@ -403,14 +403,19 @@ final class PayuniMerTradeNoTest extends WP_UnitTestCase {
 	// ========================================================================
 
 	/**
-	 * 測試 woomp_copy_order() 複製出的新訂單雖然繼承了 _payuni_order_suffix，
-	 * 但因為訂單 ID 不同，算出的 MerTradeNo 仍然唯一。
+	 * 測試 woomp_copy_order() 複製出的新訂單不繼承 _payuni_order_suffix，
+	 * 且與原訂單的 MerTradeNo 必然不同。
 	 *
-	 * 防止的迴歸：若誤以為「suffix 相同就會撞號」而畫蛇添足去重置或排除
-	 * 複製訂單的 suffix，這個測試確保現狀（單純複製 meta）本來就是安全的，
-	 * 不需要額外處理。
+	 * 本測試原本斷言的是「suffix 會被完整複製」，理由是「繼承也不會撞號，
+	 * 所以不需要額外處理」。issue #127 的 meta blocklist 上線後改為不繼承，
+	 * 原因不是撞號風險（兩種做法都因訂單 ID 不同而唯一），而是語意：
+	 * _payuni_order_suffix 自 3.5.18（issue #131）起代表「這張訂單送出過幾次」，
+	 * 而複製出來的新訂單一次都還沒送出，繼承 3 等於宣稱它送過 3 次。
+	 * 連續複製（A→B→C）時這個數字還會一路虛長，事後看 log 會誤導。
 	 *
-	 * @testdox 複製訂單雖繼承相同的 _payuni_order_suffix 起點，MerTradeNo 仍因訂單 ID 不同而唯一
+	 * 唯一性（本測試真正要守的結論）在兩種做法下都成立，故一併保留斷言。
+	 *
+	 * @testdox 複製訂單不繼承 _payuni_order_suffix，MerTradeNo 仍因訂單 ID 不同而唯一
 	 */
 	public function test_copied_order_produces_unique_mer_trade_no_despite_inherited_suffix(): void {
 		if ( ! function_exists( 'woomp_copy_order' ) ) {
@@ -428,9 +433,9 @@ final class PayuniMerTradeNoTest extends WP_UnitTestCase {
 		$copied_order       = $this->reload_order( $new_order_id );
 
 		$this->assertSame(
-			3,
+			0,
 			(int) $copied_order->get_meta( '_payuni_order_suffix' ),
-			'woomp_copy_order() 應完整複製 _payuni_order_suffix meta（前提假設）'
+			'woomp_copy_order() 應排除 _payuni_order_suffix，複製單從 0 重新計數（issue #127 meta blocklist）'
 		);
 
 		$request = new \PAYUNI\Gateways\Request( new \PAYUNI\Gateways\Credit() );
@@ -444,17 +449,22 @@ final class PayuniMerTradeNoTest extends WP_UnitTestCase {
 		$this->assertNotSame(
 			$original_mer_trade_no,
 			$copied_mer_trade_no,
-			'即使兩張訂單繼承了相同的 suffix 起點，MerTradeNo 仍應因訂單 ID 不同而唯一'
+			'兩張訂單的 MerTradeNo 應因訂單 ID 不同而唯一'
 		);
 		$this->assertStringStartsWith(
 			(string) $reloaded_original->get_id() . '-3',
 			$original_mer_trade_no,
-			'原訂單的 MerTradeNo 應為「原訂單 ID-3」'
+			'原訂單已送出過 3 次，MerTradeNo 應為「原訂單 ID-3」'
 		);
 		$this->assertStringStartsWith(
-			(string) $copied_order->get_id() . '-3',
+			(string) $copied_order->get_id(),
 			$copied_mer_trade_no,
-			'複製單的 MerTradeNo 應為「複製單 ID-3」'
+			'複製單 suffix 歸 0，MerTradeNo 應為「複製單 ID」且不帶後綴'
+		);
+		$this->assertStringNotContainsString(
+			'-',
+			$copied_mer_trade_no,
+			'複製單第一次送出不應帶 -n 後綴（suffix 未繼承，從 0 起算）'
 		);
 	}
 

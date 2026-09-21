@@ -741,6 +741,66 @@ if( class_exists( 'WC_Payment_Gateway' ) ) {
          * @return void
          */
         public function get_detail_after_order_table( \WC_Order $order ) {}
+
+        /**
+         * 處理「已存在相同商店訂單編號」（CREDIT04001）
+         *
+         * CREDIT04001 的語意是「這個 MerTradeNo 在 10 分鐘內已經送過」（PayUni 規格對 MerTradeNo 的限制），
+         * 而不是「一定要開新單重刷」。過去直接 woomp_copy_order() 重刷，若前一次其實已經授權成功
+         * （網站只是沒收到通知，issue #127 的現場），顧客就會被扣兩次款。
+         * 所以先反查：確認前一次未成功，才開新單。
+         *
+         * @param \WC_Order $order 原訂單。
+         *
+         * @return array{result:string, redirect:string, status_code?:string, order_id:int}
+         */
+        protected function recover_or_copy_on_duplicate( \WC_Order $order ): array {
+            // 第一步：反查前一次的結果。查得已付款就補完原訂單，絕不開新單。
+            // reconcile_now() 內含金額比對與 10 秒逾時；查詢失敗一律回 false，走下方既有的複製重刷路徑，
+            // 永遠不會因為對帳查詢而讓結帳失敗。
+            if ( PendingReconciler::reconcile_now( $order ) ) {
+                $order->add_order_note( '統一金流回報「已存在相同商店訂單編號」，反查確認前次交易已成功，已補完本訂單，未重複刷卡。' );
+                $order->save();
+
+                return [
+                    'result'      => 'success',
+                    'redirect'    => $this->get_return_url( $order ),
+                    'status_code' => 'SUCCESS',
+                    'order_id'    => $order->get_id(),
+                ];
+            }
+
+            // 第二步：確認前次未成功（或查詢失敗，安全降級為現行行為）才開新單重刷。
+            $new_order_id = \woomp_copy_order( $order );
+
+            $this->after_copy_order( $order, $new_order_id );
+
+            $result = $this->process_payment( $new_order_id );
+
+            /**
+             * 重跑 process_payment 不屬於 ajax 請求，不會自動 redirect，
+             * 3D 情境需要手動讓 WooCommerce 以 ajax 方式回應。
+             *
+             * @see \WC_Checkout::process_order_payment()
+             */
+            if ( 'yes' === $order->get_meta( '_payuni_is_3d_auth', true ) ) {
+                \add_filter( 'wp_doing_ajax', '__return_true' );
+            }
+
+            return $result;
+        }
+
+        /**
+         * 複製訂單後的子類別擴充點
+         *
+         * @param \WC_Order $order        原訂單。
+         * @param int       $new_order_id 新訂單 ID。
+         *
+         * @return void
+         */
+        protected function after_copy_order( \WC_Order $order, int $new_order_id ): void {
+            // 預設不做事，由子類別覆寫（例如訂閱閘道要把訂閱的父訂單改指到新訂單）。
+        }
     }
     
 }
