@@ -475,7 +475,7 @@ class EcpayRefundTest extends WP_UnitTestCase {
 	// ------------------------------------------------------------------
 
 	/**
-	 * @testdox 案例3：DoAction 回傳未關帳錯誤且為全額退款時應降級送出 Action=N
+	 * @testdox 案例3：DoAction 回傳 error_amount_R（正式環境實際回覆）且為全額退款時應降級送出 Action=N
 	 * @group edge
 	 */
 	public function test_case_03_not_settled_downgrades_to_action_n() {
@@ -489,13 +489,17 @@ class EcpayRefundTest extends WP_UnitTestCase {
 				'TradeAmt'        => '1000',
 			]
 		);
-		// 第一次 DoAction（Action=R）：綠界回覆尚未關帳，無法退款。
+		// 第一次 DoAction（Action=R）：交易尚未關帳，綠界拒絕退刷。
+		//
+		// RtnMsg 刻意採用 issue #129 正式環境的實際回覆「更新失敗.(error_amount_R)」——
+		// 訊息裡「不含」未關帳字樣。舊實作以 strpos( $rtn_msg, '未關帳' ) 判斷是否降級，
+		// 若本案例沿用含「未關帳」的假訊息，退回舊實作時測試仍會通過，等於測不到回歸。
 		$this->queue_doaction_response(
 			[
 				'MerchantTradeNo' => $order->get_meta( '_ecpay_MerchantTradeNo' ),
 				'TradeNo'         => $order->get_transaction_id(),
-				'RtnCode'         => '10100248',
-				'RtnMsg'          => '此筆交易尚未關帳，無法執行退款',
+				'RtnCode'         => '10100050',
+				'RtnMsg'          => '更新失敗.(error_amount_R)',
 			]
 		);
 		// 第二次 DoAction（降級 Action=N）：取消授權成功。
@@ -510,13 +514,13 @@ class EcpayRefundTest extends WP_UnitTestCase {
 
 		$result = $gateway->process_refund( $order->get_id(), 1000, '顧客申請全額退款' );
 
-		$this->assertTrue( $result, '未關帳降級為 Action=N 且執行成功時應回傳 true' );
+		$this->assertTrue( $result, '收到 error_amount_R 後降級為 Action=N 且執行成功時應回傳 true' );
 
 		$doaction_requests = $this->get_sent_doaction_requests();
 		$this->assertCount(
 			2,
 			$doaction_requests,
-			'未關帳降級情境應送出兩次 DoAction 請求（先 R 後降級 N）'
+			'未關帳降級情境應送出兩次 DoAction 請求（先 R 後降級 N），不得因 RtnMsg 不含「未關帳」就停在 R'
 		);
 		$this->assertSame( 'R', $doaction_requests[0]['body']['Action'], '第一次 DoAction 應送出 Action=R' );
 		$this->assertSame( 'N', $doaction_requests[1]['body']['Action'], '第二次降級應送出 Action=N' );
