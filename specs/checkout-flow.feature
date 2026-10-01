@@ -132,10 +132,17 @@ Feature: 結帳流程
       And 離島縣市被停用
       And 郵遞區號設為 110
 
-    Scenario: 離島超商選擇警告
-      Given 顧客未勾選「寄送到離島區域」
+    Scenario: 離島超商選擇警告 — 縣市未設定配送
+      Given 結帳模式為 onepage 或 twopage
+      And 運送區域沒有設定金門縣的郵遞區號
       When 結帳更新時偵測到選擇的超商地址包含「金門縣」
-      Then 彈出 alert「您選擇的超商不在運送範圍內！」
+      Then 彈出 alert「很抱歉，本店目前未配送至金門縣，請選擇其他門市」
+
+    Scenario: 離島超商選擇警告 — 未勾選離島
+      Given 結帳模式為 onepage 或 twopage
+      And 頁面有「寄送到離島區域」checkbox 但顧客未勾選
+      When 結帳更新時偵測到選擇的超商地址包含「金門縣」
+      Then 彈出 alert「您選擇的是離島門市，請勾選「寄送到離島區域」」
 
   Rule: 虛擬商品結帳
 
@@ -179,12 +186,29 @@ Feature: 結帳流程
       And 提交結帳表單
       Then 電話欄位驗證通過
 
-    Scenario: 離島超商驗證
+    # issue #136：default 模式沒有離島欄位，不再要求顧客勾選不存在的欄位
+    Scenario Outline: 離島超商驗證
       Given 選項 wc_woomp_setting_tw_field_valitdate 為 "yes"
-      And 顧客未勾選離島
-      And 超商地址包含「金門縣」
+      And 結帳模式為 <mode>
+      And 運送區域<zone>
+      And 離島欄位狀態為 <island_field>
+      And 超商地址包含「<county>」
       When 提交結帳表單
-      Then 顯示驗證錯誤「外島超商 您選擇的運送方式不在運送範圍內」
+      Then <result>
+
+      Examples:
+        | mode    | zone             | island_field | county | result                                                      |
+        | default | 為整個 TW        | 不提供       | 金門縣 | 驗證通過，運費依 WooCommerce 運送區域計算                   |
+        | onepage | 沒有離島郵遞區號 | 不提供       | 金門縣 | 錯誤（woomp_island_cvs）「本店目前未配送至金門縣」          |
+        | onepage | 有金門郵遞區號   | 已勾選       | 金門縣 | 驗證通過                                                    |
+        | onepage | 有金門郵遞區號   | 未勾選       | 金門縣 | 錯誤（woomp_island_cvs）「請勾選「寄送到離島區域」」        |
+        | twopage | 有金門郵遞區號   | 被移除       | 金門縣 | 驗證通過（不要求操作不存在的欄位）                          |
+        | onepage | 只有金門郵遞區號 | 已勾選       | 澎湖縣 | 錯誤（woomp_island_cvs）「本店目前未配送至澎湖縣」          |
+
+    Scenario: 驗證錯誤代碼
+      Given 選項 wc_woomp_setting_tw_field_valitdate 為 "yes"
+      When 姓名、電話、離島驗證失敗
+      Then 錯誤代碼分別為 woomp_name_length、woomp_phone_length、woomp_island_cvs
 
   Rule: 結帳按鈕文字
 
