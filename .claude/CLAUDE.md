@@ -82,6 +82,14 @@ ECPay（綠界）閘道基底 `RY_ECPay_Gateway_Base` 已實作後台退款（`s
 
 **綠界回應不可用 `parse_str()` 解析**：`QueryTradeInfo/V5` 回應的值完全不做 URL encode（中文、空白、字面 `+` 皆為原文），而 CheckMacValue 是用這些原始值簽的。`parse_str()` 會把字面 `+` 解成空白、把 `%xx` 解碼、把 key 的 `.`／空白換成 `_`，導致重算的驗章必定失敗（品名含 `+` 的訂單退款 100% 失效）。一律改用 `RY_ECPay_Gateway_Api::parse_response_body()`（`explode` 且不 urldecode）。測試中的綠界假回應同理**不可**用 `http_build_query()` 產生，否則測試全綠、正式站全滅。
 
+### 結帳驗證不可依賴動態 `required`
+
+`WC_Checkout::get_checkout_fields()` 會快取欄位，只要有其他外掛在 `woocommerce_checkout_init`（早於 `woocommerce_checkout_process`）讀過欄位，之後在 filter 裡依 `did_action('woocommerce_checkout_process')` 動態改 `required` 就不會生效；另外，沒勾「運送到不同地址」時，WC 會略過整組 shipping 欄位的驗證（issue #136）。因此：
+- **必要的業務檢查**（例如超商門市必選）一律掛在 `woocommerce_after_checkout_validation`，直接讀 `$data`。參考 `RY_ECPay_Shipping::validate_cvs_store()`。
+- **判斷「是否為結帳送出」**用 `RY_WT::is_checkout_submission()`（看 `woocommerce-process-checkout-nonce` 有沒有送上來），不要只靠 `did_action()`。
+
+**離島超商規則**：只有 `onepage`／`twopage` 模式會由 Woomp 管理離島（提供勾選欄位，並依運送區域的離島郵遞區號判斷能不能送）；`default` 模式一律放行，以 WC 運送區域設定為準（`WooMP_Checkout::get_island_cvs_error()`）。
+
 ### HPOS 相容性
 
 WooCommerce 7.1 起引入高效能訂單儲存（HPOS），訂單資料改存於專屬資料表而非 `wp_postmeta`。本外掛已完整宣告並實作 HPOS 相容。

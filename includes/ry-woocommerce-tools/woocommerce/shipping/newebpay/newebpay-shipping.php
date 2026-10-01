@@ -93,7 +93,7 @@ final class RY_NewebPay_Shipping {
 			}
 		}
 
-		if ( did_action( 'woocommerce_checkout_process' ) ) {
+		if ( RY_WT::is_checkout_submission() ) {
 			$used_cvs        = false;
 			$shipping_method = isset( $_POST['shipping_method'] ) ? wc_clean( $_POST['shipping_method'] ) : [];
 			foreach ( $shipping_method as $method ) {

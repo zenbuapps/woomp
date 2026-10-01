@@ -54,10 +54,30 @@ Feature: 綠界物流配送
       Then 一般運送地址欄位（address_1, city, state, postcode）應被隱藏
       And 超商資訊欄位（CVSStoreName, CVSAddress, CVSTelephone）應顯示
 
-    Scenario: 超商取貨欄位驗證
+    Scenario: 超商取貨未選門市 — 前端阻止送出
       Given Customer 選擇超商取貨物流但未選擇門市
+      When Customer 點擊下單按鈕或在欄位中按 Enter
+      Then 結帳頁頂部顯示「請選擇超商取貨門市」
+      And 不送出結帳請求
+
+    Scenario: 超商取貨未選門市 — 後端拒絕建立訂單（issue #136）
+      Given Customer 選擇超商取貨物流
+      And CVSStoreID、CVSStoreName、CVSAddress 任一為空
+      When 結帳請求送達後端（含繞過前端的直接 POST）
+      Then woocommerce_after_checkout_validation 回報錯誤「請選擇超商取貨門市」
+      And 不建立訂單
+      And 不受其他外掛提早初始化結帳欄位、或未勾選「運送到不同地址」影響
+
+    Scenario: 切換超商品牌後未重新選店
+      Given Customer 已選 7-11 門市（LogisticsSubType=UNIMARTC2C）
+      When Customer 改選全家取貨但未重新選店，並提交訂單
+      Then 後端回報錯誤「門市資料與目前選擇的超商不符，請重新選擇門市」
+      And 不建立訂單
+
+    Scenario: 宅配不檢查門市
+      Given Customer 選擇綠界黑貓或郵局宅配
       When Customer 提交訂單
-      Then CVSStoreName 為 required，驗證應失敗
+      Then 不檢查超商門市欄位
 
   Rule: 訂單建立與物流單取號
 

@@ -301,6 +301,21 @@ final class RY_WT {
 		return delete_option( self::$option_prefix . $option );
 	}
 
+	/**
+	 * 是否為結帳送出請求
+	 *
+	 * WC 會快取結帳欄位，woocommerce_checkout_fields 可能在 woocommerce_checkout_process 之前
+	 * 就被其他外掛觸發（issue #136），只靠 did_action() 會誤判成「不是結帳送出」。
+	 * 結帳表單必帶 woocommerce-process-checkout-nonce（WC_Checkout 本身也用此欄位判斷表單是否送出），
+	 * 不受欄位首次初始化的時機影響。
+	 *
+	 * @return bool
+	 */
+	public static function is_checkout_submission(): bool {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- 只判斷欄位是否存在，nonce 由 WC_Checkout::process_checkout() 驗證
+		return did_action( 'woocommerce_checkout_process' ) || isset( $_POST['woocommerce-process-checkout-nonce'] );
+	}
+
 	public static function plugin_activation() {
 		if ( ! wp_next_scheduled( 'ry_check_ntp_time' ) ) {
 			self::update_option( 'ntp_time_error', false );

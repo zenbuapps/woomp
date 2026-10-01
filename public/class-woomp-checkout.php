@@ -184,32 +184,88 @@ if ( ! class_exists( 'WooMP_Checkout' ) ) {
 			// 如果只留下 billing_last_name.
 			if ( ! array_key_exists( 'billing_first_name', $fields ) ) {
 				if ( mb_strlen( $fields['billing_last_name'], 'utf-8' ) < 2 ) {
-					$errors->add( 'validation', '<strong>姓名欄位</strong> 至少兩個字以上' );
+					$errors->add( 'woomp_name_length', '<strong>姓名欄位</strong> 至少兩個字以上' );
 				}
 			}
 
 			// 如果只留下 billing_first_name.
 			if ( ! array_key_exists( 'billing_last_name', $fields ) ) {
 				if ( mb_strlen( $fields['billing_first_name'], 'utf-8' ) < 2 ) {
-					$errors->add( 'validation', '<strong>姓名欄位</strong> 至少兩個字以上' );
+					$errors->add( 'woomp_name_length', '<strong>姓名欄位</strong> 至少兩個字以上' );
 				}
 			}
 
-			// 在沒有勾選運送到離島的狀況下選擇離島超商取貨.
-			if ( array_key_exists( 'CVSAddress', $fields ) ) {
-				if ( 1 !== ( $fields['billing_island'] ?? '' ) && ! empty( $fields['CVSAddress'] ) ) {
-					if ( strpos( $fields['CVSAddress'], '金門縣' ) > -1 || strpos( $fields['CVSAddress'], '澎湖縣' ) > -1 || strpos( $fields['CVSAddress'], '連江縣' ) > -1 ) {
-						$errors->add( 'validation', '<strong>外島超商</strong> 您選擇的運送方式不在運送範圍內' );
-					}
-				}
+			$island_error = $this->get_island_cvs_error( $fields );
+			if ( '' !== $island_error ) {
+				$errors->add( 'woomp_island_cvs', $island_error );
 			}
 
 			// 電話位數一定要 10 碼.
 			if ( array_key_exists( 'billing_phone', $fields ) ) {
 				if ( mb_strlen( $fields['billing_phone'], 'utf-8' ) !== 10 ) {
-					$errors->add( 'validation', '<strong>聯絡電話</strong> 長度有誤，必須為 10 碼' );
+					$errors->add( 'woomp_phone_length', '<strong>聯絡電話</strong> 長度有誤，必須為 10 碼' );
 				}
 			}
+		}
+
+		/**
+		 * 是否為 Woomp 結帳模式（onepage／twopage）
+		 *
+		 * 只有這兩種模式會提供「寄送到離島區域」勾選欄位與台灣縣市選單，由 Woomp 管理離島運送。
+		 *
+		 * @return bool
+		 */
+		public static function is_woomp_checkout_mode(): bool {
+			return in_array( get_option( 'wc_woomp_setting_mode', 1 ), [ 'onepage', 'twopage' ], true );
+		}
+
+		/**
+		 * 取得地址所在的離島縣市
+		 *
+		 * @param string $address 地址.
+		 * @return string 金門縣／澎湖縣／連江縣；非離島回傳空字串
+		 */
+		public static function get_island_county( string $address ): string {
+			foreach ( [ '金門縣', '澎湖縣', '連江縣' ] as $county ) {
+				if ( str_contains( $address, $county ) ) {
+					return $county;
+				}
+			}
+			return '';
+		}
+
+		/**
+		 * 檢查選擇的離島超商門市是否可配送（issue #136）
+		 *
+		 * - default 模式：Woomp 不提供離島欄位，也不管理離島運送，一律放行，
+		 *   是否配送與運費以 WooCommerce 運送區域設定為準。
+		 * - onepage／twopage 模式：
+		 *   1. 運送區域沒有設定該縣市的離島郵遞區號 → 拒絕（商家未配送該縣市）
+		 *   2. 有「寄送到離島區域」欄位但顧客沒勾 → 拒絕（請顧客勾選以套用離島運費）
+		 *   3. 沒有該欄位（例如被其他外掛移除）→ 放行，不要求顧客操作不存在的欄位
+		 *
+		 * @param array $fields 結帳送出的資料（WC_Checkout::get_posted_data()）.
+		 * @return string 錯誤訊息；可配送時回傳空字串
+		 */
+		public function get_island_cvs_error( array $fields ): string {
+			if ( ! self::is_woomp_checkout_mode() ) {
+				return '';
+			}
+
+			$county = self::get_island_county( (string) ( $fields['CVSAddress'] ?? '' ) );
+			if ( '' === $county ) {
+				return '';
+			}
+
+			if ( in_array( $county, $this->get_island_hide(), true ) ) {
+				return "<strong>外島超商</strong> 本店目前未配送至{$county}，請選擇其他門市";
+			}
+
+			if ( array_key_exists( 'billing_island', $fields ) && 1 !== (int) $fields['billing_island'] ) {
+				return '<strong>外島超商</strong> 您選擇的是離島門市，請勾選「寄送到離島區域」';
+			}
+
+			return '';
 		}
 
 		/**
