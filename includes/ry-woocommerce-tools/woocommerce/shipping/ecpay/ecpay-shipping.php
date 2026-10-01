@@ -69,6 +69,7 @@ final class RY_ECPay_Shipping {
 			add_filter( 'woocommerce_shipping_methods', [ __CLASS__, 'add_method' ] );
 
 			add_filter( 'woocommerce_checkout_fields', [ __CLASS__, 'add_cvs_info' ], 9999 );
+			add_action( 'woocommerce_after_checkout_validation', [ __CLASS__, 'validate_cvs_store' ], 10, 2 );
 			add_action( 'woocommerce_review_order_after_shipping', [ __CLASS__, 'shipping_choose_cvs' ] );
 			add_filter( 'woocommerce_update_order_review_fragments', [ __CLASS__, 'shipping_choose_cvs_info' ] );
 			add_action( 'woocommerce_checkout_create_order', [ __CLASS__, 'save_cvs_info' ], 20, 2 );
@@ -215,7 +216,7 @@ final class RY_ECPay_Shipping {
 				self::$js_data['postData'] = [
 					'MerchantID'       => $MerchantID,
 					'LogisticsType'    => $method_class::$LogisticsType,
-					'LogisticsSubType' => $method_class::$LogisticsSubType . ( ( 'C2C' == $CVS_type ) ? 'C2C' : '' ),
+					'LogisticsSubType' => self::get_logistics_sub_type( $chosen_shipping ),
 					'IsCollection'     => 'Y',
 					'ServerReplyURL'   => esc_url( WC()->api_request_url( 'ry_ecpay_map_callback' ) ),
 				];
@@ -319,17 +320,11 @@ final class RY_ECPay_Shipping {
 			}
 		}
 
-		if ( did_action( 'woocommerce_checkout_process' ) ) {
-			$used_cvs        = false;
-			$shipping_method = isset( $_POST['shipping_method'] ) ? wc_clean( $_POST['shipping_method'] ) : [];
-			foreach ( $shipping_method as $method ) {
-				$method = strstr( $method, ':', true );
-				if ( $method && array_key_exists( $method, self::$support_methods ) && strpos( $method, 'cvs' ) !== false ) {
-					$used_cvs = true;
-					break;
-				}
-			}
+		if ( RY_WT::is_checkout_submission() ) {
+			$shipping_method = isset( $_POST['shipping_method'] ) ? wc_clean( wp_unslash( $_POST['shipping_method'] ) ) : [];
+			$used_cvs        = '' !== self::get_chosen_cvs_method( $shipping_method );
 
+			// 門市是否已選擇改由 validate_cvs_store() 把關，這裡不再把 CVSStoreName 設為必填（issue #136）
 			if ( $used_cvs ) {
 				$fields['shipping']['shipping_country']['required']   = false;
 				$fields['shipping']['shipping_address_1']['required'] = false;
@@ -339,13 +334,76 @@ final class RY_ECPay_Shipping {
 				$fields['shipping']['shipping_postcode']['required']  = false;
 
 				$fields['shipping']['shipping_phone']['required'] = true;
-				$fields['shipping']['CVSStoreName']['required']   = true;
 			} elseif ( 'no' == RY_WT::get_option( 'keep_shipping_phone', 'no' ) ) {
 				$fields['shipping']['shipping_phone']['required'] = false;
 			}
 		}
 
 		return $fields;
+	}
+
+	/**
+	 * 取得本次結帳選擇的綠界超商取貨物流 ID
+	 *
+	 * @param array|string $shipping_methods 結帳送出的物流，例如 [ 'ry_ecpay_shipping_cvs_711:3' ]
+	 * @return string 物流 ID（例如 ry_ecpay_shipping_cvs_711）；未選綠界超商取貨時回傳空字串
+	 */
+	public static function get_chosen_cvs_method( $shipping_methods ): string {
+		foreach ( (array) $shipping_methods as $method ) {
+			$method    = (string) $method;
+			$method_id = false !== strpos( $method, ':' ) ? strstr( $method, ':', true ) : $method;
+			if ( array_key_exists( $method_id, self::$support_methods ) && false !== strpos( $method_id, 'cvs' ) ) {
+				return $method_id;
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * 取得物流方式對應的綠界 LogisticsSubType
+	 *
+	 * 送往綠界選店地圖與結帳驗證共用同一套規則，地圖回傳的 LogisticsSubType 才會一致。
+	 *
+	 * @param string $method_id 物流 ID（例如 ry_ecpay_shipping_cvs_711）
+	 * @return string 例如 UNIMART、UNIMARTC2C
+	 */
+	public static function get_logistics_sub_type( string $method_id ): string {
+		$method_class = self::$support_methods[ $method_id ];
+		$cvs_type     = RY_WT::get_option( 'ecpay_shipping_cvs_type' );
+
+		return $method_class::$LogisticsSubType . ( ( 'C2C' == $cvs_type ) ? 'C2C' : '' );
+	}
+
+	/**
+	 * 結帳時驗證綠界超商取貨門市（issue #136）
+	 *
+	 * 不依賴結帳欄位的 required 設定：
+	 * 1. WC 會快取結帳欄位，其他外掛若在 woocommerce_checkout_process 之前就讀取過欄位，
+	 *    add_cvs_info() 動態設定的 required 不會生效。
+	 * 2. 未勾選「運送到不同地址」時，WC 會略過整組 shipping 欄位驗證。
+	 * WC 在此 hook 之後才決定是否建立訂單，這裡有錯誤就不會建立訂單。
+	 *
+	 * @param array    $data   WC_Checkout::get_posted_data() 的結果
+	 * @param WP_Error $errors 結帳錯誤
+	 */
+	public static function validate_cvs_store( $data, $errors ) {
+		$method_id = self::get_chosen_cvs_method( $data['shipping_method'] ?? [] );
+		if ( '' === $method_id ) {
+			return;
+		}
+
+		foreach ( [ 'CVSStoreID', 'CVSStoreName', 'CVSAddress' ] as $key ) {
+			if ( '' === trim( (string) ( $data[ $key ] ?? '' ) ) ) {
+				$errors->add( 'ry_ecpay_cvs_store_missing', '請選擇超商取貨門市' );
+				return;
+			}
+		}
+
+		// 切換超商品牌後未重新選店，門市資料會是前一家超商的
+		if ( (string) ( $data['LogisticsSubType'] ?? '' ) !== self::get_logistics_sub_type( $method_id ) ) {
+			$errors->add( 'ry_ecpay_cvs_store_mismatch', '門市資料與目前選擇的超商不符，請重新選擇門市' );
+		}
 	}
 
 	public static function save_cvs_info( $order, $data ) {

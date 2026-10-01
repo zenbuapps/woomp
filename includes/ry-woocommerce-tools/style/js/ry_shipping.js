@@ -110,8 +110,52 @@ jQuery(
 				}
 			}
 		);
+
+		// 選了綠界超商取貨但沒選門市時，阻止送出（按鈕點擊與 Enter 送出都會觸發 checkout_place_order）
+		// 這裡只是提早提示，後端 RY_ECPay_Shipping::validate_cvs_store() 才是最終把關（issue #136）
+		$( 'form.checkout' ).on(
+			'checkout_place_order',
+			function (e) {
+				// 不擋時不回傳值：回傳 true 會覆蓋先綁定的其他外掛回傳的 false，讓它們的阻擋失效
+				if ( ! RYECPayIsCvsChosen() || RYECPayHasCvsStore()) {
+					return;
+				}
+				e.stopImmediatePropagation();
+				RYECPayShowCheckoutError( '請選擇超商取貨門市' );
+				return false;
+			}
+		);
 	}
 );
+
+function RYECPayIsCvsChosen() {
+	var chosen = false;
+	jQuery( 'select.shipping_method, input[name^="shipping_method"][type="radio"]:checked, input[name^="shipping_method"][type="hidden"]' ).each(
+		function () {
+			if (String( jQuery( this ).val() ).indexOf( 'ry_ecpay_shipping_cvs' ) === 0) {
+				chosen = true;
+			}
+		}
+	);
+	return chosen;
+}
+
+function RYECPayHasCvsStore() {
+	return String( jQuery( 'input#CVSStoreID' ).val() || '' ).trim() !== ''
+		&& String( jQuery( 'input#CVSStoreName' ).val() || '' ).trim() !== '';
+}
+
+function RYECPayShowCheckoutError(message) {
+	var $form = jQuery( 'form.checkout' );
+	jQuery( '.woocommerce-NoticeGroup-checkout' ).remove();
+	var $notice = jQuery( '<div class="woocommerce-NoticeGroup woocommerce-NoticeGroup-checkout"><ul class="woocommerce-error" role="alert"><li></li></ul></div>' );
+	$notice.find( 'li' ).text( message );
+	$form.prepend( $notice );
+	if (typeof jQuery.scroll_to_notices === 'function') {
+		jQuery.scroll_to_notices( $notice );
+	}
+	jQuery( document.body ).trigger( 'checkout_error', [ message ] );
+}
 
 function RYECPaySendCvsPost() {
 	window.sessionStorage.setItem( 'RYECPayTempCheckoutForm', JSON.stringify( jQuery( 'form.checkout' ).serializeArray() ) );
@@ -128,6 +172,9 @@ function RYECPaySendCvsPost() {
 }
 
 function RYECPayRemoveSendCvs() {
+	// 一併清掉門市代號與物流子類型，避免切換超商後送出前一家門市的殘留資料（issue #136）
+	jQuery( 'input#CVSStoreID' ).val( '' );
+	jQuery( 'input#LogisticsSubType' ).val( '' );
 	jQuery( 'input#CVSStoreName' ).remove();
 	jQuery( 'input#CVSAddress' ).remove();
 	jQuery( 'input#CVSTelephone' ).remove();

@@ -17,7 +17,8 @@ final class RY_Shipping {
 			add_filter( 'woocommerce_shipping_address_map_url_parts', [ __CLASS__, 'fix_cvs_map_address' ] );
 			add_filter( 'woocommerce_admin_order_actions', [ __CLASS__, 'add_admin_order_actions' ], 10, 2 );
 		} else {
-			wp_register_script( 'ry-shipping', RY_WT_PLUGIN_URL . 'style/js/ry_shipping.js', [ 'jquery' ], RY_WT_VERSION, true );
+			// 版本號跟隨 Woomp 版本，更新後瀏覽器才會重新下載（RY_WT_VERSION 固定為 1.0.0）
+			wp_register_script( 'ry-shipping', RY_WT_PLUGIN_URL . 'style/js/ry_shipping.js', [ 'jquery' ], WOOMP_VERSION, true );
 		}
 	}
 
