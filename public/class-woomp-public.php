@@ -103,7 +103,7 @@ class Woomp_Public {
 
 		if ( is_checkout() ) {
 
-			wp_register_script( 'woomp_checkout', plugin_dir_url( __FILE__ ) . 'js/woomp-checkout.js', [ 'jquery' ], '1.8.3', true );
+			wp_register_script( 'woomp_checkout', plugin_dir_url( __FILE__ ) . 'js/woomp-checkout.js', [ 'jquery' ], $this->version, true );
 			wp_localize_script(
 				'woomp_checkout',
 				'woomp_checkout_params',

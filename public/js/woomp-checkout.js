@@ -338,17 +338,24 @@ jQuery(function ($) {
 		}
 	}
 
+	// 離島超商門市提示，判斷規則與後端 WooMP_Checkout::get_island_cvs_error() 一致（issue #136）
 	function setIslandCvsNotification() {
 		$(document.body).on("updated_checkout", function () {
-			cvsAddress = $("#CVSAddress_field strong").text();
-			if (cvsAddress !== "" && !$("#billing_island").prop("checked")) {
-				if (
-					cvsAddress.includes("金門縣") ||
-					cvsAddress.includes("澎湖縣") ||
-					cvsAddress.includes("連江縣")
-				) {
-					alert("您選擇的超商不在運送範圍內！");
-				}
+			var cvsAddress = $("#CVSAddress_field strong").text();
+			var county = ["金門縣", "澎湖縣", "連江縣"].find(function (name) {
+				return cvsAddress.includes(name);
+			});
+			if (!county) {
+				return;
+			}
+			var islandHide = ($("#billing_island_none").val() || "").split(",");
+			if (islandHide.includes(county)) {
+				alert("很抱歉，本店目前未配送至" + county + "，請選擇其他門市");
+				return;
+			}
+			// 沒有離島勾選欄位時不要求顧客勾選
+			if ($("#billing_island").length && !$("#billing_island").prop("checked")) {
+				alert("您選擇的是離島門市，請勾選「寄送到離島區域」");
 			}
 		});
 	}
