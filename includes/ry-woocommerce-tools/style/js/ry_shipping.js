@@ -47,11 +47,14 @@ jQuery(
 							}
 						}
 					} else if (data.fragments.newebpay_shipping_info !== undefined) {
+						// 藍新、速買配超取不用綠界門市欄位，從綠界超取切換過來時要清掉，避免送出殘留門市（issue #142）
+						RYECPayRemoveSendCvs();
 						$( '.woocommerce-shipping-fields__field-wrapper p' ).hide();
 						if ($( '#ship-to-different-address-checkbox' ).prop( 'checked' ) === false) {
 							$( '#ship-to-different-address-checkbox' ).click();
 						}
 					} else if (data.fragments.smilepay_shipping_info !== undefined) {
+						RYECPayRemoveSendCvs();
 						$( '.woocommerce-shipping-fields__field-wrapper p:not(.cvs-info)' ).hide();
 						$( '.woocommerce-shipping-fields__field-wrapper p#shipping_first_name_field' ).show();
 						$( '.woocommerce-shipping-fields__field-wrapper p#shipping_last_name_field' ).show();

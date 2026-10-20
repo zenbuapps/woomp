@@ -91,6 +91,7 @@ ECPay（綠界）閘道基底 `RY_ECPay_Gateway_Base` 已實作後台退款（`s
 `WC_Checkout::get_checkout_fields()` 會快取欄位，只要有其他外掛在 `woocommerce_checkout_init`（早於 `woocommerce_checkout_process`）讀過欄位，之後在 filter 裡依 `did_action('woocommerce_checkout_process')` 動態改 `required` 就不會生效；另外，沒勾「運送到不同地址」時，WC 會略過整組 shipping 欄位的驗證（issue #136）。因此：
 - **必要的業務檢查**（例如超商門市必選）一律掛在 `woocommerce_after_checkout_validation`，直接讀 `$data`。參考 `RY_ECPay_Shipping::validate_cvs_store()`。
 - **判斷「是否為結帳送出」**用 `RY_WT::is_checkout_submission()`（看 `woocommerce-process-checkout-nonce` 有沒有送上來），不要只靠 `did_action()`。
+- **寫入門市也要看本次物流**：`woocommerce_checkout_create_order` 掛的是 `RY_ECPay_Shipping::save_checkout_cvs_info()`，本次不是綠界超取就不寫門市（issue #142：宅配訂單帶著殘留 `CVSStoreID` 時，運送地址會被換成門市地址）。`save_cvs_info()` 本身不檢查物流，因為後台改門市（`RY_ECPay_Shipping_Response::map_redirect()`）的資料沒有 `shipping_method`，會直接呼叫它。
 
 **離島超商規則**：只有 `onepage`／`twopage` 模式會由 Woomp 管理離島（提供勾選欄位，並依運送區域的離島郵遞區號判斷能不能送）；`default` 模式一律放行，以 WC 運送區域設定為準（`WooMP_Checkout::get_island_cvs_error()`）。
 
