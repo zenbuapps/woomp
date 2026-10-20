@@ -72,7 +72,7 @@ final class RY_ECPay_Shipping {
 			add_action( 'woocommerce_after_checkout_validation', [ __CLASS__, 'validate_cvs_store' ], 10, 2 );
 			add_action( 'woocommerce_review_order_after_shipping', [ __CLASS__, 'shipping_choose_cvs' ] );
 			add_filter( 'woocommerce_update_order_review_fragments', [ __CLASS__, 'shipping_choose_cvs_info' ] );
-			add_action( 'woocommerce_checkout_create_order', [ __CLASS__, 'save_cvs_info' ], 20, 2 );
+			add_action( 'woocommerce_checkout_create_order', [ __CLASS__, 'save_checkout_cvs_info' ], 20, 2 );
 
 			if ('yes' === RY_WT::get_option('ecpay_shipping_auto_get_no', 'yes')) {
 				add_action( 'woocommerce_order_status_on-hold', [ __CLASS__, 'get_code' ], 10, 2 );
@@ -404,6 +404,24 @@ final class RY_ECPay_Shipping {
 		if ( (string) ( $data['LogisticsSubType'] ?? '' ) !== self::get_logistics_sub_type( $method_id ) ) {
 			$errors->add( 'ry_ecpay_cvs_store_mismatch', '門市資料與目前選擇的超商不符，請重新選擇門市' );
 		}
+	}
+
+	/**
+	 * 結帳建立訂單時寫入超商門市（issue #142）
+	 *
+	 * 只有本次選綠界超商取貨才寫入門市。宅配等其他物流若送出殘留的 CVSStoreID
+	 * （前端清除沒跑完、自訂結帳畫面、直接 POST），寫入會把顧客填的運送地址換成門市地址。
+	 * 後台改門市（RY_ECPay_Shipping_Response::map_redirect()）沒有 shipping_method，直接呼叫 save_cvs_info()。
+	 *
+	 * @param WC_Order $order 結帳建立中的訂單
+	 * @param array    $data  WC_Checkout::get_posted_data() 的結果
+	 */
+	public static function save_checkout_cvs_info( $order, $data ) {
+		if ( '' === self::get_chosen_cvs_method( $data['shipping_method'] ?? [] ) ) {
+			unset( $data['CVSStoreID'] );
+		}
+
+		self::save_cvs_info( $order, $data );
 	}
 
 	public static function save_cvs_info( $order, $data ) {
