@@ -48,7 +48,7 @@ class UnpayTitleDefaultTest extends WP_UnitTestCase {
 	 *
 	 * @return array
 	 */
-	public function provide_ry_versions() {
+	public static function provide_ry_versions() {
 		return [
 			'woomp 既有站台'                  => [ '1.7.6' ],
 			'從獨立版 RY Tools 轉過來（版號較新）' => [ '2.0.0' ],
