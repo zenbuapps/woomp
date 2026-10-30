@@ -163,4 +163,22 @@ final class RY_WT_update {
 			RY_WT::update_option( 'version', '1.7.6' );
 		}
 	}
+
+	/**
+	 * 將「於訂單明細中顯示未付款」覆蓋為 no，每個站台只跑一次（issue #144）
+	 *
+	 * 非同步回呼的金流會在付款通知到達前把客戶導回感謝頁，客戶會看到「(尚未付款)」而誤以為付款失敗。
+	 * 既有站台多半是沿用舊預設 yes，所以全部覆蓋為 no；之後商家手動改回 yes 不會再被覆蓋。
+	 *
+	 * 不用 RY_WT_version 判斷：這個 option 與獨立版 RY WooCommerce Tools 共用，
+	 * 從原版轉過來的站台殘留的版號可能大於 1.7.6 或等於 RY_WT_VERSION，版號步驟會被跳過。
+	 */
+	public static function migrate_unpay_title_default() {
+		if ( get_option( 'woomp_migrated_unpay_title_default' ) ) {
+			return;
+		}
+
+		RY_WT::update_option( 'show_unpay_title', 'no' );
+		update_option( 'woomp_migrated_unpay_title_default', 'yes' );
+	}
 }

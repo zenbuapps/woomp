@@ -389,7 +389,7 @@ class Woomp_Setting {
 				'desc'     => __( 'Show not paid info at order detail payment method info.', 'ry-woocommerce-tools' ),
 				'id'       => RY_WT::$option_prefix . 'show_unpay_title',
 				'type'     => 'checkbox',
-				'default'  => 'yes',
+				'default'  => 'no',
 				'class'    => 'toggle',
 				'desc_tip' => true,
 			],
