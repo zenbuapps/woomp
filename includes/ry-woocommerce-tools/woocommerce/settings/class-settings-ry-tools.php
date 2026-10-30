@@ -160,7 +160,7 @@ class WC_Settings_RY_Tools extends WC_Settings_Page {
 					'desc'    => __( 'Show not paid info at order detail payment method info.', 'ry-woocommerce-tools' ),
 					'id'      => RY_WT::$option_prefix . 'show_unpay_title',
 					'type'    => 'checkbox',
-					'default' => 'yes',
+					'default' => 'no',
 				],
 				[
 					'type' => 'sectionend',

@@ -38,7 +38,7 @@ final class RY_WT {
 
 			if ( is_admin() ) {
 				include_once RY_WT_PLUGIN_DIR . 'class.ry-wt.admin.php';
-			} elseif ( 'yes' == self::get_option( 'show_unpay_title', 'yes' ) ) {
+			} elseif ( 'yes' == self::get_option( 'show_unpay_title', 'no' ) ) {
 				if ( apply_filters( 'ry_show_unpay_title_notice', true ) ) {
 					self::add_unpay_title_notice( true );
 					add_filter( 'woocommerce_email_setup_locale', [ __CLASS__, 'remove_unpay_title_notice' ] );
