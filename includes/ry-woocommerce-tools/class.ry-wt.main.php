@@ -35,15 +35,12 @@ final class RY_WT {
 
 			include_once RY_WT_PLUGIN_DIR . 'class.ry-wt.update.php';
 			RY_WT_update::update();
+			RY_WT_update::migrate_unpay_title_default();
 
 			if ( is_admin() ) {
 				include_once RY_WT_PLUGIN_DIR . 'class.ry-wt.admin.php';
-			} elseif ( 'yes' == self::get_option( 'show_unpay_title', 'no' ) ) {
-				if ( apply_filters( 'ry_show_unpay_title_notice', true ) ) {
-					self::add_unpay_title_notice( true );
-					add_filter( 'woocommerce_email_setup_locale', [ __CLASS__, 'remove_unpay_title_notice' ] );
-					add_filter( 'woocommerce_email_restore_locale', [ __CLASS__, 'add_unpay_title_notice' ] );
-				}
+			} else {
+				self::maybe_add_unpay_title_notice();
 			}
 
 			add_action( 'ry_check_ntp_time', [ __CLASS__, 'check_ntp_time' ] );
@@ -98,6 +95,23 @@ final class RY_WT {
 			if ( 'yes' == self::get_option( 'address_zip_first', 'no' ) ) {
 				add_filter( 'woocommerce_default_address_fields', [ __CLASS__, 'address_zip_first' ] );
 			}
+		}
+	}
+
+	/**
+	 * 商家開啟「於訂單明細中顯示未付款」時，在前台付款方式後面加上「(尚未付款)」
+	 *
+	 * 預設為 no（issue #144）：非同步回呼的金流在付款通知到達前，客戶會誤以為付款失敗。
+	 */
+	public static function maybe_add_unpay_title_notice() {
+		if ( 'yes' !== self::get_option( 'show_unpay_title', 'no' ) ) {
+			return;
+		}
+
+		if ( apply_filters( 'ry_show_unpay_title_notice', true ) ) {
+			self::add_unpay_title_notice( true );
+			add_filter( 'woocommerce_email_setup_locale', [ __CLASS__, 'remove_unpay_title_notice' ] );
+			add_filter( 'woocommerce_email_restore_locale', [ __CLASS__, 'add_unpay_title_notice' ] );
 		}
 	}
 
