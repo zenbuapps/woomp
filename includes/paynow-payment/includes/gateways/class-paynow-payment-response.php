@@ -68,7 +68,8 @@ class PayNow_Payment_Response {
 
 		PayNow_Payment::log( 'paynow_receive_response. raw post data ' . wc_print_r( $_POST, true ) );
 
-		if ( ! empty( $_POST ) && self::validate_passcode() ) {
+		// PassCode 等來源驗證在各 handler 取得訂單後進行（需要訂單金額與付款方式），見 is_authentic_callback().
+		if ( ! empty( $_POST ) ) {
 
 			$posted = wc_clean( wp_unslash( $_POST ) );
 
@@ -122,7 +123,12 @@ class PayNow_Payment_Response {
 
 		$order = self::get_paynow_order( $posted );
 
-		if ( $order ) {
+		if ( $order && self::is_authentic_callback( $order, $posted ) ) {
+
+			if ( self::is_downgrade_of_paid_order( $order, $tran_status ) ) {
+				wp_safe_redirect( $order->get_checkout_order_received_url() );
+				exit;
+			}
 
 			$order->update_meta_data( '_paynow_tran_id', $buysafe_no );
 			$order->update_meta_data( '_paynow_tran_status', $tran_status );
@@ -194,7 +200,12 @@ class PayNow_Payment_Response {
 			return;
 		}
 
-		if ( $order ) {
+		if ( $order && self::is_authentic_callback( $order, $posted ) ) {
+
+			if ( self::is_downgrade_of_paid_order( $order, $tran_status ) ) {
+				wp_safe_redirect( $order->get_checkout_order_received_url() );
+				exit;
+			}
 
 			$order->update_meta_data( '_paynow_new_date', $new_date );
 			$order->update_meta_data( '_paynow_due_date', $due_date );
@@ -284,7 +295,12 @@ class PayNow_Payment_Response {
 		}
 
 		$order = self::get_paynow_order( $posted );
-		if ( $order ) {
+		if ( $order && self::is_authentic_callback( $order, $posted ) ) {
+			if ( self::is_downgrade_of_paid_order( $order, $tran_status ) ) {
+				echo '1';
+				return;
+			}
+
 			$order->update_meta_data( '_paynow_tran_id', $buysafe_no );
 			$order->update_meta_data( '_paynow_tran_status', $tran_status );
 			if ( ! empty( $pan_no4 ) ) {
@@ -311,14 +327,80 @@ class PayNow_Payment_Response {
 	}
 
 	/**
-	 * Validate passcode
+	 * 確認回呼確實來自 PayNow 且對應這張訂單
 	 *
-	 * @return void
+	 * 回呼網址是公開的，任何人都能 POST；未通過驗證的資料一律不得變更訂單。
+	 * 依序檢查：
+	 * 1. 訂單是用 PayNow 付款方式下單
+	 * 2. 回傳金額 TotalPrice 與訂單金額相符
+	 * 3. PassCode = sha1( WebNo + OrderNo + TotalPrice + 交易密碼 + TranStatus )
+	 *    （PayNow 規格；虛擬帳號／ibon 取號時的回傳不含 TranStatus）
+	 *
+	 * 不含 TranStatus 的 PassCode 只接受非 S 的回呼：取號回傳會經過消費者瀏覽器，
+	 * 若對 S 也接受，消費者可拿取號時的 PassCode 改送 TranStatus=S 偽造付款完成。
+	 *
+	 * @param WC_Order $order  The order object.
+	 * @param array    $posted PayNow 回傳的交易資料.
+	 * @return bool
 	 */
-	private static function validate_passcode() {
-		// TODO: need validate passcode.
-		$posted   = wc_clean( wp_unslash( $_POST ) );
-		$passcode = $posted['PassCode'] ?? '';
+	private static function is_authentic_callback( $order, $posted ) {
+		$order_no    = (string) ( $posted['OrderNo'] ?? '' );
+		$total_price = (string) ( $posted['TotalPrice'] ?? '' );
+		$tran_status = (string) ( $posted['TranStatus'] ?? '' );
+		$pass_code   = strtolower( (string) ( $posted['PassCode'] ?? '' ) );
+
+		if ( 0 !== strpos( (string) $order->get_payment_method(), 'paynow-' ) ) {
+			PayNow_Payment::log( 'Order ' . $order->get_id() . ' payment method ' . $order->get_payment_method() . ' is not PayNow, reject callback', 'error' );
+			return false;
+		}
+
+		if ( ! is_numeric( $total_price ) || abs( (float) $total_price - (float) $order->get_total() ) >= 0.01 ) {
+			PayNow_Payment::log( 'Order ' . $order->get_id() . ' TotalPrice ' . $total_price . ' does not match order total ' . $order->get_total() . ', reject callback', 'error' );
+			return false;
+		}
+
+		$trans_pwd = (string) get_option( 'paynow_payment_trans_pwd' );
+		if ( '' === $trans_pwd || '' === $pass_code ) {
+			PayNow_Payment::log( 'Order ' . $order->get_id() . ' missing PassCode or transaction password, reject callback', 'error' );
+			return false;
+		}
+
+		// 送出時 WebNo 經過 strtoupper()；回傳的 WebNo 已由 is_valid_web_no() 確認只差大小寫，兩者都試.
+		$web_nos = array_unique( array_filter( [ strtoupper( (string) get_option( 'paynow_payment_web_no' ) ), (string) ( $posted['WebNo'] ?? '' ) ] ) );
+
+		foreach ( $web_nos as $web_no ) {
+			$base       = $web_no . $order_no . $total_price . $trans_pwd;
+			$candidates = [ $base . $tran_status ];
+			if ( 'S' !== $tran_status ) {
+				$candidates[] = $base;
+			}
+
+			foreach ( $candidates as $candidate ) {
+				if ( hash_equals( sha1( $candidate ), $pass_code ) ) {
+					return true;
+				}
+			}
+		}
+
+		PayNow_Payment::log( 'Order ' . $order->get_id() . ' PassCode verification failed, reject callback', 'error' );
+		return false;
+	}
+
+	/**
+	 * 已付款訂單收到非成功的回呼時不得改動訂單
+	 *
+	 * 例如 ATM 取號回呼晚到、或重送的失敗通知，不可把已完成付款的訂單打回保留中。
+	 *
+	 * @param WC_Order $order       The order object.
+	 * @param string   $tran_status 交易結果 S or F.
+	 * @return bool
+	 */
+	private static function is_downgrade_of_paid_order( $order, $tran_status ) {
+		if ( 'S' === $tran_status || ! $order->is_paid() ) {
+			return false;
+		}
+
+		PayNow_Payment::log( 'Order ' . $order->get_id() . ' is already paid, ignore TranStatus ' . $tran_status . ' callback' );
 		return true;
 	}
 
