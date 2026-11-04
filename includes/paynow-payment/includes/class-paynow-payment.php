@@ -132,7 +132,8 @@ class PayNow_Payment {
 	 * @return void
 	 */
 	public static function log( $message, $level = 'info' ) {
-		if ( self::$log_enabled ) {
+		// error 等級（例如回呼驗證失敗）不受除錯開關影響，一律記錄，方便排查訂單沒有自動完成的原因.
+		if ( self::$log_enabled || 'error' === $level ) {
 			if ( empty( self::$log ) ) {
 				self::$log = new WC_Logger();
 			}

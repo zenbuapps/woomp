@@ -91,7 +91,7 @@ Version: V1.7.1.0。商家組參數 form POST 導轉到 `etopm.aspx`，使用者
 |------|------|
 | `BuysafeNo` | PayNow 訂單編號 |
 | `OrderNo` | 商家自訂編號 |
-| `PassCode` | `sha1(WebNo + OrderNo + TotalPrice + 商家交易密碼)`（產生帳號時）或加 `TranStatus`（繳費成功時） |
+| `PassCode` | `sha1(WebNo + OrderNo + TotalPrice + 商家交易密碼 + TranStatus)`（票券交易的虛擬帳號才不含 `TranStatus`） |
 | `TotalPrice` | 交易金額 |
 | `PayType` | `03` 虛擬帳號 |
 | `ATMNo` | 虛擬帳號號碼（繳款唯一編號） |
@@ -232,8 +232,8 @@ Response：`buysafeno`、`checkno`（7 碼核銷碼）、`passcode`、`errormess
 | 情境 | 組成 |
 |------|------|
 | 導轉送出（傳遞碼） | `sha1(WebNo + OrderNo + TotalPrice + apicode)` |
-| 導轉回傳（信用卡 / WebATM / 銀聯 / 分期 / 超商條碼） | `sha1(WebNo + OrderNo + TotalPrice + 商家交易密碼 + TranStatus)` |
-| 導轉回傳（虛擬帳號 / ibon 產生時） | `sha1(WebNo + OrderNo + TotalPrice + 商家交易密碼)`（成功時加 `+ TranStatus`） |
+| 導轉回傳（信用卡 / WebATM / 銀聯 / 分期 / 虛擬帳號 / 超商條碼） | `sha1(WebNo + OrderNo + TotalPrice + 商家交易密碼 + TranStatus)` |
+| 導轉回傳（ibon / FamiPort / icash 產生時） | `sha1(WebNo + OrderNo + TotalPrice + 商家交易密碼)`（成功時加 `+ TranStatus`） |
 | 導轉回傳 PassCode2（ibon/FamiPort/icash 成功） | `strtoupper(sha1(PassCode + ReceiverEmail))` |
 | 預存授權（WSC_DLP） | `strtoupper(sha1(mem_cid + OrderNo + TotalPrice + mem_checkpw))` |
 | 背景請款 / 退款 | `strtoupper(sha1("2822" + UserID + 商家交易密碼 + "9955"))` |
