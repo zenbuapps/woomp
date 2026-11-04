@@ -336,6 +336,58 @@ class PaynowCallbackTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * 測試回呼沒帶 WebNo 時仍以站台 WebNo 驗證 PassCode
+	 *
+	 * 官方文件的 WebNo 欄位註明「僅用信用卡交易時回傳」，虛擬帳號、超商等回傳的欄位表都沒有 WebNo，
+	 * 不可因為沒帶就忽略通知。
+	 *
+	 * @testdox 驗證回呼沒帶 WebNo 但 PassCode 正確時仍完成訂單
+	 */
+	public function test_background_notification_without_webno_completes_order() {
+		$posted = $this->build_background_notification();
+		unset( $posted['WebNo'] );
+
+		$this->expectOutputString( '1' );
+		PayNow_Payment_Response::paynow_background_notification( $posted );
+
+		$order = wc_get_order( $this->order->get_id() );
+		$this->assertTrue( $order->is_paid(), '沒帶 WebNo 但 PassCode 正確時應完成付款' );
+	}
+
+	/**
+	 * 測試沒帶 WebNo 不能用來繞過 PassCode
+	 *
+	 * @testdox 驗證回呼沒帶 WebNo 且 PassCode 偽造時不會完成訂單
+	 */
+	public function test_background_notification_without_webno_rejects_forged_pass_code() {
+		$posted = $this->build_background_notification( [ 'PassCode' => sha1( 'forged' ) ] );
+		unset( $posted['WebNo'] );
+
+		PayNow_Payment_Response::paynow_background_notification( $posted );
+
+		$order = wc_get_order( $this->order->get_id() );
+		$this->assertFalse( $order->is_paid(), '沒帶 WebNo 且 PassCode 偽造時不應完成付款' );
+		$this->assertEquals( 'pending', $order->get_status() );
+	}
+
+	/**
+	 * 測試站台未設定 WebNo 時一律拒絕
+	 *
+	 * @testdox 驗證後台未設定 WebNo 時，沒帶 WebNo 的回呼不會完成訂單
+	 */
+	public function test_background_notification_without_webno_rejected_when_site_webno_empty() {
+		update_option( 'paynow_payment_web_no', '' );
+
+		$posted = $this->build_background_notification();
+		unset( $posted['WebNo'] );
+
+		PayNow_Payment_Response::paynow_background_notification( $posted );
+
+		$order = wc_get_order( $this->order->get_id() );
+		$this->assertFalse( $order->is_paid(), '後台未設定 WebNo 時不應完成付款' );
+	}
+
+	/**
 	 * 測試 OrderNo 對不到訂單時以 Note1 反查
 	 *
 	 * 站台若裝有訂單序號外掛改寫顯示編號，PayNow 回傳的 OrderNo 會對不到

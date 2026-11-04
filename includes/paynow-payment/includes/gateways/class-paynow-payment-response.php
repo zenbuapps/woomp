@@ -334,7 +334,7 @@ class PayNow_Payment_Response {
 	 * 1. 訂單是用 PayNow 付款方式下單
 	 * 2. 回傳金額 TotalPrice 與訂單金額相符
 	 * 3. PassCode = sha1( WebNo + OrderNo + TotalPrice + 交易密碼 + TranStatus )
-	 *    （PayNow 規格；虛擬帳號／ibon 取號時的回傳不含 TranStatus）
+	 *    （PayNow 官方文件；ibon／FamiPort／icash 產生代碼時的回傳不含 TranStatus，虛擬帳號取號也一併容許）
 	 *
 	 * 不含 TranStatus 的 PassCode 只接受非 S 的回呼：取號回傳會經過消費者瀏覽器，
 	 * 若對 S 也接受，消費者可拿取號時的 PassCode 改送 TranStatus=S 偽造付款完成。
@@ -415,7 +415,12 @@ class PayNow_Payment_Response {
 	 */
 	private static function is_valid_web_no( $web_no ) {
 		$site_web_no = (string) get_option( 'paynow_payment_web_no' );
-		return '' !== $site_web_no && strtoupper( $web_no ) === strtoupper( $site_web_no );
+		if ( '' === $site_web_no ) {
+			return false;
+		}
+
+		// 官方文件：WebNo「僅用信用卡交易時回傳」。沒帶時不比對，來源由 is_authentic_callback() 以站台 WebNo 驗證.
+		return '' === (string) $web_no || strtoupper( $web_no ) === strtoupper( $site_web_no );
 	}
 
 	/**

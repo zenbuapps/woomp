@@ -84,7 +84,7 @@ ECPay（綠界）閘道基底 `RY_ECPay_Gateway_Base` 已實作後台退款（`s
 
 ### PayNow 回呼必須先驗來源
 
-`/wc-api/paynow_payment(_offline)` 是公開網址，任何人都能 POST。三個 handler 取得訂單後一律先過 `PayNow_Payment_Response::is_authentic_callback()`：訂單付款方式為 `paynow-*`、`TotalPrice` 等於訂單金額、`PassCode = sha1(WebNo + OrderNo + TotalPrice + 交易密碼 + TranStatus)`（大小寫不拘，用 `hash_equals`）。虛擬帳號／ibon 取號時的 PassCode 不含 `TranStatus`，**只對非 S 接受**——取號回傳經過消費者瀏覽器，對 S 也接受就能拿來偽造付款完成。已付款訂單收到非 S 回呼一律忽略（`is_downgrade_of_paid_order()`）。驗證失敗以 `error` 等級寫入 `paynow-payment` log（不受除錯開關影響）。
+`/wc-api/paynow_payment(_offline)` 是公開網址，任何人都能 POST。三個 handler 取得訂單後一律先過 `PayNow_Payment_Response::is_authentic_callback()`：訂單付款方式為 `paynow-*`、`TotalPrice` 等於訂單金額、`PassCode = sha1(WebNo + OrderNo + TotalPrice + 交易密碼 + TranStatus)`（大小寫不拘，用 `hash_equals`）。官方文件中 ibon／FamiPort／icash 產生代碼時的 PassCode 不含 `TranStatus`（虛擬帳號文件寫含，但取號也一併容許不含），**只對非 S 接受**——取號回傳經過消費者瀏覽器，對 S 也接受就能拿來偽造付款完成。文件註明 `WebNo`「僅用信用卡交易時回傳」，所以回呼沒帶 `WebNo` 不拒絕，PassCode 改用站台設定的 WebNo 計算；有帶但不符才拒絕。已付款訂單收到非 S 回呼一律忽略（`is_downgrade_of_paid_order()`）。驗證失敗以 `error` 等級寫入 `paynow-payment` log（不受除錯開關影響）。
 
 ### 綠界電子發票明細必須加總等於 SalesAmount
 
