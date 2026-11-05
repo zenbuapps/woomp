@@ -894,7 +894,8 @@ class PayNow_Shipping {
 	 * @return void
 	 */
 	public static function log( $message, $level = 'info' ) {
-		if ( self::$log_enabled ) {
+		// 回呼被拒絕等 error / warning 不受除錯開關影響，否則事後查不到紀錄.
+		if ( self::$log_enabled || in_array( $level, [ 'error', 'warning' ], true ) ) {
 			if ( empty( self::$log ) ) {
 				self::$log = new WC_Logger();
 			}
