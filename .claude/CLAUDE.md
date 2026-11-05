@@ -86,6 +86,19 @@ ECPay（綠界）閘道基底 `RY_ECPay_Gateway_Base` 已實作後台退款（`s
 
 `/wc-api/paynow_payment(_offline)` 是公開網址，任何人都能 POST。三個 handler 取得訂單後一律先過 `PayNow_Payment_Response::is_authentic_callback()`：訂單付款方式為 `paynow-*`、`TotalPrice` 等於訂單金額、`PassCode = sha1(WebNo + OrderNo + TotalPrice + 交易密碼 + TranStatus)`（大小寫不拘，用 `hash_equals`）。官方文件中 ibon／FamiPort／icash 產生代碼時的 PassCode 不含 `TranStatus`（虛擬帳號文件寫含，但取號也一併容許不含），**只對非 S 接受**——取號回傳經過消費者瀏覽器，對 S 也接受就能拿來偽造付款完成。文件註明 `WebNo`「僅用信用卡交易時回傳」，所以回呼沒帶 `WebNo` 不拒絕，PassCode 改用站台設定的 WebNo 計算；有帶但不符才拒絕。已付款訂單收到非 S 回呼一律忽略（`is_downgrade_of_paid_order()`）。驗證失敗以 `error` 等級寫入 `paynow-payment` log（不受除錯開關影響）。
 
+### PayNow 物流回呼的驗證方式
+
+`/wc-api/paynow_choose_cvs_callback` 和 `/wc-api/paynow_shipping_order_callback` 都是公開網址（issue #146），驗證都在 `PayNow_Shipping_Response`：
+
+- **後台改門市**：門市地圖導回是跨站 POST，瀏覽器可能不帶登入 cookie，所以不靠 `current_user_can()` 或 nonce，改用一次性 token。`get_cvs_change_return_url()` 產生 `?cvs_token=`，transient 存「token 雜湊 → 訂單 ID」，有效 12 小時。網址只帶 token，訂單由 transient 決定，所以舊版的 `order_id` 參數一律被拒絕。用 `delete_transient()` 的回傳值判斷誰消耗了 token，重複請求只有一筆會通過。
+- **結帳選門市**：不帶 token，也不會更新既有訂單。帶了 `cvs_token` 或 `order_id` 就一定走驗證，不可落回結帳流程。
+- **貨態更新**：只接受有 `LogisticNumber` 的訂單。網址帶每站獨立的 `?token=`，帶錯一律拒絕。收到第一筆 token 正確的回呼後自動鎖定（`paynow_shipping_status_callback_token_required`），之後沒帶 token 也拒絕。
+- **舊網址（沒帶 token、尚未鎖定）**：不信任回呼內容，先用 `query_order()`（`Get_Order_Info`）向 PayNow 查證。查到的 `PayNowLogisticCode` 和回呼相同才更新，且 `Detail_Status_Description`、`paymentno` 以查詢結果為準；不同回 403，查詢失敗回 503。同一物流單的相同貨態只處理一次（`_paynow_shipping_last_status_callback`），重放不會蓋掉商家手動改的訂單狀態。查詢可由匿名請求觸發，逾時固定 10 秒。查無物流單時 PayNow 仍回 200，`PayNowLogisticCode` 是空字串（正式站實測）。
+- **設定頁**：網址透過 `paynow_shipping_settings` filter 加入。實際載入的設定頁是 `Woomp_Setting_Shipping`；`PayNow_Shipping_Settings_Tab` 沒有被任何地方載入，改它不會有效果。
+- **Log**：`PayNow_Shipping::log()` 的 `error`／`warning` 不受除錯開關影響。Log 不可包含 token。
+
+PayNow 物流回呼的規格文件在商家後台內，對外查不到，是否有簽章欄位尚未確認。PayNow 查詢結果是否可能比回呼慢（導致真實貨態被判為不符）也尚未用真實物流單確認；若發生，商家改用帶 token 的網址就不會走查證。
+
 ### 綠界電子發票明細必須加總等於 SalesAmount
 
 綠界在明細加總和 `SalesAmount` 對不上時會回 `RtnCode 1200031`。`EcpayInvoiceHandler::build_invoice_items()` 的商品、運費、費用都列**含稅**金額，折扣行**不自己重算稅額**，一律用「訂單總額 − 已列出的明細」的差額（issue #137：以前用 `get_total_tax()` 算，那是折扣後的稅，而且含運費稅，只在 WC 沒開稅金時才剛好對）。多數台灣商店沒開 WC 稅金，所以稅相關的 bug 平常看不到，測試要開稅金才測得出來（`EcpayInvoiceItemsTest`）。
