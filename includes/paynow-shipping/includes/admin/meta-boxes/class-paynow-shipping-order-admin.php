@@ -147,7 +147,8 @@ class PayNow_Shipping_Order_Admin {
 			$order         = wc_get_order( absint( $_GET['id'] ) );
 		}
 
-		if ( $is_order_edit && $order ) {
+		// 下面會產生改門市 token，只發給能編輯訂單的使用者.
+		if ( $is_order_edit && $order && current_user_can( 'edit_shop_orders' ) ) {
 
 			foreach ( $order->get_items( 'shipping' ) as $item_id => $item ) {
 				if ( PayNow_Shipping::is_paynow_shipping_cvs( $item->get_method_id() ) ) {
@@ -163,7 +164,7 @@ class PayNow_Shipping_Order_Admin {
 						'orderno'            => '',
 						'apicode'            => $encrypt_apicode,
 						'Logistic_serviceID' => $order->get_meta( PayNow_Shipping_Order_Meta::LogisticServiceId ),
-						'returnUrl'          => esc_url( WC()->api_request_url( 'paynow_choose_cvs_callback' ) . '?order_id=' . $order->get_id() ),
+						'returnUrl'          => PayNow_Shipping_Response::get_cvs_change_return_url( $order->get_id() ),
 						'ajax_url'           => PayNow_Shipping::$api_url . '/Member/Order/Choselogistics',
 					];
 

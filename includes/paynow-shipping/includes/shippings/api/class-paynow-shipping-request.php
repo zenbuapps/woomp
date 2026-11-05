@@ -573,10 +573,11 @@ class PayNow_Shipping_Request {
 	/**
 	 * PayNow query order api call.
 	 *
-	 * @param WC_Order $order The order object.
+	 * @param WC_Order $order   The order object.
+	 * @param int      $timeout Request timeout in seconds.
 	 * @return WP_Error|array
 	 */
-	public static function query_order( $order ) {
+	public static function query_order( $order, $timeout = 45 ) {
 
 		$logistic_no = $order->get_meta( PayNow_Shipping_Order_Meta::LogisticNumber );
 
@@ -584,7 +585,7 @@ class PayNow_Shipping_Request {
 		$response = wp_remote_get(
 			$url,
 			[
-				'timeout'     => 45,
+				'timeout'     => $timeout,
 				'httpversion' => '1.0',
 				'blocking'    => true,
 				'headers'     => [
