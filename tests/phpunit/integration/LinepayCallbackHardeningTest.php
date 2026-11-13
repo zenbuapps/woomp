@@ -400,6 +400,28 @@ class LinepayCallbackHardeningTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * @testdox 向後相容：升級前 reserve（沒有 token 雜湊）的 24 小時內訂單仍可 confirm，但不可 cancel；有雜湊的訂單不走相容路徑
+	 */
+	public function test_legacy_order_without_token_hash_can_still_confirm() {
+		$method = new ReflectionMethod( get_class( $this->handler ), 'is_legacy_confirm_allowed' );
+		$method->setAccessible( true );
+
+		$legacy = $this->create_reserved_order();
+		$legacy->delete_meta_data( WC_Gateway_LINEPay::META_CALLBACK_TOKEN_HASH );
+		$legacy->save();
+		$legacy = wc_get_order( $legacy->get_id() );
+
+		$this->assertTrue( $method->invoke( null, $legacy, WC_Gateway_LINEPay_Const::REQUEST_TYPE_CONFIRM ) );
+		$this->assertFalse( $method->invoke( null, $legacy, WC_Gateway_LINEPay_Const::REQUEST_TYPE_CANCEL ) );
+
+		$legacy->set_date_created( time() - 2 * DAY_IN_SECONDS );
+		$legacy->save();
+		$this->assertFalse( $method->invoke( null, wc_get_order( $legacy->get_id() ), WC_Gateway_LINEPay_Const::REQUEST_TYPE_CONFIRM ), '超過 24 小時的舊訂單不放行' );
+
+		$this->assertFalse( $method->invoke( null, $this->create_reserved_order(), WC_Gateway_LINEPay_Const::REQUEST_TYPE_CONFIRM ), '有 token 雜湊的訂單必須驗 token' );
+	}
+
+	/**
 	 * @testdox 合法 confirm 完成付款並作廢 token
 	 */
 	public function test_confirm_with_valid_state_completes_payment() {

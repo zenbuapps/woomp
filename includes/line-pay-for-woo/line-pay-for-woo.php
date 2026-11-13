@@ -136,7 +136,7 @@ class WC_Gateway_LINEPay_Handler {
 				case WC_Gateway_LINEPay_Const::REQUEST_TYPE_CONFIRM:
 				case WC_Gateway_LINEPay_Const::REQUEST_TYPE_CANCEL:
 					// 公開網址：沒有 reserve 時發出的 token 一律拒絕（任何人只要知道訂單編號就能取消或提前 confirm）.
-					if ( ! WC_Gateway_LINEPay::verify_callback_token( $order_obj, $token ) ) {
+					if ( ! WC_Gateway_LINEPay::verify_callback_token( $order_obj, $token ) && ! self::is_legacy_confirm_allowed( $order_obj, $request_type ) ) {
 						Woomp_Payment_Callback_Guard::reject( 'linepay', 'invalid callback token', [ 'order_id' => $order_id, 'request_type' => $request_type ] );
 						return;
 					}
@@ -283,6 +283,27 @@ class WC_Gateway_LINEPay_Handler {
 			wc_add_notice( $message, $success ? 'success' : 'error' );
 		}
 		self::redirect_and_exit( wc_get_account_endpoint_url( 'orders' ) );
+	}
+
+	/**
+	 * 升級前 reserve 的訂單（沒有 token 雜湊）是否仍允許 confirm
+	 *
+	 * 向後相容：部署當下正在 LINE Pay 付款頁的顧客，導回的 confirmUrl 沒有 token。
+	 * confirm 本身由伺服器以訂單 meta 的 transactionId 與訂單金額呼叫 LINE Pay API，LINE Pay 端沒授權就不會成功，
+	 * 所以放行不會造成偽造付款；只限 confirm（cancel 仍需 token）、只限 24 小時內建立的訂單。
+	 *
+	 * @param WC_Order $order        訂單
+	 * @param string   $request_type 回呼類型
+	 */
+	private static function is_legacy_confirm_allowed( WC_Order $order, $request_type ) {
+		if ( WC_Gateway_LINEPay_Const::REQUEST_TYPE_CONFIRM !== $request_type ) {
+			return false;
+		}
+		if ( '' !== (string) $order->get_meta( WC_Gateway_LINEPay::META_CALLBACK_TOKEN_HASH ) ) {
+			return false;
+		}
+		$created = $order->get_date_created();
+		return $created && ( time() - $created->getTimestamp() ) < DAY_IN_SECONDS;
 	}
 
 	/**
