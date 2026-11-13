@@ -72,6 +72,14 @@ final class CardManagement {
 		$nonce    = \wp_create_nonce( 'woomp' );
 		$ajax_url = \admin_url( 'admin-ajax.php' );
 
+		// 給 templates/row.php：AJAX 以訂閱 ID 驗證卡片擁有者（HPOS 下網址沒有 ?post=，不可再讀 $_GET）.
+		$subscription_id = 0;
+		if ( $post instanceof \WC_Order ) {
+			$subscription_id = (int) $post->get_id();
+		} elseif ( $post instanceof \WP_Post ) {
+			$subscription_id = (int) $post->ID;
+		}
+
 		echo '<div class="woomp">';
 		echo "<p>客戶: {$customer_display_name} #{$customer_id}</p>";
 		echo '<div class="grid grid-cols-6 text-center [&_div]:py-3">';
@@ -218,40 +226,21 @@ final class CardManagement {
 	 * @return void
 	 */
 	public function woomp_set_default_callback(): void {
-		$token_id = (int) $_POST['token_id'] ?? 0;
-		$user_id  = (int) $_POST['user_id'] ?? 0;
-		$nonce    = $_POST['nonce'] ?? ''; // phpcs:ignore
-		if ( ! $token_id || ! $user_id ) {
-			\wp_send_json(
-				[
-					'code'    => 500,
-					'message' => '缺少 token_id 或 user_id',
-					'data'    => $_POST,
-				]
-			);
-			\wp_die();
+		$user_id = (int) ( $_POST['user_id'] ?? 0 ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- 於 validate_token_request() 驗證.
+
+		[ $token, $subscription ] = $this->validate_token_request();
+
+		// 設預設卡的對象必須就是這張訂閱的顧客（validate_token_request() 已確認 token 屬於該顧客）.
+		if ( $user_id !== (int) $token->get_user_id() ) {
+			$this->send_error( 'user_id 與卡片擁有者不符', 403 );
 		}
 
-		if ( ! \wp_verify_nonce( $nonce, 'woomp' ) ) {
-			\wp_send_json(
-				[
-					'code'    => 500,
-					'message' => 'nonce 錯誤',
-					'data'    => $_POST,
-				]
-			);
-			\wp_die();
-		}
-
+		$token_id = (int) $token->get_id();
 		\WC_Payment_Tokens::set_users_default( $user_id, $token_id );
-		$subscription_id = (int) $_POST['post'] ?? 0; // phpcs:ignore
-		if ($subscription_id) {
-			$subscription = \wcs_get_subscription( $subscription_id );
-			$parent_order = $subscription->get_parent();
-			if ($parent_order) {
-				$parent_order->update_meta_data( '_payuni_token_id', $token_id );
-				$parent_order->save();
-			}
+		$parent_order = $subscription->get_parent();
+		if ($parent_order) {
+			$parent_order->update_meta_data( '_payuni_token_id', $token_id );
+			$parent_order->save();
 		}
 
 		// Make your array as json
@@ -273,37 +262,12 @@ final class CardManagement {
 	 * @return void
 	 */
 	public function woomp_remove_callback(): void {
-		$token_id        = (int) $_POST['token_id'] ?? 0;
-		$subscription_id = (int) $_POST['subscription_id'] ?? 0;
-		$nonce    = $_POST['nonce'] ?? ''; // phpcs:ignore
+		[ $token, $subscription ] = $this->validate_token_request();
 
-		if ( ! \wp_verify_nonce( $nonce, 'woomp' ) ) {
-			\wp_send_json(
-				[
-					'code'    => 500,
-					'message' => 'nonce 錯誤',
-					'data'    => $_POST,
-				]
-			);
-			\wp_die();
-		}
-
-		if ( ! $token_id ) {
-			\wp_send_json(
-				[
-					'code'    => 500,
-					'message' => '缺少 token_id',
-					'data'    => $_POST,
-				]
-			);
-			\wp_die();
-		}
+		$token_id = (int) $token->get_id();
 		\WC_Payment_Tokens::delete( $token_id );
 
-		$subscription = \wcs_get_subscription( $subscription_id );
-		if ($subscription) {
-			$subscription->add_order_note("移除信用卡，移除 token_id #{$token_id}");
-		}
+		$subscription->add_order_note("移除信用卡，移除 token_id #{$token_id}");
 
 		// Make your array as json
 		\wp_send_json(
@@ -315,6 +279,69 @@ final class CardManagement {
 		);
 
 		// Don't forget to stop execution afterward.
+		\wp_die();
+	}
+
+	/**
+	 * 驗證卡片管理 AJAX 請求，通過時回傳 [ token, subscription ]，否則直接回應錯誤並結束
+	 *
+	 * wp_ajax_ 只要求登入，nonce 也只證明請求來自後台頁面；還必須：
+	 * - 有管理訂單權限（訂閱的 capability_type 與訂單相同）
+	 * - token 存在、屬於 payuni-credit-subscription，且擁有者就是這張訂閱的顧客（不能操作別人的卡）
+	 *
+	 * @return array{0: \WC_Payment_Token, 1: \WC_Subscription}
+	 */
+	private function validate_token_request(): array {
+		// phpcs:disable WordPress.Security.NonceVerification.Missing
+		$nonce           = isset( $_POST['nonce'] ) ? \sanitize_text_field( \wp_unslash( $_POST['nonce'] ) ) : '';
+		$token_id        = isset( $_POST['token_id'] ) ? \absint( $_POST['token_id'] ) : 0;
+		$subscription_id = isset( $_POST['subscription_id'] ) ? \absint( $_POST['subscription_id'] ) : 0;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		if ( ! \wp_verify_nonce( $nonce, 'woomp' ) ) {
+			$this->send_error( 'nonce 錯誤', 403 );
+		}
+
+		if ( ! \current_user_can( 'edit_shop_orders' ) ) {
+			$this->send_error( '權限不足', 403 );
+		}
+
+		if ( ! $token_id || ! $subscription_id ) {
+			$this->send_error( '缺少 token_id 或 subscription_id', 400 );
+		}
+
+		$subscription = \function_exists( 'wcs_get_subscription' ) ? \wcs_get_subscription( $subscription_id ) : false;
+		if ( ! $subscription ) {
+			$this->send_error( '找不到訂閱', 404 );
+		}
+
+		$token = \WC_Payment_Tokens::get( $token_id );
+		if ( ! $token || 'payuni-credit-subscription' !== $token->get_gateway_id() ) {
+			$this->send_error( '找不到卡片', 404 );
+		}
+
+		$customer_id = (int) $subscription->get_customer_id();
+		if ( 0 === $customer_id || (int) $token->get_user_id() !== $customer_id ) {
+			$this->send_error( '卡片不屬於此訂閱的顧客', 403 );
+		}
+
+		return [ $token, $subscription ];
+	}
+
+	/**
+	 * 回應錯誤並結束請求
+	 *
+	 * @param string $message 錯誤訊息
+	 * @param int    $code    回應中的 code 欄位（前端以 200 判斷成功）
+	 * @return never
+	 */
+	private function send_error( string $message, int $code ): void {
+		\wp_send_json(
+			[
+				'code'    => $code,
+				'message' => $message,
+			]
+		);
 		\wp_die();
 	}
 }
