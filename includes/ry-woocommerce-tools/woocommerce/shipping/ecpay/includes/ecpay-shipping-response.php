@@ -105,30 +105,77 @@ class RY_ECPay_Shipping_Response extends RY_ECPay_Shipping_Api {
 		}
 	}
 
+	/**
+	 * 驗證物流回呼 CheckMacValue（MD5）
+	 *
+	 * 金鑰為空時任何人都能算出簽章，一律拒絕。
+	 *
+	 * @param mixed $ipn_info 回呼資料
+	 */
 	protected static function ipn_request_is_valid( $ipn_info ) {
-		RY_ECPay_Shipping::log( 'IPN request: ' . var_export( $ipn_info, true ) );
+		RY_ECPay_Shipping::log( 'IPN request: ' . var_export( $ipn_info, true ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export
 
-		list($MerchantID, $HashKey, $HashIV, $CVS_type) = RY_ECPay_Shipping::get_ecpay_api_info();
-		$check_value                                    = self::get_check_value( $ipn_info );
-		$ipn_info_check_value                           = self::generate_check_value( $ipn_info, $HashKey, $HashIV, 'md5' );
-		if ( $check_value == $ipn_info_check_value ) {
-			return true;
-		} else {
-			RY_ECPay_Shipping::log( 'IPN request check failed. Response:' . $check_value . ' Self:' . $ipn_info_check_value, 'error' );
+		if ( ! is_array( $ipn_info ) ) {
 			return false;
 		}
+		foreach ( $ipn_info as $value ) {
+			if ( ! is_scalar( $value ) ) {
+				Woomp_Payment_Callback_Guard::reject( 'ecpay-shipping', 'non-scalar field' );
+				return false;
+			}
+		}
+
+		list($MerchantID, $HashKey, $HashIV, $CVS_type) = RY_ECPay_Shipping::get_ecpay_api_info();
+		if ( ! Woomp_Payment_Callback_Guard::has_secrets( $MerchantID, $HashKey, $HashIV ) ) {
+			Woomp_Payment_Callback_Guard::reject( 'ecpay-shipping', 'api secrets not configured' );
+			return false;
+		}
+
+		$check_value          = self::get_check_value( $ipn_info );
+		$ipn_info_check_value = self::generate_check_value( $ipn_info, $HashKey, $HashIV, 'md5' );
+		if ( Woomp_Payment_Callback_Guard::signature_equals( $ipn_info_check_value, $check_value ) ) {
+			return true;
+		}
+
+		Woomp_Payment_Callback_Guard::reject(
+			'ecpay-shipping',
+			'CheckMacValue mismatch',
+			[ 'AllPayLogisticsID' => (string) ( $ipn_info['AllPayLogisticsID'] ?? '' ) ]
+		);
+		return false;
 	}
 
 	public static function shipping_callback( $ipn_info ) {
 		$order_id = self::get_order_id( $ipn_info, RY_WT::get_option( 'ecpay_shipping_order_prefix' ) );
-		if ( $order = wc_get_order( $order_id ) ) {
+		$order    = $order_id ? wc_get_order( $order_id ) : false;
+		if ( $order ) {
 			$shipping_list = $order->get_meta( '_ecpay_shipping_info', true );
 			if ( ! is_array( $shipping_list ) ) {
 				$shipping_list = [];
 			}
-			if ( ! isset( $shipping_list[ $ipn_info['AllPayLogisticsID'] ] ) ) {
-				$shipping_list[ $ipn_info['AllPayLogisticsID'] ] = [];
+
+			// 只接受本訂單建立過的綠界物流單；否則偽造回呼可直接把任何訂單改成已完成
+			$logistics_id = (string) ( $ipn_info['AllPayLogisticsID'] ?? '' );
+			list($MerchantID) = RY_ECPay_Shipping::get_ecpay_api_info();
+			$binding_error    = '';
+			if ( '' === $logistics_id || ! isset( $shipping_list[ $logistics_id ]['ID'] ) || (string) $shipping_list[ $logistics_id ]['ID'] !== $logistics_id ) {
+				$binding_error = 'AllPayLogisticsID not found on order';
+			} elseif ( (string) ( $ipn_info['MerchantID'] ?? '' ) !== (string) $MerchantID ) {
+				$binding_error = 'MerchantID mismatch';
 			}
+			if ( '' !== $binding_error ) {
+				Woomp_Payment_Callback_Guard::reject(
+					'ecpay-shipping',
+					$binding_error,
+					[
+						'order_id'          => $order->get_id(),
+						'AllPayLogisticsID' => $logistics_id,
+					]
+				);
+				self::die_error();
+				return;
+			}
+
 			$old_info = $shipping_list[ $ipn_info['AllPayLogisticsID'] ];
 			$shipping_list[ $ipn_info['AllPayLogisticsID'] ]['status']     = self::get_status( $ipn_info );
 			$shipping_list[ $ipn_info['AllPayLogisticsID'] ]['status_msg'] = self::get_status_msg( $ipn_info );
@@ -161,9 +208,11 @@ class RY_ECPay_Shipping_Response extends RY_ECPay_Shipping_Api {
 			do_action( 'ry_ecpay_shipping_response', $ipn_info, $order );
 
 			self::die_success();
+			return;
 		}
 
 		RY_ECPay_Shipping::log( 'Order not found', 'error' );
+		Woomp_Payment_Callback_Guard::reject( 'ecpay-shipping', 'order not found', [ 'AllPayLogisticsID' => (string) ( $ipn_info['AllPayLogisticsID'] ?? '' ) ] );
 		self::die_error();
 	}
 
