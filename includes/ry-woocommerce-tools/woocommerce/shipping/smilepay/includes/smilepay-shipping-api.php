@@ -67,6 +67,10 @@ class RY_SmilePay_Shipping_Api extends RY_SmilePay_Gateway_Api {
 
 		RY_SmilePay_Shipping::log( 'Get info POST: ' . var_export( $args, true ) );
 
+		// 門市地圖回呼只接受本站送出過的 Data_id。
+		self::remember_data_id( $order, '_smilepay_shipping_Data_id_list', $args['Data_id'] );
+		$order->save_meta_data();
+
 		if ( 'yes' === RY_WT::get_option( 'smilepay_gateway_testmode', 'yes' ) ) {
 			$url = self::$api_test_url['checkout'];
 		} else {
@@ -126,6 +130,10 @@ class RY_SmilePay_Shipping_Api extends RY_SmilePay_Gateway_Api {
 		} else {
 			$url = self::$api_url['checkout'];
 		}
+
+		// 後台門市地圖回呼只接受本站送出過的 Data_id。
+		self::remember_data_id( $order, '_smilepay_shipping_Data_id_list', $args['Data_id'] );
+		$order->save_meta_data();
 
 		wp_redirect( $url . '?' . http_build_query( $args, '', '&' ) );
 		die();

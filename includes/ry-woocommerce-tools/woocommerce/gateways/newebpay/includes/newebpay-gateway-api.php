@@ -73,6 +73,10 @@ class RY_NewebPay_Gateway_Api extends RY_NewebPay {
 		RY_NewebPay_Gateway::log( 'Checkout POST TradeInfo: ' . var_export( $args, true ) );
 
 		$order->update_meta_data( '_newebpay_MerchantOrderNo', $args['MerchantOrderNo'] );
+		// 消費者可能重新整理付款頁產生新編號，卻在舊分頁完成付款；保留曾送出的編號供回呼比對
+		$history   = (array) $order->get_meta( '_newebpay_MerchantOrderNo_history' );
+		$history[] = $args['MerchantOrderNo'];
+		$order->update_meta_data( '_newebpay_MerchantOrderNo_history', array_slice( array_values( array_unique( array_filter( $history, static fn( $no ) => is_string( $no ) && '' !== $no ) ) ), -20 ) );
 		$order->save_meta_data();
 
 		if ( 'yes' === RY_WT::get_option( 'newebpay_gateway_testmode', 'yes' ) ) {

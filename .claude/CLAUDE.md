@@ -84,7 +84,15 @@ ECPay（綠界）閘道基底 `RY_ECPay_Gateway_Base` 已實作後台退款（`s
 
 ### PayNow 回呼必須先驗來源
 
-`/wc-api/paynow_payment(_offline)` 是公開網址，任何人都能 POST。三個 handler 取得訂單後一律先過 `PayNow_Payment_Response::is_authentic_callback()`：訂單付款方式為 `paynow-*`、`TotalPrice` 等於訂單金額、`PassCode = sha1(WebNo + OrderNo + TotalPrice + 交易密碼 + TranStatus)`（大小寫不拘，用 `hash_equals`）。官方文件中 ibon／FamiPort／icash 產生代碼時的 PassCode 不含 `TranStatus`（虛擬帳號文件寫含，但取號也一併容許不含），**只對非 S 接受**——取號回傳經過消費者瀏覽器，對 S 也接受就能拿來偽造付款完成。文件註明 `WebNo`「僅用信用卡交易時回傳」，所以回呼沒帶 `WebNo` 不拒絕，PassCode 改用站台設定的 WebNo 計算；有帶但不符才拒絕。已付款訂單收到非 S 回呼一律忽略（`is_downgrade_of_paid_order()`）。驗證失敗以 `error` 等級寫入 `paynow-payment` log（不受除錯開關影響）。
+`/wc-api/paynow_payment(_offline)` 是公開網址，任何人都能 POST。三個 handler 取得訂單後一律先過 `PayNow_Payment_Response::is_authentic_callback()`：訂單付款方式為 `paynow-*`、`TotalPrice` 等於訂單金額、`PassCode = sha1(WebNo + OrderNo + TotalPrice + 交易密碼 + TranStatus)`（大小寫不拘，用 `hash_equals`）。官方文件中 ibon／FamiPort／icash 產生代碼時的 PassCode 不含 `TranStatus`（虛擬帳號文件寫含，但取號也一併容許不含），**只對非 S 接受**——取號回傳經過消費者瀏覽器，對 S 也接受就能拿來偽造付款完成。文件註明 `WebNo`「僅用信用卡交易時回傳」，所以回呼沒帶 `WebNo` 不拒絕，PassCode 改用站台設定的 WebNo 計算；有帶但不符才拒絕。驗證通過後還要過 `should_ignore_callback()`：S 只處理 `Woomp_Payment_Callback_Guard::can_mark_paid()` 的訂單（已取消／已退款收到合法 S 只寫訂單備註，不改狀態——`payment_complete()` 允許 cancelled → processing）；非 S 只處理 pending 訂單。找訂單優先用 `Note1`（下單時送的訂單 ID），沒帶才把 `OrderNo` 當 ID，兩者都必須 `get_order_number() === OrderNo`，否則拒絕。驗證失敗以 `error` 等級寫入 `paynow-payment` log（不受除錯開關影響）。
+
+### LINE Pay 回呼必須先驗來源
+
+`/wc-api/wc_gateway_linepay_handler` 是公開 GET 網址：
+- **confirm／cancel**：reserve 時 `WC_Gateway_LINEPay::issue_callback_token()` 產生一次性 token 放進 confirmUrl／cancelUrl，訂單 meta 只存 sha256（`_linepay_callback_token_hash`），回呼以 `verify_callback_token()` 比對。沒有雜湊的訂單（升級前 reserve 的）一律拒絕。不用 order key：order key 也出現在信件與感謝頁網址，用途太廣。
+- **confirm 鎖**：`acquire_confirm_lock()` 用 `INSERT IGNORE` 進 options（不是 `add_option()`），逾時 120 秒後以條件 UPDATE 搶回。拿到鎖後重新讀訂單，已不是 reserved 就不呼叫 API；已付款訂單進錯誤分支也不可改回 pending／on-hold。
+- **顧客退款**：必須登入、是訂單本人、nonce（`get_customer_refund_nonce_action()`）正確、仍在可退款狀態與 60 天內、尚未退過款；退款金額一律是訂單剩餘可退金額，不讀 `cancel_amount`。先呼叫 LINE Pay 退款 API，成功後才 `wc_create_refund( refund_payment: false )`。
+- 回呼結束要 `exit`（`redirect_and_exit()`），否則 WC 的 wc-api 會 `status_header(200)` 蓋掉 302。測試用 `woomp_linepay_callback_exit` filter 關掉 exit。
 
 ### PayNow 物流回呼的驗證方式
 

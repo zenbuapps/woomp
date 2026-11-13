@@ -57,6 +57,110 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
     /** @var string LINE Pay 標誌圖片網址 */
     public $linepay_logo;
 
+    /** confirmUrl／cancelUrl token 的 sha256 雜湊（訂單 meta） */
+    const META_CALLBACK_TOKEN_HASH = '_linepay_callback_token_hash';
+
+    /** reserve 時送給 LINE Pay 的金額（訂單 meta），confirm 時比對訂單金額是否被改過 */
+    const META_RESERVED_AMOUNT = '_linepay_reserved_amount';
+
+    /** confirm 鎖的 option 名稱前綴 */
+    const CONFIRM_LOCK_PREFIX = 'woomp_linepay_confirm_lock_';
+
+    /** confirm 鎖逾時秒數（confirm API timeout 40 秒 + 查詢 20 秒，再留餘裕） */
+    const CONFIRM_LOCK_TTL = 120;
+
+    /**
+     * 產生 confirmUrl／cancelUrl 用的 token，並把雜湊寫入訂單 meta（呼叫端負責 save）
+     *
+     * 每次 reserve 都重新產生，舊的 confirm／cancel 網址隨即失效。
+     *
+     * @param WC_Order $order 訂單
+     *
+     * @return string 明文 token（只放進網址，不存）
+     */
+    public static function issue_callback_token( WC_Order $order ) {
+        $token = wp_generate_password( 32, false, false );
+        $order->update_meta_data( self::META_CALLBACK_TOKEN_HASH, hash( 'sha256', $token ) );
+        return $token;
+    }
+
+    /**
+     * 驗證回呼網址上的 token 是否屬於這張訂單
+     *
+     * 沒有存 token 雜湊的訂單（升級前 reserve 的）一律不通過：寧可讓少數升級當下付款中的訂單重新付款，
+     * 也不讓舊網址可被任何人用訂單編號觸發。
+     *
+     * @param WC_Order $order 訂單
+     * @param mixed    $token 網址上的 token
+     *
+     * @return bool
+     */
+    public static function verify_callback_token( WC_Order $order, $token ) {
+        $stored = (string) $order->get_meta( self::META_CALLBACK_TOKEN_HASH );
+        if ( '' === $stored || ! is_string( $token ) || '' === $token ) {
+            return false;
+        }
+        return hash_equals( $stored, hash( 'sha256', $token ) );
+    }
+
+    /**
+     * 取得某張訂單的 confirm 鎖（原子操作）
+     *
+     * 不用 add_option()：它是 SELECT 後再 INSERT ... ON DUPLICATE KEY UPDATE，兩個請求可能都回傳成功。
+     * 這裡用 INSERT IGNORE（唯一鍵衝突時 0 rows affected）；鎖逾時則以「值等於舊值才更新」的條件 UPDATE 搶回。
+     *
+     * @param int $order_id Order ID.
+     *
+     * @return bool 是否取得鎖
+     */
+    public static function acquire_confirm_lock( $order_id ) {
+        global $wpdb;
+
+        $name = self::CONFIRM_LOCK_PREFIX . absint( $order_id );
+        $now  = time();
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        $inserted = $wpdb->query(
+            $wpdb->prepare(
+                "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+                $name,
+                (string) $now
+            )
+        );
+        if ( 1 === (int) $inserted ) {
+            return true;
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        $locked_at = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", $name ) );
+        if ( null === $locked_at || ( $now - (int) $locked_at ) < self::CONFIRM_LOCK_TTL ) {
+            return false;
+        }
+
+        // 鎖已逾時（上一個請求可能中途死掉）：只有值還是舊值的那個請求能搶到.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        $updated = $wpdb->query(
+            $wpdb->prepare(
+                "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+                (string) $now,
+                $name,
+                (string) $locked_at
+            )
+        );
+        return 1 === (int) $updated;
+    }
+
+    /**
+     * 釋放 confirm 鎖
+     *
+     * @param int $order_id Order ID.
+     */
+    public static function release_confirm_lock( $order_id ) {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        $wpdb->delete( $wpdb->options, [ 'option_name' => self::CONFIRM_LOCK_PREFIX . absint( $order_id ) ] );
+    }
+
     
     /**
      * LINEPay Gateway
@@ -368,7 +472,12 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
                 'amount'   => $std_amount,
                 'currency' => $currency,
             ];
-            
+
+            // confirmUrl／cancelUrl 是公開網址，帶上綁定本次 reserve 的一次性 token，
+            // 只存雜湊；回呼時以 verify_callback_token() 比對，避免他人取消或提前 confirm 別人的訂單。
+            $callback_token = self::issue_callback_token( $order );
+            $order->update_meta_data( self::META_RESERVED_AMOUNT, $std_amount );
+
             $redirect_urls = [
                 'redirectUrls' => [
                     'confirmUrl'     => esc_url_raw(
@@ -376,6 +485,7 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
                             [
                                 'request_type' => WC_Gateway_LINEPay_Const::REQUEST_TYPE_CONFIRM,
                                 'order_id'     => $order_id,
+                                'token'        => $callback_token,
                             ], home_url( WC_Gateway_LINEPay_Const::URI_CALLBACK_HANDLER )
                         )
                     ),
@@ -386,6 +496,7 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
                             [
                                 'request_type' => WC_Gateway_LINEPay_Const::REQUEST_TYPE_CANCEL,
                                 'order_id'     => $order_id,
+                                'token'        => $callback_token,
                             ], home_url( WC_Gateway_LINEPay_Const::URI_CALLBACK_HANDLER )
                         )
                     ),
@@ -474,29 +585,85 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
      * @see WC_Gateway_LINEPay_Handler->handle_callback()
      */
     public function process_payment_confirm( $order_id ) {
-        
+        $redirect = $this->confirm_payment( $order_id );
+        wp_safe_redirect( $redirect );
+        exit;
+    }
+
+    /**
+     * 執行 confirm 並回傳要導向的網址（不 exit，方便測試）
+     *
+     * 同一張訂單同時只會有一個 confirm 在執行（acquire_confirm_lock()）；
+     * 拿到鎖後重新讀取訂單，已不是 reserved（例如另一個請求已完成付款）就直接導回，不再呼叫 API。
+     *
+     * @param int $order_id Order ID.
+     *
+     * @return string 導向網址
+     */
+    public function confirm_payment( $order_id ) {
+        $order_id = absint( $order_id );
+
+        if ( ! self::acquire_confirm_lock( $order_id ) ) {
+            // 另一個 confirm 正在處理，不可同時呼叫 API（第二個會失敗並把已付款訂單打回 pending）。
+            static::$logger->error( 'process_payment_confirm', sprintf( '[order_id: %s] - another confirm is in progress, skip', $order_id ) );
+            $order = wc_get_order( $order_id );
+            return $order ? $this->get_return_url( $order ) : wc_get_cart_url();
+        }
+
+        try {
+            return $this->confirm_payment_locked( $order_id );
+        } finally {
+            self::release_confirm_lock( $order_id );
+        }
+    }
+
+    /**
+     * 已取得鎖之後的 confirm 流程
+     *
+     * @param int $order_id Order ID.
+     *
+     * @return string 導向網址
+     */
+    private function confirm_payment_locked( $order_id ) {
+
         try {
             $order = wc_get_order( $order_id );
-            $amount = $order->get_total();
-            $currency = $order->get_currency();
-            
-            // 直接從訂單物件取得訂單金額，確認是否被竄改
-            // HPOS 下 `_order_total` 不在 postmeta，需用 WC_Order::get_total()。
-            $reserved_std_amount = $this->get_standardized(
-                $order->get_total(), $currency
-            );
-            $std_amount = $this->get_standardized( $amount );
-            
-            // 1st verification of the amount, confirm the requested amount Confirm the reserved amount
-            if( $std_amount !== $reserved_std_amount ) {
+            if ( ! $order ) {
+                return wc_get_cart_url();
+            }
+
+            // 拿到鎖後重新確認狀態：已被另一個請求完成（或已取消）就不再呼叫 confirm API.
+            if ( WC_Gateway_LINEPay_Const::PAYMENT_STATUS_RESERVED !== $order->get_meta( '_linepay_payment_status' ) ) {
+                return $this->get_return_url( $order );
+            }
+
+            // 已付款／已取消／已退款的訂單不可再 confirm（否則會請款並把訂單改回處理中）.
+            if ( ! Woomp_Payment_Callback_Guard::can_mark_paid( $order ) ) {
                 throw new WC_Gateway_LINEPay_Exception(
-                    sprintf(
-                        WC_Gateway_LINEPay_Const::LOG_TEMPLATE_CONFIRM_FAILURE_MISMATCH_ORDER_AMOUNT, $std_amount,
-                        $reserved_std_amount
-                    )
+                    sprintf( '[order_id: %s][status: %s] - order cannot be marked as paid, skip confirm', $order_id, $order->get_status() )
                 );
             }
-            
+
+            $amount = $order->get_total();
+            $currency = $order->get_currency();
+            $std_amount = $this->get_standardized( $amount );
+
+            // 1st verification of the amount：reserve 送給 LINE Pay 的金額必須等於目前訂單金額
+            // （reserve 後訂單被改金額時，不可用新金額 confirm）。舊版 reserve 沒有存金額時略過。
+            // HPOS 下 `_order_total` 不在 postmeta，需用 WC_Order::get_total()。
+            $reserved_amount = $order->get_meta( self::META_RESERVED_AMOUNT );
+            if ( '' !== (string) $reserved_amount ) {
+                $reserved_std_amount = $this->get_standardized( $reserved_amount, $currency );
+                if ( $std_amount !== $reserved_std_amount ) {
+                    throw new WC_Gateway_LINEPay_Exception(
+                        sprintf(
+                            WC_Gateway_LINEPay_Const::LOG_TEMPLATE_CONFIRM_FAILURE_MISMATCH_ORDER_AMOUNT, $std_amount,
+                            $reserved_std_amount
+                        )
+                    );
+                }
+            }
+
             // api call.
             $reserved_transaction_id = $order->get_meta( '_linepay_reserved_transaction_id' );
             $url = $this->get_request_url(
@@ -540,30 +707,49 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
             $order->payment_complete( $info->transactionId );
             $order->update_meta_data( '_linepay_transaction_balanced_amount', $std_confirmed_amount );
             $order->update_meta_data( '_linepay_payment_status', WC_Gateway_LINEPay_Const::PAYMENT_STATUS_CONFIRMED );
+            $order->delete_meta_data( self::META_CALLBACK_TOKEN_HASH );
             $order->save();
-            
+
             // cart initialization.
-            WC()->cart->empty_cart();
-            
-            wp_safe_redirect( $this->get_return_url( $order ) );
-            exit;
+            if ( WC()->cart ) {
+                WC()->cart->empty_cart();
+            }
+
+            return $this->get_return_url( $order );
         }
         catch ( WC_Gateway_LINEPay_Exception $e ) {
             $info = $e->getInfo();
             static::$logger->error( 'process_payment_confirm', ( is_wp_error( $info ) ) ? $info : $e->getMessage() );
-            wc_add_wp_error_notices(
-                new WP_Error(
-                    'process_payment_confirm',
-                    __( 'Unable to confirm payment. Please contact support.', 'woocommerce-gateway-linepay' )
-                )
-            );
-            
+
+            $order = wc_get_order( $order_id );
+            if ( ! $order ) {
+                return wc_get_cart_url();
+            }
+
+            // 已付款（或已由另一個請求 confirm）的訂單，錯誤分支不得把狀態打回 pending／on-hold，也不改 payment status.
+            if ( $order->is_paid() || WC_Gateway_LINEPay_Const::PAYMENT_STATUS_CONFIRMED === $order->get_meta( '_linepay_payment_status' ) ) {
+                return $this->get_return_url( $order );
+            }
+
             // Initialize order stored in session.
             // FIXME: not sure the purpose.
-            WC()->session->set( 'order_awaiting_payment', false );
-            
-            $order = wc_get_order( $order_id );
-            $reserved_transaction_id = $order ? $order->get_meta( '_linepay_reserved_transaction_id' ) : '';
+            if ( WC()->session ) {
+                wc_add_wp_error_notices(
+                    new WP_Error(
+                        'process_payment_confirm',
+                        __( 'Unable to confirm payment. Please contact support.', 'woocommerce-gateway-linepay' )
+                    )
+                );
+                WC()->session->set( 'order_awaiting_payment', false );
+            }
+
+            // 已取消／已退款的訂單不改狀態，只留紀錄.
+            if ( ! Woomp_Payment_Callback_Guard::can_mark_paid( $order ) ) {
+                $order->add_order_note( 'LINE Pay confirm 未執行：訂單目前狀態不可標為已付款（' . $order->get_status() . '）。' );
+                return $this->get_return_url( $order );
+            }
+
+            $reserved_transaction_id = $order->get_meta( '_linepay_reserved_transaction_id' );
             $detail_url = $this->get_request_url(
                 WC_Gateway_LINEPay_Const::REQUEST_TYPE_DETAILS, [ 'transaction_id' => $reserved_transaction_id ]
             );
@@ -573,37 +759,31 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
             $detail_info = static::execute( $this, $detail_url, http_build_query( $detail_body ), 20, 'GET' );
             
             if( !is_wp_error( $detail_info ) ) {
-                
-                $order = wc_get_order( $order_id );
-                if( $order ) {
-                    $pay_status = '';
-                    if( is_array( $detail_info ) ) {
-                        $order_detail = $detail_info[0];
-                        $pay_status = $order_detail->payStatus;
-                    }
-                    $order->update_status(
-                        'pending', 'LINE Pay 執行 Confirm API 失敗，查詢 LINE Pay 付款狀態為：' . $pay_status
-                    );
-                    $order->set_transaction_id( $reserved_transaction_id );
+                $pay_status = '';
+                if( is_array( $detail_info ) && isset( $detail_info[0]->payStatus ) ) {
+                    $pay_status = $detail_info[0]->payStatus;
                 }
+                $order->update_status(
+                    'pending', 'LINE Pay 執行 Confirm API 失敗，查詢 LINE Pay 付款狀態為：' . $pay_status
+                );
+                $order->set_transaction_id( $reserved_transaction_id );
             }
             else {
                 $order->update_status( 'on-hold', $detail_info->get_error_message() );
             }
-            
+
             // FIXME:  not sure purpose.
-            if ( $order instanceof WC_Order ) {
-                $order->update_meta_data( '_linepay_payment_status', WC_Gateway_LINEPay_Const::PAYMENT_STATUS_FAILED );
-                $order->save();
+            $order->update_meta_data( '_linepay_payment_status', WC_Gateway_LINEPay_Const::PAYMENT_STATUS_FAILED );
+            $order->save();
+
+            if ( WC()->cart ) {
+                WC()->cart->empty_cart();
             }
-            
-            WC()->cart->empty_cart();
-            wp_safe_redirect( $this->get_return_url( $order ) );
-            exit;
+            return $this->get_return_url( $order );
         }
     }
-    
-    
+
+
     /**
      * When canceling after payment request, the information used for payment is initialized.
      *
@@ -615,31 +795,56 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
      * @see     WC_Gateway_LINEPay_Handler->handle_callback()
      */
     function process_payment_cancel( $order_id ) {
-        $order = wc_get_order( $order_id );
-        if ( ! $order ) {
+        if ( ! $this->cancel_payment( $order_id ) ) {
             return;
         }
+
+        wp_redirect( wc_get_cart_url() );
+        exit;
+    }
+
+    /**
+     * 將 reserved 的訂單標為已取消（不 exit，方便測試）
+     *
+     * 已付款或已不是待付款的訂單不處理。
+     *
+     * @param int $order_id Order ID.
+     *
+     * @return bool 是否已取消
+     */
+    public function cancel_payment( $order_id ) {
+        $order = wc_get_order( $order_id );
+        if ( ! $order ) {
+            return false;
+        }
+
+        if ( ! Woomp_Payment_Callback_Guard::can_mark_paid( $order ) ) {
+            static::$logger->error( 'process_payment_cancel', sprintf( '[order_id: %s][status: %s] - order is not awaiting payment, ignore cancel', $order->get_id(), $order->get_status() ) );
+            return false;
+        }
+
         $reserved_transaction_id = $order->get_meta( '_linepay_reserved_transaction_id' );
 
         $order->update_meta_data( '_linepay_payment_status', WC_Gateway_LINEPay_Const::PAYMENT_STATUS_CANCELLED );
+        $order->delete_meta_data( self::META_CALLBACK_TOKEN_HASH );
         $order->save();
         $order->update_status( 'cancelled' );
-        
+
         // Initialize order stored in session.
-        WC()->session->set( 'order_awaiting_payment', false );
-        
-        wc_add_wp_error_notices(
-            new WP_Error( 'process_payment_cancel', __( 'Payment canceled.', 'woocommerce-gateway-linepay' ) )
-        );
+        if ( WC()->session ) {
+            WC()->session->set( 'order_awaiting_payment', false );
+            wc_add_wp_error_notices(
+                new WP_Error( 'process_payment_cancel', __( 'Payment canceled.', 'woocommerce-gateway-linepay' ) )
+            );
+        }
         static::$logger->error(
             'process_payment_cancel', sprintf(
                                         WC_Gateway_LINEPay_Const::LOG_TEMPLATE_PAYMENT_CANCEL, $order_id,
                                         $reserved_transaction_id
                                     )
         );
-        
-        wp_redirect( wc_get_cart_url() );
-        exit;
+
+        return true;
     }
     
     /**
@@ -655,11 +860,10 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
     function process_refund_request( $requester, $order_id, $refund_amount, $reason = '' ) {
         
         $order = wc_get_order( $order_id );
-        $std_amount = $this->get_standardized( $order->get_total(), $order->get_currency() );
         $std_refund_amount = $this->get_standardized( $refund_amount );
-        
-        if( false === $order ) {
-            
+
+        if( ! $order ) {
+
             return new WP_Error(
                 'process_refund_request',
                 sprintf( __( 'Unable to find order #%s', 'woocommerce-gateway-linepay' ), $order_id ), [
@@ -670,12 +874,13 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
             );
         }
         
+        $std_amount = $this->get_standardized( $order->get_total(), $order->get_currency() );
         $transaction_id = $order->get_transaction_id();
         $order_id = $order->get_id();
         $order_status = $order->get_status();
-        
+
         // If the requester is in a non-refundable state.
-        if( !in_array( 'wc-' . $order_status, $this->linepay_refundable_statuses[$requester] ) ) {
+        if( !in_array( 'wc-' . $order_status, (array) $this->linepay_refundable_statuses[$requester], true ) ) {
             
             return new WP_Error(
                 'process_refund_request',
@@ -695,7 +900,8 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
                 $order->get_meta( '_linepay_transaction_balanced_amount' ), $order->get_currency()
             );
             // Only the transaction itself can be canceled. No refund is possible if the refund amount is different from the total.
-            if( $std_amount !== $std_balanced_amount ) {
+            // 顧客只能全額退款：退款金額、交易餘額都必須等於訂單金額（不信任呼叫端傳入的金額）.
+            if( $std_amount !== $std_balanced_amount || $std_amount !== $std_refund_amount ) {
                 
                 return new WP_Error(
                     'process_refund_request',
@@ -711,10 +917,10 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
             }
         }
         
-        $result = $this->request_refund_api( $order, $transaction_id, $std_refund_amount, $requester );
-        
+        $result = $this->request_refund_api( $order, $transaction_id, $std_refund_amount, $requester, $reason );
+
         // When the customer successfully refunds, the order status is canceled.
-        if( $result && $requester === WC_Gateway_LINEPay_Const::USER_STATUS_CUSTOMER ) {
+        if( true === $result && $requester === WC_Gateway_LINEPay_Const::USER_STATUS_CUSTOMER ) {
             $order->update_status( 'cancelled' );
         }
         
@@ -733,7 +939,7 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
      *
      * @return boolean(true)|WP_Error
      */
-    private function request_refund_api( $order, $transaction_id, $refund_amount, $requester = null ) {
+    private function request_refund_api( $order, $transaction_id, $refund_amount, $requester = null, $reason = '' ) {
         
         $order_id = $order->get_id();
         $std_refund_amount = $this->get_standardized( $refund_amount );
@@ -751,11 +957,12 @@ class WC_Gateway_LINEPay extends WC_Payment_Gateway {
         }
         
         // Save refund transaction information.
-        $linepay_refund_info = $order->get_meta( '_linepay_refund_info' ) ?: [];
-        if( !is_array( $linepay_refund_info ) ) {
-            $linepay_refund_info = [];
+        // 舊資料存的是 serialize 後的字串，reserve 時存的是空陣列；兩種都要能讀
+        // （原本對陣列呼叫 unserialize()，PHP 8 會丟 TypeError，退款 API 成功後 meta 卻沒寫入）.
+        $refund_info = maybe_unserialize( $order->get_meta( '_linepay_refund_info' ) );
+        if( !is_array( $refund_info ) ) {
+            $refund_info = [];
         }
-        $refund_info = unserialize( $linepay_refund_info );
 
         $refund_info[$info->refundTransactionId] = [
             'requester' => $requester,

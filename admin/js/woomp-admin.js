@@ -245,6 +245,7 @@
 			action: "update_shipping_number",
 			shippingNo: $(this).val(),
 			orderId: $(this).next().val(),
+			nonce: window.woompAdmin ? window.woompAdmin.shippingNoNonce : "",
 		};
 
 		$.ajax({

@@ -177,20 +177,99 @@ class Payment {
     }
     
     /**
+     * 目前環境（測試／正式）的 HashKey
+     *
+     * @return string
+     */
+    public static function get_hash_key(): string {
+        $test_mode = wc_string_to_bool( get_option( 'payuni_payment_testmode' ) );
+        return (string) ( $test_mode ? get_option( 'payuni_payment_hash_key_test', '' ) : get_option( 'payuni_payment_hash_key', '' ) );
+    }
+
+    /**
+     * 目前環境（測試／正式）的 HashIV
+     *
+     * @return string
+     */
+    public static function get_hash_iv(): string {
+        $test_mode = wc_string_to_bool( get_option( 'payuni_payment_testmode' ) );
+        return (string) ( $test_mode ? get_option( 'payuni_payment_hash_iv_test', '' ) : get_option( 'payuni_payment_hash_iv', '' ) );
+    }
+
+    /**
+     * 目前環境（測試／正式）的商店代號
+     *
+     * @return string
+     */
+    public static function get_merchant_id(): string {
+        $test_mode = wc_string_to_bool( get_option( 'payuni_payment_testmode' ) );
+        return (string) ( $test_mode ? get_option( 'payuni_payment_merchant_no_test', '' ) : get_option( 'payuni_payment_merchant_no', '' ) );
+    }
+
+    /**
+     * HashKey 與 HashIV 是否都已設定
+     *
+     * 任一為空時 HashInfo 可被任何人算出，回呼驗章必須 fail-closed。
+     *
+     * @return bool
+     */
+    public static function has_secrets(): bool {
+        return \Woomp_Payment_Callback_Guard::has_secrets( self::get_hash_key(), self::get_hash_iv() );
+    }
+
+    /**
      * PAYUNi decrypt
+     *
+     * 任何格式錯誤一律回空陣列，呼叫端以「空陣列 = 不可信」處理。
+     *
+     * @param string $encryptStr hex( base64(密文) . ':::' . base64(GCM tag) )
+     *
+     * @return array
      */
     public static function decrypt( string $encryptStr = '' ) {
-        $test_mode = wc_string_to_bool( get_option( 'payuni_payment_testmode' ) );
-        $hash_key = $test_mode ? get_option( 'payuni_payment_hash_key_test' ) : get_option( 'payuni_payment_hash_key' );
-        $hash_iv = $test_mode ? get_option( 'payuni_payment_hash_iv_test' ) : get_option( 'payuni_payment_hash_iv' );
-        
-        [ $encryptData, $tag ] = explode( ':::', hex2bin( $encryptStr ), 2 );
-        $encryptInfo = openssl_decrypt(
-            $encryptData, 'aes-256-gcm', trim( $hash_key ), 0, trim( $hash_iv ), base64_decode( $tag )
-        );
-        parse_str( $encryptInfo, $encryptArr );
-        
-        return $encryptArr;
+        return self::decrypt_gcm( $encryptStr, trim( self::get_hash_key() ), trim( self::get_hash_iv() ) );
+    }
+
+    /**
+     * AES-256-GCM 解密（含格式與 tag 長度檢查）
+     *
+     * GCM tag 長度必須固定 16 bytes：openssl_decrypt() 會接受 1 byte 的 tag，
+     * 而 PayUni 的 IV（HashIV）是固定值，短 tag 只需 256 次嘗試就能偽造通過驗證的密文。
+     *
+     * @param string $encrypt_str hex 字串。
+     * @param string $key         HashKey（已 trim）。
+     * @param string $iv          HashIV（已 trim）。
+     *
+     * @return array
+     */
+    public static function decrypt_gcm( string $encrypt_str, string $key, string $iv ): array {
+        if ( '' === $encrypt_str || '' === $key || '' === $iv ) {
+            return [];
+        }
+
+        if ( 0 !== strlen( $encrypt_str ) % 2 || ! ctype_xdigit( $encrypt_str ) ) {
+            return [];
+        }
+
+        $raw = hex2bin( $encrypt_str );
+        if ( false === $raw || false === strpos( $raw, ':::' ) ) {
+            return [];
+        }
+
+        [ $encrypt_data, $tag_b64 ] = explode( ':::', $raw, 2 );
+        $tag                        = base64_decode( $tag_b64, true ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode
+        if ( '' === $encrypt_data || false === $tag || 16 !== strlen( $tag ) ) {
+            return [];
+        }
+
+        $plain = openssl_decrypt( $encrypt_data, 'aes-256-gcm', $key, 0, $iv, $tag );
+        if ( false === $plain || '' === $plain ) {
+            return [];
+        }
+
+        parse_str( $plain, $result );
+
+        return is_array( $result ) ? $result : [];
     }
     
     /**
@@ -233,17 +312,26 @@ class Payment {
      * API Callback
      */
     public function card_change() {
-        if( !wp_verify_nonce( $_POST['nonce'], 'payuni_card_change' ) ) {
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+        $nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
+        if( !wp_verify_nonce( $nonce, 'payuni_card_change' ) ) {
             return rest_ensure_response( 'Nonce Error' );
         }
-        
-        $user_id = $_POST['user_id'];
-        $method = sanitize_text_field( wp_unslash( $_POST['method'] ) );
-        
+
+        // 一律只能刪自己的記憶卡號：不採信 POST 的 user_id（可被改成他人 ID 越權刪除）。
+        $user_id = get_current_user_id();
+        $method  = isset( $_POST['method'] ) ? sanitize_text_field( wp_unslash( $_POST['method'] ) ) : '';
+
+        // method 會被組成 user meta key，限定為 PayUni 信用卡閘道，避免刪除任意 `_*_hash` meta。
+        $allowed_methods = [ 'payuni-credit', 'payuni-credit-installment', 'payuni-credit-subscription' ];
+        if( !$user_id || !in_array( $method, $allowed_methods, true ) ) {
+            wp_die( '', '', [ 'response' => 403 ] );
+        }
+
         $result = delete_user_meta( $user_id, '_' . $method . '_4no' );
         $result = delete_user_meta( $user_id, '_' . $method . '_hash' );
-        
-        echo $result;
-        die;
+
+        echo $result; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+        wp_die();
     }
 }

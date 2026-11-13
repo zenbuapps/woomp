@@ -22,6 +22,29 @@ final class TradeHandler
 	private const USER_AGENT = 'payuni';
 
 	/**
+	 * 送出交易時實際使用的 MerTradeNo
+	 *
+	 * V3 以 get_order_number() 當 MerTradeNo，裝了自訂訂單編號外掛時與訂單 ID 不同；
+	 * 背景通知回來時用它核對訂單。
+	 */
+	public const META_MER_TRADE_NO = '_payuni_v3_mer_trade_no';
+
+	/**
+	 * 付款完成戳記，值為「本張訂單自己的 ID」
+	 *
+	 * 與 V2 的 \PAYUNI\Gateways\Response::META_PAID_ORDER_ID 相同：woomp_copy_order() 與 WCS
+	 * 會整包複製 meta，被複製到別張訂單時值對不上，不會讓新訂單被誤判為已處理。
+	 * 訂單被取消／退款後 is_paid() 會變回 false，有這個戳記才擋得住舊通知重放。
+	 */
+	public const META_PAID_ORDER_ID = '_payuni_paid_order_id';
+
+	/** 會收到 V3 背景通知的閘道 */
+	public const NOTIFY_GATEWAY_IDS = [ 'payuni-credit-v3', 'payuni-credit-subscription-v3' ];
+
+	/** 共用驗證 log 的金流代號 */
+	private const PROVIDER = 'payuni-v3';
+
+	/**
 	 * PayUni 交易結果欄位 → 中文 label 映射表
 	 *
 	 * @var array<string, string>
@@ -122,14 +145,26 @@ final class TradeHandler
 			throw new \Exception('缺少加密資料');
 		}
 
-		// 驗證 Hash
-		$calculated_hash = EncryptUtils::hash_info($encrypt_info);
-		if ($calculated_hash !== $hash_info) {
+		if (!\is_string($encrypt_info) || !\is_string($hash_info)) {
+			throw new \Exception('加密資料格式錯誤');
+		}
+
+		// 金鑰為空時任何人都算得出 HashInfo，必須 fail-closed
+		if (!EncryptUtils::has_secrets()) {
+			throw new \Exception('HashKey/HashIV 未設定');
+		}
+
+		// 驗證 Hash（常數時間比對）
+		if (!\Woomp_Payment_Callback_Guard::signature_equals(EncryptUtils::hash_info($encrypt_info), $hash_info)) {
 			throw new \Exception('Hash 驗證失敗');
 		}
 
 		// 解密交易結果
 		$decrypted = EncryptUtils::decrypt($encrypt_info);
+
+		if (!$decrypted) {
+			throw new \Exception('EncryptInfo 解密失敗');
+		}
 
 		\do_action('woomp_payuni_log', 'info', '交易回調通知解密結果', $decrypted);
 
@@ -179,6 +214,20 @@ final class TradeHandler
 		$card_4no = $trade_result['Card4No'] ?? '';
 		$card_6no = $trade_result['Card6No'] ?? '';
 		$card_hash = $trade_result['CreditHash'] ?? '';
+
+		if ('SUCCESS' === $status && !$order->is_paid() && !self::is_payment_processable($order)) {
+			// 已取消／已退款，或已處理過這筆交易（戳記）：不可再被改回已付款
+			$order->add_order_note(
+				\esc_html(\sprintf('統一金流 PAYUNi 成功通知已略過：訂單狀態為 %s，不可被標成已付款（交易編號：%s）', $order->get_status(), $trade_no))
+			);
+			\Woomp_Payment_Callback_Guard::reject(self::PROVIDER, '訂單狀態不可被標成已付款', [
+				'order_id' => $order->get_id(),
+				'status'   => $order->get_status(),
+				'trade_no' => $trade_no,
+			]);
+			$order->save();
+			return;
+		}
 
 		// 儲存交易資訊到訂單（原始解密陣列 + 顯示用獨立欄位）
 		$order->update_meta_data('_payuni_v3_resp', $trade_result);
@@ -234,6 +283,7 @@ final class TradeHandler
 		if ('SUCCESS' === $status) {
 			// 交易成功
 			$order->payment_complete($trade_no);
+			$order->update_meta_data(self::META_PAID_ORDER_ID, $order->get_id());
 			if ($is_webhook) {
 				$order->add_order_note( $this->build_order_note_html( '統一金流 PAYUNi 交易紀錄（Webhook）', $trade_result ) );
 			} else {
@@ -255,6 +305,159 @@ final class TradeHandler
 
 		$order->save();
 		OrderUtils::delete_tmp_data($order);
+	}
+
+	/**
+	 * 訂單目前能否被一則成功通知／授權結果標成已付款
+	 *
+	 * 1. 戳記值等於自己的 ID：這筆付款已處理過（之後被取消／退款也一樣），不可再處理。
+	 * 2. 狀態必須是 pending／on-hold／failed（Woomp_Payment_Callback_Guard::can_mark_paid()）。
+	 *
+	 * @param \WC_Order $order 訂單物件
+	 *
+	 * @return bool
+	 */
+	public static function is_payment_processable(\WC_Order $order): bool
+	{
+		if ((int) $order->get_meta(self::META_PAID_ORDER_ID) === $order->get_id()) {
+			return false;
+		}
+		return \Woomp_Payment_Callback_Guard::can_mark_paid($order);
+	}
+
+	/**
+	 * 送出交易前落地本次使用的 MerTradeNo
+	 *
+	 * @param \WC_Order $order        訂單物件
+	 * @param string    $mer_trade_no 本次送出的 MerTradeNo
+	 *
+	 * @return void
+	 */
+	public static function remember_mer_trade_no(\WC_Order $order, string $mer_trade_no): void
+	{
+		if ('' === $mer_trade_no) {
+			return;
+		}
+		$order->update_meta_data(self::META_MER_TRADE_NO, $mer_trade_no);
+		$order->save();
+	}
+
+	/**
+	 * 依背景通知的 MerTradeNo 找出訂單並核對
+	 *
+	 * 以前直接 wc_get_order(MerTradeNo)：送出用 get_order_number()，裝自訂訂單編號外掛時兩者不同，
+	 * 而且純數字的 MerTradeNo 也可能剛好是另一張訂單的 ID。改為：
+	 * 1. 以 ID 找（純數字，或「ID-流水號」格式的零元取 Token 交易）。
+	 * 2. 找不到時，以送出時落地的 META_MER_TRADE_NO 反查（必須唯一）。
+	 * 3. 核對：訂單有落地 meta 就必須完全相同；沒有 meta 的舊訂單，MerTradeNo 必須等於
+	 *    get_order_number()、訂單 ID，或「其中之一-流水號」。
+	 *
+	 * @param string $mer_trade_no 通知的 MerTradeNo
+	 *
+	 * @return \WC_Order|null 找不到或核對不符為 null
+	 */
+	public static function find_notify_order(string $mer_trade_no): ?\WC_Order
+	{
+		if ('' === $mer_trade_no || !\preg_match('/^[A-Za-z0-9_-]{1,25}$/', $mer_trade_no)) {
+			return null;
+		}
+
+		$order = null;
+		if (\preg_match('/^(\d+)(?:-\d+)?$/', $mer_trade_no, $m)) {
+			$candidate = \wc_get_order((int) $m[1]);
+			if ($candidate instanceof \WC_Order && self::mer_trade_no_belongs_to($candidate, $mer_trade_no)) {
+				$order = $candidate;
+			}
+		}
+
+		if (!$order) {
+			$found = \wc_get_orders([
+				'limit'      => 2,
+				'meta_key'   => self::META_MER_TRADE_NO, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'meta_value' => $mer_trade_no, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+			]);
+			if (\is_array($found) && 1 === \count($found) && $found[0] instanceof \WC_Order
+				&& self::mer_trade_no_belongs_to($found[0], $mer_trade_no)) {
+				$order = $found[0];
+			}
+		}
+
+		return $order;
+	}
+
+	/**
+	 * MerTradeNo 是否屬於這張訂單
+	 *
+	 * @param \WC_Order $order        訂單物件
+	 * @param string    $mer_trade_no 通知的 MerTradeNo
+	 *
+	 * @return bool
+	 */
+	private static function mer_trade_no_belongs_to(\WC_Order $order, string $mer_trade_no): bool
+	{
+		$stored = (string) $order->get_meta(self::META_MER_TRADE_NO);
+		if ('' !== $stored) {
+			return \hash_equals($stored, $mer_trade_no);
+		}
+
+		// 沒有落地 meta 的舊訂單（本次修補前送出的交易）
+		foreach ([(string) $order->get_order_number(), (string) $order->get_id()] as $base) {
+			if ('' === $base) {
+				continue;
+			}
+			if ($mer_trade_no === $base || \preg_match('/^' . \preg_quote($base, '/') . '-\d+$/', $mer_trade_no)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * 核對背景通知是否屬於這張訂單（付款方式、商店代號、金額）
+	 *
+	 * @param \WC_Order $order        訂單物件
+	 * @param array     $trade_result 解密後的交易結果
+	 * @param string    $outer_mer_id 外層（未加密）MerID，沒帶為空字串
+	 *
+	 * @return string 錯誤原因；空字串表示通過
+	 */
+	public static function get_notify_binding_error(\WC_Order $order, array $trade_result, string $outer_mer_id = ''): string
+	{
+		if (!\Woomp_Payment_Callback_Guard::is_payment_method($order, self::NOTIFY_GATEWAY_IDS)) {
+			return '訂單付款方式不是 PayUni V3';
+		}
+
+		// 規格上外層 MerID 必帶、內層也會回傳；兩者至少要有一個，且有帶的都必須等於設定。
+		$expected = \strtoupper(\trim(SettingDTO::instance()->merchant_id));
+		$inner    = \strtoupper(\trim((string) ($trade_result['MerID'] ?? '')));
+		$outer    = \strtoupper(\trim($outer_mer_id));
+		if ('' === $expected || ('' === $inner && '' === $outer)) {
+			return 'MerID 缺失或未設定';
+		}
+		if ('' !== $inner && !\hash_equals($expected, $inner)) {
+			return 'MerID 與設定不符';
+		}
+		if ('' !== $outer && !\hash_equals($expected, $outer)) {
+			return '外層 MerID 與設定不符';
+		}
+
+		if ('SUCCESS' === ($trade_result['Status'] ?? '')) {
+			$trade_amt = $trade_result['TradeAmt'] ?? null;
+			$total     = (float) $order->get_total();
+			// V3 送出的 TradeAmt 是 (int) get_total()，也接受截斷後的整數。
+			$amount_ok = \Woomp_Payment_Callback_Guard::amount_matches($order, $trade_amt)
+				|| (\is_numeric($trade_amt) && (int) $trade_amt === (int) $total && $total >= 1);
+			// 零元訂閱以 5 元授權取 Token（之後取消授權）
+			if (!$amount_ok && \abs($total) < 0.01 && \is_numeric($trade_amt) && 5 === (int) $trade_amt
+				&& \PAYUNI\Gateways\CreditSubscriptionV3::ID === $order->get_payment_method()) {
+				$amount_ok = true;
+			}
+			if (!$amount_ok) {
+				return '金額與訂單不符';
+			}
+		}
+
+		return '';
 	}
 
 	/**

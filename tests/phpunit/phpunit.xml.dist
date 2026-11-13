@@ -42,7 +42,10 @@
 			<file>integration/PayuniWebhookTest.php</file>
 			<file>integration/PayuniMerTradeNoTest.php</file>
 			<file>integration/EcpayCallbackTest.php</file>
+			<file>integration/EcpayNewebpayCallbackVerificationTest.php</file>
 			<file>integration/PaynowCallbackTest.php</file>
+			<file>integration/PaynowLegacyCallbackHardeningTest.php</file>
+			<file>integration/LinepayCallbackHardeningTest.php</file>
 			<file>integration/OrderMetaTest.php</file>
 			<file>integration/SubscriptionV3GatewayTest.php</file>
 		</testsuite>

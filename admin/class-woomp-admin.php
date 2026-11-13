@@ -23,6 +23,11 @@
 class Woomp_Admin {
 
 	/**
+	 * 訂單列表更新物流單號 AJAX 的 nonce action
+	 */
+	const SHIPPING_NO_NONCE_ACTION = 'woomp_update_shipping_number';
+
+	/**
 	 * The ID of this plugin.
 	 *
 	 * @since    1.0.0
@@ -99,6 +104,13 @@ class Woomp_Admin {
 		 */
 
 		wp_enqueue_script( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'js/woomp-admin.js', [ 'jquery' ], '2.2.5', true );
+		wp_localize_script(
+			$this->plugin_name,
+			'woompAdmin',
+			[
+				'shippingNoNonce' => wp_create_nonce( self::SHIPPING_NO_NONCE_ACTION ),
+			]
+		);
 	}
 
 	/**
@@ -257,6 +269,11 @@ class Woomp_Admin {
 	 * Ajax 更新訂單物流單號
 	 */
 	public function update_order_shipping_number() {
+		// wp_ajax_ 只要求登入：任何訂閱者都能呼叫，必須檢查 nonce 與管理訂單權限.
+		if ( ! check_ajax_referer( self::SHIPPING_NO_NONCE_ACTION, 'nonce', false ) || ! current_user_can( 'edit_shop_orders' ) ) {
+			wp_send_json( '權限不足', 403 );
+		}
+
 		if ( isset( $_POST['shippingNo'] ) && isset( $_POST['orderId'] ) ) {
 			$shipping_no = sanitize_text_field( wp_unslash( $_POST['shippingNo'] ) );
 			$order_id    = absint( $_POST['orderId'] );

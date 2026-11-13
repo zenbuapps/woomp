@@ -79,6 +79,12 @@ class RY_ECPay_Gateway_Api extends RY_ECPay {
 		RY_ECPay_Gateway::log( 'Checkout POST: ' . var_export( $args, true ) );
 
 		$order->update_meta_data( '_ecpay_MerchantTradeNo', $args['MerchantTradeNo'] );
+		// 消費者可能重新整理付款頁產生新編號，卻在舊分頁完成付款；保留曾送出的編號供回呼比對
+		$history   = (array) $order->get_meta( '_ecpay_MerchantTradeNo_history' );
+		$history[] = $args['MerchantTradeNo'];
+		$order->update_meta_data( '_ecpay_MerchantTradeNo_history', array_slice( array_values( array_unique( array_filter( $history, static fn( $no ) => is_string( $no ) && '' !== $no ) ) ), -20 ) );
+		// 測試模式使用公開金鑰，只接受在測試模式下送出付款的訂單收到測試回呼
+		$order->update_meta_data( '_ry_ecpay_testmode', 'yes' === RY_WT::get_option( 'ecpay_gateway_testmode', 'yes' ) ? 'yes' : 'no' );
 		$order->save_meta_data();
 
 		if ( 'yes' === RY_WT::get_option( 'ecpay_gateway_testmode', 'yes' ) ) {

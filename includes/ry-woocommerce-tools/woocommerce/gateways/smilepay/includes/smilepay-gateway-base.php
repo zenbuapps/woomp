@@ -70,7 +70,8 @@ $.ajax({
     url: wc_checkout_params.ajax_url,
     data: {
         action: "' . ( $get_shipping ? 'RY_SmilePay_shipping_getcode' : 'RY_SmilePay_getcode' ) . '",
-        id: ' . $order->get_id() . '
+        id: ' . $order->get_id() . ',
+        key: "' . esc_js( $order->get_order_key() ) . '"
     },
     dataType: "text",
     success: function(result) {

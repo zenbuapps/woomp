@@ -59,6 +59,9 @@ final class SubscriptionHandler {
 		$sdk_token = $order->get_meta( 'sdk_token_tmp', true );
 		$buyer_email = $order->get_billing_email();
 
+		// 送出前落地本次 MerTradeNo（含流水號），3D 背景通知回來時以它核對訂單。
+		TradeHandler::remember_mer_trade_no( $order, $order->get_order_number() . $order_suffix );
+
 		$trade_params = [
 			'MerID'        => $setting->merchant_id,
 			'MerTradeNo'   => $order->get_order_number() . $order_suffix,

@@ -42,20 +42,28 @@ if ( ! class_exists( 'RY_NewebPay' ) ) {
 		}
 
 		protected static function args_decrypt( $string, $HashKey, $HashIV ) {
-			$string = hex2bin( $string );
-
-			if ( function_exists( 'openssl_decrypt' ) ) {
-				$decrypt_string = openssl_decrypt( $string, 'aes-256-cbc', $HashKey, OPENSSL_RAW_DATA | OPENSSL_ZERO_PADDING, $HashIV );
-			}
-
-			$slast  = ord( substr( $decrypt_string, -1 ) );
-			$slastc = chr( $slast );
-			if ( preg_match( "/$slastc{" . $slast . '}/', $decrypt_string ) ) {
-				$decrypt_string = substr( $decrypt_string, 0, strlen( $decrypt_string ) - $slast );
-				return $decrypt_string;
-			} else {
+			// 金鑰為空時解不出可信任的資料；非十六進位字串 hex2bin 會丟 warning
+			if ( ! is_string( $string ) || '' === $string || 0 !== strlen( $string ) % 2 || ! ctype_xdigit( $string ) ) {
 				return false;
 			}
+			if ( ! is_string( $HashKey ) || '' === $HashKey || ! is_string( $HashIV ) || '' === $HashIV || ! function_exists( 'openssl_decrypt' ) ) {
+				return false;
+			}
+
+			$decrypt_string = openssl_decrypt( hex2bin( $string ), 'aes-256-cbc', $HashKey, OPENSSL_RAW_DATA | OPENSSL_ZERO_PADDING, $HashIV );
+			if ( ! is_string( $decrypt_string ) || '' === $decrypt_string ) {
+				return false;
+			}
+
+			// PKCS#7 padding（加密端以 32 bytes 為區塊）
+			$slast = ord( substr( $decrypt_string, -1 ) );
+			if ( $slast < 1 || $slast > 32 || $slast > strlen( $decrypt_string ) ) {
+				return false;
+			}
+			if ( substr( $decrypt_string, -$slast ) !== str_repeat( chr( $slast ), $slast ) ) {
+				return false;
+			}
+			return substr( $decrypt_string, 0, strlen( $decrypt_string ) - $slast );
 		}
 
 		protected static function generate_hash_value( $string, $HashKey, $HashIV ) {
