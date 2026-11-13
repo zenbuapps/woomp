@@ -80,6 +80,11 @@ register_deactivation_hook( __FILE__, 'deactivate_woomp' );
 require plugin_dir_path( __FILE__ ) . 'includes/class-woomp-hpos-helper.php';
 
 /**
+ * 金流回呼共用驗證
+ */
+require plugin_dir_path( __FILE__ ) . 'includes/class-woomp-payment-callback-guard.php';
+
+/**
  * The core plugin class that is used to define internationalization,
  * admin-specific hooks, and public-facing site hooks.
  */
