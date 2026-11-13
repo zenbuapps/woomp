@@ -40,9 +40,10 @@ $order_url = add_query_arg(
 	admin_url( 'edit.php' )
 );
 
-$subscription_id = $_GET['post'] ?? 0;
+// $subscription_id 由 CardManagement::render_meta_box_content() 提供.
+$subscription_id = isset( $subscription_id ) ? absint( $subscription_id ) : 0;
 
-$setting_html = $is_default ? '<span class="rounded-md px-4 py-2 bg-[#C6E1C6] text-[#5B841B]">預設</span>' : "<span class='woomp_ajax cursor-pointer' data-action='woomp_set_default' data-token_id='{$token_id}' data-user_id='{$user_id}'>設為預設</span>";
+$setting_html = $is_default ? '<span class="rounded-md px-4 py-2 bg-[#C6E1C6] text-[#5B841B]">預設</span>' : "<span class='woomp_ajax cursor-pointer' data-action='woomp_set_default' data-token_id='{$token_id}' data-user_id='{$user_id}' data-subscription_id='{$subscription_id}'>設為預設</span>";
 
 printf(
 /*html*/    '
