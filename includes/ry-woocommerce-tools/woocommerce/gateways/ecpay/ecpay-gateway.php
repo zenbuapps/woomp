@@ -30,7 +30,9 @@ final class RY_ECPay_Gateway {
 		add_action(
 			'wp',
 			function () {
-				// 網址包含 order-received
+				// 網址包含 order-received：綠界 OrderResultURL／ClientRedirectURL 經消費者瀏覽器 POST 回來。
+				// 保留此入口是因為 ATM／超商取號資訊可能比 PaymentInfoURL 先到，謝謝頁才顯示得出來；
+				// 它和 wc-api 走同一個 check_callback()，驗章、訂單綁定、狀態檢查完全相同。
 				if (strpos($_SERVER['REQUEST_URI'], 'order-received') === false || !isset($_POST['CheckMacValue'])) { // phpcs:ignore
 					return;
 				}
