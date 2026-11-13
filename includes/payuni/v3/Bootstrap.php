@@ -230,15 +230,31 @@ final class Bootstrap
 	public static function handle_notify(): void
 	{
 		try {
-			$handler = new TradeHandler();
-			$trade_result = $handler->process_notify($_POST);
+			// phpcs:disable WordPress.Security.NonceVerification.Missing -- 金流商回呼沒有 nonce，以 HashInfo 簽章取代。
+			$post = \wp_unslash($_POST);
+			// phpcs:enable WordPress.Security.NonceVerification.Missing
 
-			// 取得訂單
-			$mer_trade_no = $trade_result['MerTradeNo'] ?? '';
-			$order = \wc_get_order($mer_trade_no);
+			$handler = new TradeHandler();
+			$trade_result = $handler->process_notify(\is_array($post) ? $post : []);
+
+			// 取得訂單：以 ID 找並核對送出時落地的 MerTradeNo（見 TradeHandler::find_notify_order()）
+			$mer_trade_no = (string) ($trade_result['MerTradeNo'] ?? '');
+			$order = TradeHandler::find_notify_order($mer_trade_no);
 
 			if (!$order) {
-				throw new \Exception("找不到訂單: {$mer_trade_no}");
+				throw new \Exception("找不到訂單或 MerTradeNo 不符: {$mer_trade_no}");
+			}
+
+			// 訂單綁定：付款方式必須是 V3 閘道（擋 V2 密文）、MerID 與金額相符
+			$outer_mer_id = \is_array($post) && \is_string($post['MerID'] ?? null) ? (string) $post['MerID'] : '';
+			$binding_error = TradeHandler::get_notify_binding_error($order, $trade_result, $outer_mer_id);
+			if ('' !== $binding_error) {
+				\Woomp_Payment_Callback_Guard::reject('payuni-v3', $binding_error, [
+					'handler'  => 'handle_notify',
+					'order_id' => $order->get_id(),
+					'trade_no' => (string) ($trade_result['TradeNo'] ?? ''),
+				]);
+				throw new \Exception("回調通知與訂單不符: {$binding_error}");
 			}
 
 			// Webhook 防重複：若訂單已完成付款且 TradeNo 相同，直接回傳成功
@@ -250,6 +266,20 @@ final class Bootstrap
 					'order_id' => $order->get_id(),
 					'trade_no' => $incoming_trade_no,
 				]);
+				\wp_send_json_success();
+				return;
+			}
+
+			// 已取消／已退款，或已處理過（戳記）的訂單不可被成功通知改回已付款。
+			// 回 success 讓 PayUni 停止重送；update_order_status() 內也有同一道檢查作為縱深防禦。
+			if ('SUCCESS' === ($trade_result['Status'] ?? '') && !$order->is_paid() && !TradeHandler::is_payment_processable($order)) {
+				\Woomp_Payment_Callback_Guard::reject('payuni-v3', '訂單狀態不可被標成已付款', [
+					'handler'  => 'handle_notify',
+					'order_id' => $order->get_id(),
+					'status'   => $order->get_status(),
+					'trade_no' => (string) $incoming_trade_no,
+				]);
+				$order->add_order_note(\esc_html(\sprintf('PayUni Webhook：訂單狀態為 %s，已略過成功通知（交易編號：%s）', $order->get_status(), (string) $incoming_trade_no)));
 				\wp_send_json_success();
 				return;
 			}

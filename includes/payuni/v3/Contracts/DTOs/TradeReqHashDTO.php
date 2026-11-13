@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace J7\Payuni\Contracts\DTOs;
 
+use J7\Payuni\Infrastructure\Http\TradeHandler;
 use J7\Payuni\Shared\Utils\CreditTokenUtils;
 use J7\Payuni\Shared\Utils\OrderUtils;
 
@@ -104,6 +105,9 @@ final class TradeReqHashDTO
 				throw new \Exception('已儲存的卡片資料無效或已過期，請使用新卡片付款。');
 			}
 		}
+
+		// 送出前落地本次 MerTradeNo：背景通知回來時以它核對訂單（見 TradeHandler::find_notify_order()）。
+		TradeHandler::remember_mer_trade_no($order, (string) $order->get_order_number());
 
 		$args = [
 			'MerID'      => $setting_dto->merchant_id,
