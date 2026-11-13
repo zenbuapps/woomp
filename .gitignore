@@ -41,3 +41,6 @@ dist-ssr
 !README.md
 .playwright-mcp/
 .playwright-cli
+
+# PChomePay 舊版 access token 檔（已改存 option，勿 commit）
+includes/PChomePay-Cart-for-WooCommerce/*pchomepay_api_token.json

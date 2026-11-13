@@ -10,7 +10,7 @@ defined( 'ABSPATH' ) || exit;
 
 require_once 'ApiException.php';
 require_once 'OrderStatusCodeEnum.php';
-require_once 'FileTokenStorage.php';
+require_once 'PChomePayTokenStorage.php';
 
 class PChomePayClient {
 
@@ -46,7 +46,7 @@ class PChomePayClient {
 		$this->postPaymentAuditURL  = $baseURL . '/v1/payment/audit';
 		$this->get711HistoryPageURL = $baseURL . '/v1/logistic/query/{order_id}/history-page';
 
-		$this->tokenStorage = new FileTokenStorage( null, $sandBox );
+		$this->tokenStorage = new PChomePayTokenStorage( $sandBox );
 	}
 
 	// 紀錄log
@@ -115,9 +115,9 @@ class PChomePayClient {
 	protected function validateTokenExpiredIn() {
 		$tokenFail = false;
 
-		if ( ! empty( $this->tokenStorage->getTokenStr() ) ) {
+		if ( ! empty( $this->tokenStorage->get_token_str() ) ) {
 			try {
-				$tokenObj = json_decode( $this->tokenStorage->getTokenStr() );
+				$tokenObj = json_decode( $this->tokenStorage->get_token_str() );
 				if ( $this->willExpiredIn( $tokenObj ) ) {
 					$tokenFail = true;
 				}
@@ -131,9 +131,13 @@ class PChomePayClient {
 		// 如果沒有資料 或 token 快過期時 , 取得新的 token
 		if ( $tokenFail ) {
 			$tokenObj = $this->getToken();
-			$this->tokenStorage->saveTokenStr( json_encode( $tokenObj ) );
+			// 取 token 失敗（空回應時 handleResult 會回 true／false）不可存起來，否則 30 分鐘內都拿無效 token 呼叫 API。
+			if ( ! is_object( $tokenObj ) || empty( $tokenObj->token ) ) {
+				throw new Exception( 'PChomePay token request failed' );
+			}
+			$this->tokenStorage->save_token_str( json_encode( $tokenObj ) );
 		} else {
-			$tokenObj = json_decode( $this->tokenStorage->getTokenStr() );
+			$tokenObj = json_decode( $this->tokenStorage->get_token_str() );
 		}
 
 		return $tokenObj;

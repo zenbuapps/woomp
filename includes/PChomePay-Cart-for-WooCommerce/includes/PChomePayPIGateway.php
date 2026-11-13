@@ -29,7 +29,6 @@ class WC_PI_Gateway_PChomePay extends WC_Gateway_PChomePay {
 
 		add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, [ $this, 'process_admin_options' ] );
 		add_action( 'woocommerce_api_' . strtolower( get_class( $this ) ), [ $this, 'receive_response' ] );
-		add_filter( 'https_ssl_verify', '__return_false' );
 	}
 
 	public function is_available() {
@@ -146,75 +145,6 @@ class WC_PI_Gateway_PChomePay extends WC_Gateway_PChomePay {
 		} catch ( Exception $e ) {
 			wc_add_notice( __( $e->getMessage(), 'woocommerce' ), 'error' );
 		}
-	}
-
-	public function receive_response() {
-		usleep( 500000 );
-
-		$notify_type    = $_REQUEST['notify_type'];
-		$notify_message = $_REQUEST['notify_message'];
-
-		$refund_array = [ 'refund_pending', 'refund_success', 'refund_fail' ];
-
-		if ( in_array( $notify_type, $refund_array ) ) {
-			$order_data = json_decode( str_replace( '\"', '"', $notify_message ) );
-
-			$order = wc_get_order( substr( $order_data->refund_id, 13 ) );
-
-			if ( $order ) {
-				$order->add_order_note( 'Notify_Type:' . $notify_type . '<br>Notify_Message: ' . $notify_message, true );
-			}
-			echo 'success';
-			exit();
-		}
-
-		if ( ! $notify_type || ! $notify_message ) {
-			http_response_code( 404 );
-			exit;
-		}
-
-		$order_data  = json_decode( str_replace( '\"', '"', $notify_message ) );
-		$wc_order_id = substr( $order_data->order_id, 10 );
-		$order       = wc_get_order( $wc_order_id );
-
-		if ( ! $order ) {
-			http_response_code( 404 );
-			exit;
-		}
-
-		// 紀錄訂單付款方式
-		$pay_type_note = 'PI拍錢包 付款';
-
-		if ( ! $order->get_meta( '_pchomepay_paytype' ) ) {
-			$order->update_meta_data( '_pchomepay_paytype', $order_data->pay_type );
-			$order->save();
-		}
-
-		if ( $notify_type == 'order_audit' ) {
-			if ( $order_data->status_code === OrderStatusCodeEnum::ORDER_PENDING_CLIENT ) {
-				$order->update_status( 'awaiting' );
-			} elseif ( $order_data->status_code === OrderStatusCodeEnum::ORDER_PENDING_PCHOMEPAY ) {
-				$order->update_status( 'awaitingforpcpay' );
-			}
-
-			$order->add_order_note( sprintf( __( '訂單交易等待中。<br>status code: %1$s<br>message: %2$s', 'woocommerce' ), $order_data->status_code, OrderStatusCodeEnum::getErrMsg( $order_data->status_code ) ), true );
-		} elseif ( $notify_type == 'order_expired' ) {
-			$order->add_order_note( $pay_type_note, true );
-			if ( $order_data->status_code ) {
-				$order->update_status( 'failed' );
-				$order->add_order_note( sprintf( __( '訂單已失敗。<br>error code: %1$s<br>message: %2$s', 'woocommerce' ), $order_data->status_code, OrderStatusCodeEnum::getErrMsg( $order_data->status_code ) ), true );
-			} else {
-				$order->update_status( 'failed' );
-				$order->add_order_note( '訂單已失敗。', true );
-			}
-		} elseif ( $notify_type == 'order_confirm' ) {
-			$order->add_order_note( $pay_type_note, true );
-			$order->update_status( 'processing' );
-			$order->payment_complete();
-		}
-
-		echo 'success';
-		exit();
 	}
 
 	private function get_pchomepay_refund_data( $orderID, $amount, $refundID = null ) {
