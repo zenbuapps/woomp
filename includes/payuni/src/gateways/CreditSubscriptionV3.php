@@ -187,10 +187,11 @@ class CreditSubscriptionV3 extends AbstractGateway {
 			];
 		}
 
-		$order_total = (int) $order->get_total();
+		// 判斷零元不可用 (int)：0.9 元會被截斷成 0 而不收錢直接完成付款。
+		$order_total = (float) $order->get_total();
 
 		// 路徑 2 & 3：金額 = 0
-		if ( 0 === $order_total ) {
+		if ( \abs( $order_total ) < 0.01 ) {
 			return $this->process_zero_amount( $order );
 		}
 
@@ -266,6 +267,9 @@ class CreditSubscriptionV3 extends AbstractGateway {
 					throw new \Exception( '已儲存的卡片資料無效或已過期，請使用新卡片付款。' );
 				}
 			}
+
+			// 送出前落地 MerTradeNo，背景通知回來時用來核對訂單（見 TradeHandler::find_notify_order()）。
+			TradeHandler::remember_mer_trade_no( $order, (string) $order->get_order_number() );
 
 			$trade_params = [
 				'MerID'        => $setting->merchant_id,
@@ -427,7 +431,8 @@ class CreditSubscriptionV3 extends AbstractGateway {
 
 		if ( $use_saved_token && $saved_token_id && \is_numeric( $saved_token_id ) ) {
 			$token = \WC_Payment_Tokens::get( (int) $saved_token_id );
-			if ( $token && $token->get_user_id() === $order->get_customer_id() ) {
+			// 訪客訂單 customer_id 為 0，不可因為 token 的 user_id 也是 0 就放行。
+			if ( $token && $order->get_customer_id() > 0 && $token->get_user_id() === $order->get_customer_id() ) {
 				return (int) $saved_token_id;
 			}
 		}

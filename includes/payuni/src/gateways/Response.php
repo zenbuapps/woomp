@@ -50,6 +50,29 @@ final class Response {
 	public const META_PAID_ORDER_ID = '_payuni_paid_order_id';
 
 	/**
+	 * 共用驗證 log 的金流代號
+	 *
+	 * @var string
+	 */
+	public const PROVIDER = 'payuni';
+
+	/**
+	 * 會進到 card_response() 的 V2 信用卡閘道
+	 *
+	 * @var string[]
+	 */
+	public const CARD_GATEWAY_IDS = [ 'payuni-credit', 'payuni-credit-installment', 'payuni-credit-subscription' ];
+
+	/**
+	 * PayUni TradeStatus：已付款
+	 *
+	 * 0=取號成功、1=已付款、2=付款失敗、3=付款取消、8=訂單待確認（UPP V2 規格）。
+	 *
+	 * @var string
+	 */
+	public const TRADE_STATUS_PAID = '1';
+
+	/**
 	 * Class instance
 	 *
 	 * @var Response
@@ -135,9 +158,22 @@ final class Response {
 		// 依現有協定註解，PayUni 的回傳一律帶 HashInfo；外部回傳須先驗證再解密。
 		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- 金流商回呼沒有 nonce，以 HashInfo 簽章取代。
 		if ( self::CONTEXT_SYNC !== $context ) {
+			// 金鑰為空時任何人都能算出 HashInfo，必須 fail-closed。
+			if ( ! Payment::has_secrets() ) {
+				\Woomp_Payment_Callback_Guard::reject(
+					self::PROVIDER,
+					'HashKey/HashIV 未設定',
+					[
+						'handler' => 'card_response',
+						'context' => $context,
+					]
+				);
+				self::finish( $context, null, '' );
+				return;
+			}
+
 			$hash_info = $_REQUEST['HashInfo'] ?? null;
-			if ( ! \is_string( $hash_info ) || '' === $hash_info
-				|| ! \hash_equals( Payment::hash_info( (string) $encrypt_info ), $hash_info ) ) {
+			if ( ! \is_string( $encrypt_info ) || ! \Woomp_Payment_Callback_Guard::signature_equals( Payment::hash_info( (string) $encrypt_info ), $hash_info ) ) {
 				Payment::log( "card_response[{$context}]: HashInfo 缺失或驗證失敗，拒絕處理", 'error' );
 				self::finish( $context, null, '' );
 				return;
@@ -189,9 +225,44 @@ final class Response {
 			$woocommerce->cart->empty_cart();
 		}
 
+		// 回呼必須屬於這張訂單：付款方式是 V2 信用卡閘道、商店代號一致（失敗通知同樣適用，
+		// 否則別張訂單／別的付款方式的失敗密文也能把訂單打成 failed）。
+		// sync 情境的資料是本站自己呼叫 API 拿到的回應，不經過瀏覽器、無法被重放；
+		// 而且錢已經扣了，在這裡拒絕只會造成掉單，因此只對外部回呼（return / notify）檢查。
+		$binding_error = self::CONTEXT_SYNC === $context ? '' : self::get_card_binding_error( $order, $data );
+		if ( '' !== $binding_error ) {
+			\Woomp_Payment_Callback_Guard::reject(
+				self::PROVIDER,
+				$binding_error,
+				[
+					'handler'  => 'card_response',
+					'context'  => $context,
+					'order_id' => $order->get_id(),
+				]
+			);
+			self::finish( $context, null, '' );
+			return;
+		}
+
 		if ( 'SUCCESS' !== $status ) {
 			self::handle_failed_response( $order, $formatted_decrypted_data, $context );
 			self::finish( $context, $order, $order->get_checkout_order_received_url() );
+			return;
+		}
+
+		$paid_error = self::CONTEXT_SYNC === $context ? '' : self::get_card_paid_error( $order, $data, $is_hash_request );
+		if ( '' !== $paid_error ) {
+			\Woomp_Payment_Callback_Guard::reject(
+				self::PROVIDER,
+				$paid_error,
+				[
+					'handler'  => 'card_response',
+					'context'  => $context,
+					'order_id' => $order->get_id(),
+					'trade_no' => (string) ( $data['TradeNo'] ?? '' ),
+				]
+			);
+			self::finish( $context, null, '' );
 			return;
 		}
 
@@ -237,6 +308,113 @@ final class Response {
 		}
 
 		return false;
+	}
+
+	/**
+	 * 解密後的商店代號是否與設定相符
+	 *
+	 * 回呼內層有帶 MerID 就必須相符；沒帶時不拒絕（同步回應與部分既有通知未必帶），
+	 * 因為能解密就代表是用本站金鑰加密的，MerID 只是縱深防禦。
+	 *
+	 * @param array $data 解密後資料。
+	 *
+	 * @return bool
+	 */
+	public static function merchant_matches( array $data ): bool {
+		$mer_id = (string) ( $data['MerID'] ?? '' );
+		if ( '' === $mer_id ) {
+			return true;
+		}
+		$expected = Payment::get_merchant_id();
+		return '' !== $expected && \hash_equals( \strtoupper( \trim( $expected ) ), \strtoupper( \trim( $mer_id ) ) );
+	}
+
+	/**
+	 * MerTradeNo 是否為本站送出的格式（訂單 ID 或 訂單 ID-流水號），且指向這張訂單
+	 *
+	 * @param \WC_Order $order        訂單。
+	 * @param string    $mer_trade_no 回呼的 MerTradeNo。
+	 *
+	 * @return bool
+	 */
+	public static function mer_trade_no_matches( \WC_Order $order, string $mer_trade_no ): bool {
+		if ( ! \preg_match( '/^(\d+)(?:-\d+)?$/', $mer_trade_no, $m ) ) {
+			return false;
+		}
+		return (int) $m[1] === $order->get_id();
+	}
+
+	/**
+	 * card_response() 的訂單綁定檢查（成功與失敗通知都要過）
+	 *
+	 * @param \WC_Order $order 訂單。
+	 * @param array     $data  解密後資料。
+	 *
+	 * @return string 錯誤原因；空字串表示通過。
+	 */
+	private static function get_card_binding_error( \WC_Order $order, array $data ): string {
+		if ( ! \Woomp_Payment_Callback_Guard::is_payment_method( $order, self::CARD_GATEWAY_IDS ) ) {
+			return '訂單付款方式不是 PayUni V2 信用卡';
+		}
+		if ( ! self::mer_trade_no_matches( $order, (string) ( $data['MerTradeNo'] ?? '' ) ) ) {
+			return 'MerTradeNo 與訂單不符';
+		}
+		if ( ! self::merchant_matches( $data ) ) {
+			return 'MerID 與設定不符';
+		}
+		return '';
+	}
+
+	/**
+	 * card_response() 成功通知的金額與狀態檢查
+	 *
+	 * @param \WC_Order $order           訂單。
+	 * @param array     $data            解密後資料。
+	 * @param bool      $is_hash_request 是否為 5 元綁卡請求。
+	 *
+	 * @return string 錯誤原因；空字串表示通過。
+	 */
+	private static function get_card_paid_error( \WC_Order $order, array $data, bool $is_hash_request ): string {
+		$trade_amt = $data['TradeAmt'] ?? null;
+
+		// 5 元綁卡：新增付款方式的訂單金額就是 5；定期定額零元訂單送出的也是 5 元。
+		$amount_ok = \Woomp_Payment_Callback_Guard::amount_matches( $order, $trade_amt )
+			|| ( $is_hash_request && \abs( (float) $order->get_total() ) < 0.01 );
+		if ( ! $amount_ok ) {
+			return '金額與訂單不符';
+		}
+
+		// 已處理過的交易交給 complete_paid_order() 的冪等邏輯（留下「重複通知」備註）。
+		if ( self::is_payuni_completed( $order ) ) {
+			return '';
+		}
+
+		// 新增付款方式（我的帳號）建立的暫存綁卡訂單在送出後就被移到垃圾桶，3D 通知回來時狀態是 trash。
+		// 這類訂單沒有商品、金額固定 5 元，完成付款只會存卡與排 5 元退刷，故不套用狀態限制。
+		if ( $is_hash_request && 'yes' === $order->get_meta( 'no_checkout' ) ) {
+			return '';
+		}
+
+		if ( ! \Woomp_Payment_Callback_Guard::can_mark_paid( $order ) ) {
+			return "訂單狀態 {$order->get_status()} 不可被標成已付款";
+		}
+
+		return '';
+	}
+
+	/**
+	 * 依 MerTradeNo 找訂單（ID 或 ID-流水號）
+	 *
+	 * @param string $mer_trade_no MerTradeNo。
+	 *
+	 * @return \WC_Order|null
+	 */
+	private static function find_order_by_mer_trade_no( string $mer_trade_no ): ?\WC_Order {
+		if ( ! \preg_match( '/^(\d+)(?:-\d+)?$/', $mer_trade_no, $m ) ) {
+			return null;
+		}
+		$order = \wc_get_order( (int) $m[1] );
+		return $order instanceof \WC_Order ? $order : null;
 	}
 
 	/**
@@ -629,144 +807,209 @@ final class Response {
 	/**
 	 * Receive response from Payuni atm payment
 	 *
-	 * @param object $resp payuni response.
+	 * 兩種進入方式：
+	 * - wc-api/payuni_notify_atm：PayUni 背景通知繳費結果（公開網址，任何人都能 POST）。
+	 * - Request::set_response()：本站呼叫 api/atm 取號後，以 API 回應物件同步呼叫。
+	 *
+	 * @param mixed $resp 取號時帶入的 API 回應物件；wc-api 進入時為空。
 	 *
 	 * @return void
 	 */
-	public static function atm_response( $resp ) {
-		// 背景通知付款結果.
-		if ( $_REQUEST['Status'] ?? '' ) {
-			if ( 'SUCCESS' === $_REQUEST['Status'] ) {
-				$data         = Payment::decrypt( $_REQUEST['EncryptInfo'] );
-				$time         = date( 'Y-m-d H:i:s', time() );
-				$order        = wc_get_order( $data['MerTradeNo'] );
-				$order_status = $order->get_status();
-				if ( $order_status !== 'completed' ) {
-					$order->update_status( 'processing' );
-				}
-				$order->add_order_note(
-					"<strong>統一金流繳費紀錄</strong><br>狀態碼：{$data[ 'Status' ]}<br>繳費結果：{$data[ 'Message' ]}<br>繳費時間：{$data[ 'PayTime' ]}<br>轉帳後五碼：{$data[ 'Account5No' ]}",
-					true
-				);
-				$order->save();
-			}
+	public static function atm_response( $resp = null ) {
+		if ( \is_object( $resp ) ) {
+			self::atm_issue_response( $resp );
+			return;
 		}
 
-		// 付款完成取號.
-		if ( $resp ) {
-			global $woocommerce;
-			$encrypt_info = $resp->EncryptInfo;
-			$data         = Payment::decrypt( $encrypt_info );
+		self::handle_offline_paid_notify( 'payuni-atm', '2', 'atm_response' );
+	}
 
-			Payment::log( $data );
+	/**
+	 * ATM 取號結果（本站呼叫 api/atm 的同步回應）
+	 *
+	 * @param object $resp API 回應物件。
+	 *
+	 * @return void
+	 */
+	private static function atm_issue_response( $resp ): void {
+		global $woocommerce;
 
-			$status      = $data['Status'];
-			$message     = $data['Message'];
-			$trade_no    = $data['TradeNo'];
-			$bank        = '(' . $data['BankType'] . ')' . Payment::get_bank_name( $data['BankType'] );
-			$bank_no     = $data['PayNo'];
-			$bank_expire = date( 'Y-m-d H:i:s', strtotime( $data['ExpireDate'] ) );
+		$data = Payment::decrypt( (string) ( $resp->EncryptInfo ?? '' ) ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 
-			$order = wc_get_order( $data['MerTradeNo'] );
-			$order->update_meta_data( '_payuni_resp_status', $status );
-			$order->update_meta_data( '_payuni_resp_message', $message );
-			$order->update_meta_data( '_payuni_resp_trade_no', $trade_no );
-			$order->update_meta_data( '_payuni_resp_bank', $bank );
-			$order->update_meta_data( '_payuni_resp_bank_no', $bank_no );
-			$order->update_meta_data( '_payuni_resp_bank_expire', $bank_expire );
+		Payment::log( $data );
 
-			$order->add_order_note(
-				"<strong>統一金流交易紀錄</strong><br>狀態碼：{$status}<br>交易訊息：{$message}<br>交易編號：{$trade_no}<br>轉帳銀行：{$bank}<br>轉帳帳號：${bank_no}<br>轉帳期限：{$bank_expire}",
-				true
-			);
+		$order = $data ? self::find_order_by_mer_trade_no( (string) ( $data['MerTradeNo'] ?? '' ) ) : null;
+		if ( ! $order || ! \Woomp_Payment_Callback_Guard::is_payment_method( $order, 'payuni-atm' ) ) {
+			Payment::log( 'atm_response: 取號回應解密失敗、找不到訂單或付款方式不符', 'error' );
+			return;
+		}
 
-			if ( 'SUCCESS' === $status ) {
-				$order->update_status( 'pending' );
-			} else {
-				$order->update_status( 'failed' );
-			}
+		$status      = (string) ( $data['Status'] ?? '' );
+		$message     = (string) ( $data['Message'] ?? '' );
+		$trade_no    = (string) ( $data['TradeNo'] ?? '' );
+		$bank_type   = (string) ( $data['BankType'] ?? '' );
+		$bank        = '(' . $bank_type . ')' . Payment::get_bank_name( $bank_type );
+		$bank_no     = (string) ( $data['PayNo'] ?? '' );
+		$bank_expire = date( 'Y-m-d H:i:s', (int) strtotime( (string) ( $data['ExpireDate'] ?? '' ) ) ); // phpcs:ignore WordPress.DateTime.RestrictedFunctions.date_date -- 沿用既有行為。
 
-			// 超過繳費期限取消訂單.
-			as_schedule_single_action(
+		$order->update_meta_data( '_payuni_resp_status', $status );
+		$order->update_meta_data( '_payuni_resp_message', $message );
+		$order->update_meta_data( '_payuni_resp_trade_no', $trade_no );
+		$order->update_meta_data( '_payuni_resp_bank', $bank );
+		$order->update_meta_data( '_payuni_resp_bank_no', $bank_no );
+		$order->update_meta_data( '_payuni_resp_bank_expire', $bank_expire );
+
+		$order->add_order_note(
+			'<strong>統一金流交易紀錄</strong><br>狀態碼：' . \esc_html( $status )
+			. '<br>交易訊息：' . \esc_html( $message )
+			. '<br>交易編號：' . \esc_html( $trade_no )
+			. '<br>轉帳銀行：' . \esc_html( $bank )
+			. '<br>轉帳帳號：' . \esc_html( $bank_no )
+			. '<br>轉帳期限：' . \esc_html( $bank_expire ),
+			true
+		);
+
+		if ( 'SUCCESS' === $status ) {
+			$order->update_status( 'pending' );
+		} else {
+			$order->update_status( 'failed' );
+		}
+
+		// 超過繳費期限取消訂單.
+		if ( \function_exists( 'as_schedule_single_action' ) ) {
+			\as_schedule_single_action(
 				strtotime( $bank_expire . '-8 hour' ),
 				'payuni_atm_check',
 				[ $data['MerTradeNo'] ]
 			);
-
-			$woocommerce->cart->empty_cart();
-			$order->save();
 		}
+
+		if ( $woocommerce && $woocommerce->cart ) {
+			$woocommerce->cart->empty_cart();
+		}
+		$order->save();
 	}
 
 	/**
 	 * Receive response from Payuni cvs payment
 	 *
-	 * @param object $resp payuni response.
+	 * 取號的同步回應原本就只寫 log（後段為停用的舊程式），維持不動；
+	 * 背景繳費通知改走與 ATM 相同的驗證流程。
+	 *
+	 * @param mixed $resp 取號時帶入的 API 回應物件；wc-api 進入時為空。
 	 *
 	 * @return void
 	 */
-	public static function cvs_response( $resp ) {
-		// 背景通知付款結果.
-		if ( $_REQUEST['Status'] ) {
-			if ( 'SUCCESS' === $_REQUEST['Status'] ) {
-				$data  = Payment::decrypt( $_REQUEST['EncryptInfo'] );
-				$time  = date( 'Y-m-d H:i:s', time() );
-				$order = wc_get_order( $data['MerTradeNo'] );
-				$order->update_status( 'processing' );
-				$order->add_order_note(
-					"<strong>統一金流繳費紀錄</strong><br>狀態碼：{$data[ 'Status' ]}<br>繳費結果：{$data[ 'Message' ]}<br>繳費時間：{$data[ 'PayTime' ]}<br>轉帳後五碼：{$data[ 'Account5No' ]}",
-					true
-				);
-				$order->save();
-			}
-		}
-
-		// 付款完成取號.
-		if ( $resp ) {
-			global $woocommerce;
-			$encrypt_info = $resp->EncryptInfo;
-			$data         = Payment::decrypt( $encrypt_info );
-
-			Payment::log( $data );
-
+	public static function cvs_response( $resp = null ) {
+		if ( \is_object( $resp ) ) {
+			Payment::log( Payment::decrypt( (string) ( $resp->EncryptInfo ?? '' ) ) ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 			return;
-
-			$status      = $data['Status'];
-			$message     = $data['Message'];
-			$trade_no    = $data['TradeNo'];
-			$bank        = '(' . $data['BankType'] . ')' . Payment::get_bank_name( $data['BankType'] );
-			$bank_no     = $data['PayNo'];
-			$bank_expire = date( 'Y-m-d H:i:s', strtotime( $data['ExpireDate'] ) );
-
-			$order = wc_get_order( $data['MerTradeNo'] );
-			$order->update_meta_data( '_payuni_resp_status', $status );
-			$order->update_meta_data( '_payuni_resp_message', $message );
-			$order->update_meta_data( '_payuni_resp_trade_no', $trade_no );
-			$order->update_meta_data( '_payuni_resp_bank', $bank );
-			$order->update_meta_data( '_payuni_resp_bank_no', $bank_no );
-			$order->update_meta_data( '_payuni_resp_bank_expire', $bank_expire );
-
-			$order->add_order_note(
-				"<strong>統一金流交易紀錄</strong><br>狀態碼：{$status}<br>交易訊息：{$message}<br>交易編號：{$trade_no}<br>轉帳銀行：{$bank}<br>轉帳帳號：${bank_no}<br>轉帳期限：{$bank_expire}",
-				true
-			);
-
-			if ( 'SUCCESS' === $status ) {
-				$order->update_status( 'on-hold' );
-			} else {
-				$order->update_status( 'failed' );
-			}
-
-			// 超過繳費期限取消訂單.
-			as_schedule_single_action(
-				strtotime( $bank_expire . '-8 hour' ),
-				'payuni_cvs_check',
-				[ $data['MerTradeNo'] ]
-			);
-
-			$woocommerce->cart->empty_cart();
-			$order->save();
 		}
+
+		self::handle_offline_paid_notify( 'payuni-cvs', '3', 'cvs_response' );
+	}
+
+	/**
+	 * ATM／超商代碼的背景繳費通知
+	 *
+	 * 過去只看外層未加密的 $_REQUEST['Status']，不驗 HashInfo、不看解密後狀態，
+	 * 拿任何一段本站金鑰加密過的 EncryptInfo（例如 3D 失敗時瀏覽器看得到的那段）就能把訂單改成處理中。
+	 * 改為依序檢查：金鑰 → HashInfo → 解密 → 內層 Status／TradeStatus → 商店代號 → 訂單綁定 → 金額 → 訂單狀態。
+	 *
+	 * @param string $gateway_id   訂單必須使用的付款方式。
+	 * @param string $payment_type 內層 PaymentType（有帶時必須相符）：2=ATM、3=超商代碼。
+	 * @param string $handler      記錄用名稱。
+	 *
+	 * @return bool 是否把訂單標成已付款。
+	 */
+	public static function handle_offline_paid_notify( string $gateway_id, string $payment_type, string $handler ): bool {
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- 金流商回呼沒有 nonce，以 HashInfo 簽章取代；hex 字串不可被 sanitize 改寫。
+		$encrypt_info = isset( $_REQUEST['EncryptInfo'] ) && \is_string( $_REQUEST['EncryptInfo'] ) ? \trim( \wp_unslash( $_REQUEST['EncryptInfo'] ) ) : '';
+		$hash_info    = isset( $_REQUEST['HashInfo'] ) && \is_string( $_REQUEST['HashInfo'] ) ? \trim( \wp_unslash( $_REQUEST['HashInfo'] ) ) : '';
+		$outer_mer_id = isset( $_REQUEST['MerID'] ) && \is_string( $_REQUEST['MerID'] ) ? \sanitize_text_field( \wp_unslash( $_REQUEST['MerID'] ) ) : '';
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+
+		$reject = static function ( string $reason, array $context = [] ) use ( $handler ): bool {
+			\Woomp_Payment_Callback_Guard::reject( self::PROVIDER, $reason, [ 'handler' => $handler ] + $context );
+			Payment::log( "{$handler}: {$reason}", 'error' );
+			return false;
+		};
+
+		if ( ! Payment::has_secrets() ) {
+			return $reject( 'HashKey/HashIV 未設定' );
+		}
+
+		if ( '' === $encrypt_info || ! \Woomp_Payment_Callback_Guard::signature_equals( Payment::hash_info( $encrypt_info ), $hash_info ) ) {
+			return $reject( 'HashInfo 缺失或驗證失敗' );
+		}
+
+		$data = Payment::decrypt( $encrypt_info );
+		if ( ! $data ) {
+			return $reject( 'EncryptInfo 解密失敗' );
+		}
+
+		Payment::log( [ 'handler' => $handler ] + $data );
+
+		$mer_trade_no = (string) ( $data['MerTradeNo'] ?? '' );
+		$trade_no     = (string) ( $data['TradeNo'] ?? '' );
+		$log_context  = [
+			'mer_trade_no' => $mer_trade_no,
+			'trade_no'     => $trade_no,
+		];
+
+		// 只信內層（有簽章保護）的狀態；外層 Status 沒有任何保護。
+		if ( 'SUCCESS' !== (string) ( $data['Status'] ?? '' ) ) {
+			return $reject( '內層 Status 不是 SUCCESS', $log_context + [ 'status' => (string) ( $data['Status'] ?? '' ) ] );
+		}
+		if ( self::TRADE_STATUS_PAID !== (string) ( $data['TradeStatus'] ?? '' ) ) {
+			return $reject( 'TradeStatus 不是已付款', $log_context + [ 'trade_status' => (string) ( $data['TradeStatus'] ?? '' ) ] );
+		}
+
+		$inner_payment_type = (string) ( $data['PaymentType'] ?? '' );
+		if ( '' !== $inner_payment_type && $payment_type !== $inner_payment_type ) {
+			return $reject( 'PaymentType 不符', $log_context + [ 'payment_type' => $inner_payment_type ] );
+		}
+
+		if ( ! self::merchant_matches( $data ) || ( '' !== $outer_mer_id && ! self::merchant_matches( [ 'MerID' => $outer_mer_id ] ) ) ) {
+			return $reject( 'MerID 與設定不符', $log_context );
+		}
+
+		$order = self::find_order_by_mer_trade_no( $mer_trade_no );
+		if ( ! $order ) {
+			return $reject( '找不到訂單', $log_context );
+		}
+		$log_context['order_id'] = $order->get_id();
+
+		if ( ! \Woomp_Payment_Callback_Guard::is_payment_method( $order, $gateway_id ) ) {
+			return $reject( "訂單付款方式不是 {$gateway_id}", $log_context );
+		}
+
+		if ( ! \Woomp_Payment_Callback_Guard::amount_matches( $order, $data['TradeAmt'] ?? null ) ) {
+			return $reject( '金額與訂單不符', $log_context + [ 'trade_amt' => (string) ( $data['TradeAmt'] ?? '' ) ] );
+		}
+
+		// 冪等：戳記值為自己的訂單 ID（被 woomp_copy_order／WCS 複製到別張訂單時對不上）。
+		if ( (int) $order->get_meta( self::META_PAID_ORDER_ID ) === $order->get_id() ) {
+			Payment::log( "{$handler}: #{$order->get_id()} 已處理過，略過重複通知" );
+			return false;
+		}
+
+		if ( ! \Woomp_Payment_Callback_Guard::can_mark_paid( $order ) ) {
+			return $reject( "訂單狀態 {$order->get_status()} 不可被標成已付款", $log_context );
+		}
+
+		$order->payment_complete( $trade_no );
+		$order->update_meta_data( self::META_PAID_ORDER_ID, $order->get_id() );
+		$order->add_order_note(
+			'<strong>統一金流繳費紀錄</strong><br>狀態碼：' . \esc_html( (string) ( $data['Status'] ?? '' ) )
+			. '<br>繳費結果：' . \esc_html( (string) ( $data['Message'] ?? '' ) )
+			. '<br>繳費時間：' . \esc_html( (string) ( $data['PayTime'] ?? '' ) )
+			. '<br>轉帳後五碼：' . \esc_html( (string) ( $data['Account5No'] ?? '' ) ),
+			true
+		);
+		$order->save();
+
+		return true;
 	}
 }
 

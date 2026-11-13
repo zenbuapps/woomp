@@ -133,14 +133,22 @@ class CreditSubscription extends AbstractGateway {
 		 * @see https://github.com/zenbuapps/woomp/issues/46#issuecomment-2143679058
 	*/
 		$order = \wc_get_order( $order_id );
-		// 刷卡有最小金額 20 元限制
-		$order_total = (int) $order->get_total();
+		// 判斷零元不可用 (int)：0.9 元會被截斷成 0 而不收錢直接完成付款。
+		$order_total = (float) $order->get_total();
 
-		if (0 === $order_total) {
+		if ( \abs( $order_total ) < 0.01 ) {
 			// 如果`不是有效的 token id`，就走 hash request 扣 5 元，之後退款.
 			if ( !is_numeric( $token_id ) ) {
 				return $request->build_hash_request( $order, $card_data );
 			} else {
+				// 表單送來的 token ID 必須屬於本訂單顧客，否則任何人填別人的 token ID 就能零元完成訂閱。
+				try {
+					Request::get_owned_token( $token_id, $order, $this->id );
+				} catch ( \Exception $e ) {
+					\wc_add_notice( \esc_html( $e->getMessage() ), 'error' );
+					return [ 'result' => 'failure' ];
+				}
+
 				// 持有 token 且訂單金額為 0，就直接回 order-received 頁面，直接變付款完成
 				$order->payment_complete();
 				// $order->update_status('processing');

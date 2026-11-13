@@ -445,6 +445,7 @@ function woomp_copy_order( \WC_Order $order ): int {
 		'_payuni_card_number',
 		'_payuni_token_bind_failed',
 		'_payuni_v3_resp',
+		'_payuni_v3_mer_trade_no',
 	];
 
 	// 複製訂單的所有 meta data

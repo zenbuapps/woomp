@@ -173,6 +173,37 @@ final class Request {
 	}
 
 	/**
+	 * 取得屬於本訂單顧客、且屬於指定閘道的付款 token
+	 *
+	 * 訪客訂單（customer_id = 0）一律不可使用已存 token：WC token 的 user_id 為 0 代表沒有擁有者，
+	 * 不能因為「0 === 0」就放行。
+	 *
+	 * @param mixed     $token_id   結帳表單送來的 token ID。
+	 * @param \WC_Order $order      訂單。
+	 * @param string    $gateway_id token 必須屬於的閘道 ID。
+	 *
+	 * @return \WC_Payment_Token
+	 * @throws \Exception token 不存在或不屬於本訂單顧客。
+	 */
+	public static function get_owned_token( $token_id, WC_Order $order, string $gateway_id ): \WC_Payment_Token {
+		$token       = \is_numeric( $token_id ) ? \WC_Payment_Tokens::get( (int) $token_id ) : null;
+		$customer_id = (int) $order->get_customer_id();
+
+		if ( ! $token instanceof \WC_Payment_Token
+			|| $customer_id <= 0
+			|| (int) $token->get_user_id() !== $customer_id
+			|| $token->get_gateway_id() !== $gateway_id ) {
+			Payment::log(
+				sprintf( '訂單 #%d 嘗試使用不屬於顧客或閘道的付款 token #%s', $order->get_id(), \is_scalar( $token_id ) ? (string) $token_id : '' ),
+				'error'
+			);
+			throw new \Exception( \__( '所選的已儲存卡片無效，請重新選擇或輸入新卡片。', 'woomp' ) );
+		}
+
+		return $token;
+	}
+
+	/**
 	 * Build transaction args.
 	 *
 	 * @see https://www.payuni.com.tw/docs/web/#/7/35
@@ -220,8 +251,9 @@ final class Request {
 
 			// 判斷是否為使用 token (CreditHash) 付款
 			if ( \is_numeric($token_id)) {
-				$token              = \WC_Payment_Tokens::get( $token_id );
-				$args['CreditHash'] = $token?->get_token();
+				// token_id 來自結帳表單，可被改成別人的 token ID：必須是本訂單顧客、本閘道的 token。
+				$token              = self::get_owned_token( $token_id, $order, (string) $this->gateway->id );
+				$args['CreditHash'] = $token->get_token();
 
 				// 如果有 CreditHash 就不需要再傳卡號、有效期、末三碼
 				unset( $args['CardNo'] );
