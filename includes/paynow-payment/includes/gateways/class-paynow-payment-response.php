@@ -125,7 +125,7 @@ class PayNow_Payment_Response {
 
 		if ( $order && self::is_authentic_callback( $order, $posted ) ) {
 
-			if ( self::is_downgrade_of_paid_order( $order, $tran_status ) ) {
+			if ( self::should_ignore_callback( $order, $tran_status ) ) {
 				wp_safe_redirect( $order->get_checkout_order_received_url() );
 				exit;
 			}
@@ -202,7 +202,7 @@ class PayNow_Payment_Response {
 
 		if ( $order && self::is_authentic_callback( $order, $posted ) ) {
 
-			if ( self::is_downgrade_of_paid_order( $order, $tran_status ) ) {
+			if ( self::should_ignore_callback( $order, $tran_status ) ) {
 				wp_safe_redirect( $order->get_checkout_order_received_url() );
 				exit;
 			}
@@ -296,7 +296,7 @@ class PayNow_Payment_Response {
 
 		$order = self::get_paynow_order( $posted );
 		if ( $order && self::is_authentic_callback( $order, $posted ) ) {
-			if ( self::is_downgrade_of_paid_order( $order, $tran_status ) ) {
+			if ( self::should_ignore_callback( $order, $tran_status ) ) {
 				echo '1';
 				return;
 			}
@@ -308,11 +308,14 @@ class PayNow_Payment_Response {
 			}
 			$order->save();
 
-			if ( ! $order->is_paid() && 'S' === $tran_status ) {
+			// should_ignore_callback() 已確認 S 時訂單可標為已付款.
+			if ( 'S' === $tran_status ) {
 				$order->payment_complete( $buysafe_no );
 			}
 
-			$woocommerce->cart->empty_cart();
+			if ( $woocommerce->cart ) {
+				$woocommerce->cart->empty_cart();
+			}
 			echo '1';
 		}
 	}
@@ -387,20 +390,42 @@ class PayNow_Payment_Response {
 	}
 
 	/**
-	 * 已付款訂單收到非成功的回呼時不得改動訂單
+	 * 通過來源驗證的回呼，是否仍不該改動這張訂單
 	 *
-	 * 例如 ATM 取號回呼晚到、或重送的失敗通知，不可把已完成付款的訂單打回保留中。
+	 * - S（付款成功）：只有 Woomp_Payment_Callback_Guard::can_mark_paid() 的訂單才處理。
+	 *   WC 的 payment_complete() 允許 cancelled → processing，消費者可在商家取消／退款後重送自己拿到的合法成功通知；
+	 *   已付款訂單的重複通知也不再重寫交易資料。未付款但不可標為已付款（已取消／已退款）時留訂單備註給商家。
+	 * - 非 S（取號、失敗）：只處理 pending 訂單。已付款、已取消、已保留中的訂單收到晚到或重送的通知，
+	 *   不可被改成保留中，也不可改寫 ATM／條碼等繳費資訊。
 	 *
 	 * @param WC_Order $order       The order object.
 	 * @param string   $tran_status 交易結果 S or F.
 	 * @return bool
 	 */
-	private static function is_downgrade_of_paid_order( $order, $tran_status ) {
-		if ( 'S' === $tran_status || ! $order->is_paid() ) {
+	private static function should_ignore_callback( $order, $tran_status ) {
+		if ( 'S' === $tran_status ) {
+			if ( Woomp_Payment_Callback_Guard::can_mark_paid( $order ) ) {
+				return false;
+			}
+
+			if ( ! $order->is_paid() ) {
+				// 只有通過 PassCode 驗證才會到這裡；備註直接用繁中，避免新增翻譯字串（po／mo／l10n.php 需同步）.
+				$order->add_order_note(
+					sprintf(
+						'收到 PayNow 付款成功通知，但訂單目前狀態為「%s」，未變更訂單狀態；請至 PayNow 商家後台確認此筆款項。',
+						wc_get_order_status_name( $order->get_status() )
+					)
+				);
+			}
+			PayNow_Payment::log( 'Order ' . $order->get_id() . ' status ' . $order->get_status() . ' cannot be marked as paid, ignore TranStatus S callback', 'error' );
+			return true;
+		}
+
+		if ( $order->has_status( 'pending' ) ) {
 			return false;
 		}
 
-		PayNow_Payment::log( 'Order ' . $order->get_id() . ' is already paid, ignore TranStatus ' . $tran_status . ' callback' );
+		PayNow_Payment::log( 'Order ' . $order->get_id() . ' status ' . $order->get_status() . ' is not pending, ignore TranStatus ' . $tran_status . ' callback' );
 		return true;
 	}
 
@@ -430,20 +455,31 @@ class PayNow_Payment_Response {
 	 * @return WC_Order|false
 	 */
 	private static function get_paynow_order( $posted ) {
-		$order_no = $posted['OrderNo'] ?? '';
-		$order    = wc_get_order( $order_no );
+		$order_no = (string) ( $posted['OrderNo'] ?? '' );
+		$note1    = (string) ( $posted['Note1'] ?? '' );
 
-		// 站台若以外掛改寫訂單顯示編號，OrderNo 會對不到訂單 ID，
-		// 改用下單時寫入 Note1 的訂單 ID 反查，並比對顯示編號確認是同一張訂單。
-		if ( ! $order && ! empty( $posted['Note1'] ) ) {
-			$candidate = wc_get_order( absint( $posted['Note1'] ) );
-			if ( $candidate && (string) $candidate->get_order_number() === (string) $order_no ) {
-				$order = $candidate;
-			}
+		if ( '' === $order_no ) {
+			PayNow_Payment::log( 'Order not found. OrderNo is empty', 'error' );
+			return false;
+		}
+
+		// 下單時 OrderNo 送的是 get_order_number()（可能被序號外掛改寫），Note1 送的是訂單 ID（PayNow_Payment_Request）。
+		// 優先用 Note1 找訂單；沒帶 Note1 才把 OrderNo 當 ID。兩種方式都必須再比對 get_order_number() === OrderNo：
+		// PassCode 是用 OrderNo 算的，若只把 OrderNo 當 ID，序號外掛站台上「A 訂單的顯示編號」可能剛好是「B 訂單的 ID」，
+		// 回呼就會套到錯的訂單上。
+		if ( '' !== $note1 ) {
+			$order = ctype_digit( $note1 ) ? wc_get_order( absint( $note1 ) ) : false;
+		} else {
+			$order = ctype_digit( $order_no ) ? wc_get_order( absint( $order_no ) ) : false;
+		}
+
+		if ( $order && (string) $order->get_order_number() !== $order_no ) {
+			PayNow_Payment::log( 'Order number mismatch. OrderNo=' . $order_no . ' Note1=' . $note1 . ' order_number=' . $order->get_order_number() . ', reject callback', 'error' );
+			return false;
 		}
 
 		if ( ! $order ) {
-			PayNow_Payment::log( 'Order not found. OrderNo=' . $order_no . ' Note1=' . ( $posted['Note1'] ?? '' ), 'error' );
+			PayNow_Payment::log( 'Order not found. OrderNo=' . $order_no . ' Note1=' . $note1, 'error' );
 		}
 
 		return $order;
