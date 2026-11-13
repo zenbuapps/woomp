@@ -85,17 +85,24 @@ final class Woomp_Payment_Callback_Guard {
 	/**
 	 * 訂單付款方式是否屬於本金流
 	 *
+	 * 以 `_` 或 `-` 結尾的值視為前綴（例如 'ry_ecpay_'），其餘必須完全相等。
+	 * 不可一律用前綴比對：'payuni-credit' 會誤中 'payuni-credit-v3'，讓 V2 通知能完成 V3 訂單。
+	 *
 	 * @param WC_Order        $order    訂單
-	 * @param string|string[] $prefixes 付款方式 ID 或前綴（例如 'ry_ecpay_'）
+	 * @param string|string[] $methods  付款方式 ID，或以 `_`／`-` 結尾的前綴
 	 */
-	public static function is_payment_method( WC_Order $order, $prefixes ): bool {
+	public static function is_payment_method( WC_Order $order, $methods ): bool {
 		$method = (string) $order->get_payment_method();
 		if ( '' === $method ) {
 			return false;
 		}
-		foreach ( (array) $prefixes as $prefix ) {
-			$prefix = (string) $prefix;
-			if ( '' !== $prefix && 0 === strpos( $method, $prefix ) ) {
+		foreach ( (array) $methods as $expected ) {
+			$expected = (string) $expected;
+			if ( '' === $expected ) {
+				continue;
+			}
+			$is_prefix = in_array( substr( $expected, -1 ), [ '_', '-' ], true );
+			if ( $is_prefix ? 0 === strpos( $method, $expected ) : $method === $expected ) {
 				return true;
 			}
 		}
