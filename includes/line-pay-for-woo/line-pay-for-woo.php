@@ -107,43 +107,196 @@ class WC_Gateway_LINEPay_Handler {
 	 * @see woocommerce::action - woocommerce_api_
 	 */
 	public function handle_callback() {
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- confirm／cancel 以訂單 token 驗證，refund 於 process_refund_by_customer() 驗 nonce.
+		$order_id     = isset( $_GET['order_id'] ) ? absint( wp_unslash( $_GET['order_id'] ) ) : 0;
+		$request_type = isset( $_GET['request_type'] ) ? sanitize_key( wp_unslash( $_GET['request_type'] ) ) : '';
+		$token        = isset( $_GET['token'] ) ? sanitize_text_field( wp_unslash( $_GET['token'] ) ) : '';
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
 
 		try {
-			$order_id = wp_unslash( $_GET['order_id'] );
 			if ( empty( $order_id ) ) {
 				throw new Exception( sprintf( WC_Gateway_LINEPay_Const::LOG_TEMPLATE_HANDLE_CALLBANK_NOT_FOUND_ORDER_ID, $order_id, __( 'Unable to process callback.', 'woocommerce_gateway_linepay' ) ) );
 			}
 
-			$request_type   = wp_unslash( $_GET['request_type'] );
-			$order_obj      = wc_get_order( $order_id );
+			$order_obj = wc_get_order( $order_id );
 			if ( ! $order_obj ) {
 				throw new Exception( sprintf( WC_Gateway_LINEPay_Const::LOG_TEMPLATE_HANDLE_CALLBANK_NOT_FOUND_ORDER_ID, $order_id, __( 'Unable to process callback.', 'woocommerce_gateway_linepay' ) ) );
 			}
+
+			if ( ! Woomp_Payment_Callback_Guard::is_payment_method( $order_obj, 'linepay' ) ) {
+				Woomp_Payment_Callback_Guard::reject( 'linepay', 'payment method is not linepay', [ 'order_id' => $order_id, 'request_type' => $request_type ] );
+				return;
+			}
+
 			$payment_status = $order_obj->get_meta( '_linepay_payment_status' );
 
 			$linepay_gateway = new WC_Gateway_LINEPay();
-			if ( WC_Gateway_LINEPay_Const::PAYMENT_STATUS_RESERVED === $payment_status ) {
-				switch ( $request_type ) {
-					case WC_Gateway_LINEPay_Const::REQUEST_TYPE_CONFIRM:
-						// static::$logger->debug( 'handle_callback', 'process_payment_confirm' );
+
+			switch ( $request_type ) {
+				case WC_Gateway_LINEPay_Const::REQUEST_TYPE_CONFIRM:
+				case WC_Gateway_LINEPay_Const::REQUEST_TYPE_CANCEL:
+					// 公開網址：沒有 reserve 時發出的 token 一律拒絕（任何人只要知道訂單編號就能取消或提前 confirm）.
+					if ( ! WC_Gateway_LINEPay::verify_callback_token( $order_obj, $token ) ) {
+						Woomp_Payment_Callback_Guard::reject( 'linepay', 'invalid callback token', [ 'order_id' => $order_id, 'request_type' => $request_type ] );
+						return;
+					}
+
+					if ( WC_Gateway_LINEPay_Const::PAYMENT_STATUS_RESERVED !== $payment_status ) {
+						// 例如 confirm 重送：訂單已完成，直接帶回訂單頁，不改任何資料.
+						self::log_error( 'handle_callback', sprintf( WC_Gateway_LINEPay_Const::LOG_TEMPLATE_HANDLE_CALLBANK_NOT_FOUND_REQUREST, $order_id, $payment_status, $request_type, 'payment is not reserved, ignore' ) );
+						self::redirect_and_exit( $linepay_gateway->get_return_url( $order_obj ) );
+						return;
+					}
+
+					if ( WC_Gateway_LINEPay_Const::REQUEST_TYPE_CONFIRM === $request_type ) {
 						$linepay_gateway->process_payment_confirm( $order_id );
-						break;
-					case WC_Gateway_LINEPay_Const::REQUEST_TYPE_CANCEL:
+					} else {
 						$linepay_gateway->process_payment_cancel( $order_id );
+						// 訂單已不是待付款（cancel_payment() 拒絕）時才會回到這裡.
+						self::redirect_and_exit( $linepay_gateway->get_return_url( $order_obj ) );
+					}
+					return;
+
+				case WC_Gateway_LINEPay_Const::REQUEST_TYPE_REFUND:
+					if ( WC_Gateway_LINEPay_Const::PAYMENT_STATUS_CONFIRMED !== $payment_status ) {
 						break;
-				}
-			} elseif ( WC_Gateway_LINEPay_Const::PAYMENT_STATUS_CONFIRMED === $payment_status ) {
-				switch ( $request_type ) {
-					case WC_Gateway_LINEPay_Const::REQUEST_TYPE_REFUND:
-						$this->process_refund_by_customer( $linepay_gateway, $order_id );
-						break;
-				}
+					}
+					$this->process_refund_by_customer( $linepay_gateway, $order_id );
+					return;
 			}
 
-			static::$logger->error( 'handle_callback', sprintf( WC_Gateway_LINEPay_Const::LOG_TEMPLATE_HANDLE_CALLBANK_NOT_FOUND_REQUREST, $order_id, $payment_status, $request_type, __( 'Unable to process callback.', 'woocommerce_gateway_linepay' ) ) );
+			self::log_error( 'handle_callback', sprintf( WC_Gateway_LINEPay_Const::LOG_TEMPLATE_HANDLE_CALLBANK_NOT_FOUND_REQUREST, $order_id, $payment_status, $request_type, __( 'Unable to process callback.', 'woocommerce_gateway_linepay' ) ) );
 		} catch ( Exception $e ) {
 			// Leave error log.
-			static::$logger->error( 'handle_callback', $e->getMessage() );
+			self::log_error( 'handle_callback', $e->getMessage() );
+		}
+	}
+
+	/**
+	 * 寫 error log；LINE Pay 自己的 logger 沒開時改寫 WC logger（原本 logger 為 null 時會 fatal）
+	 *
+	 * @param string $context 來源
+	 * @param mixed  $message 訊息
+	 */
+	private static function log_error( $context, $message ) {
+		if ( static::$logger ) {
+			static::$logger->error( $context, $message );
+			return;
+		}
+		if ( function_exists( 'wc_get_logger' ) ) {
+			wc_get_logger()->error( $context . ': ' . ( is_scalar( $message ) ? $message : wc_print_r( $message, true ) ), [ 'source' => 'linepay' ] );
+		}
+	}
+
+	/**
+	 * 顧客自助退款的 nonce action
+	 *
+	 * @param int $order_id Order ID.
+	 * @return string
+	 */
+	public static function get_customer_refund_nonce_action( $order_id ) {
+		return 'woomp_linepay_customer_refund_' . absint( $order_id );
+	}
+
+	/**
+	 * 顧客自助退款是否開放給這張訂單（設定開啟、付款方式、狀態、60 天期限）
+	 *
+	 * @param WC_Order $order 訂單
+	 * @return bool
+	 */
+	public static function is_customer_refund_available( $order ) {
+		$refundable_statuses = get_option( 'linepay_customer_refund' );
+		if ( ! $refundable_statuses || ! is_array( $refundable_statuses ) ) {
+			return false;
+		}
+		if ( 'linepay' !== $order->get_payment_method() ) {
+			return false;
+		}
+		if ( ! in_array( 'wc-' . $order->get_status(), $refundable_statuses, true ) ) {
+			return false;
+		}
+		$date_created = $order->get_date_created();
+		if ( ! $date_created ) {
+			return false;
+		}
+		$refund_expired = strtotime( $date_created->date( 'Y-m-d H:i:s' ) . ' -8 hour' ) + ( 60 * 86400 );
+		return time() < $refund_expired;
+	}
+
+	/**
+	 * 驗證顧客自助退款請求
+	 *
+	 * 必須：已登入、是訂單本人、nonce 正確、付款方式為 LINE Pay、已 confirm、仍在可退款狀態與期限內、尚未退過款。
+	 *
+	 * @param WC_Order|false $order 訂單
+	 * @param mixed          $nonce 請求帶的 nonce
+	 * @return true|WP_Error
+	 */
+	public static function validate_customer_refund_request( $order, $nonce ) {
+		if ( ! $order instanceof WC_Order ) {
+			return new WP_Error( 'linepay_refund_order_not_found', 'order not found' );
+		}
+		if ( ! is_user_logged_in() ) {
+			return new WP_Error( 'linepay_refund_not_logged_in', 'customer refund requires login' );
+		}
+		$customer_id = (int) $order->get_customer_id();
+		if ( 0 === $customer_id || get_current_user_id() !== $customer_id ) {
+			return new WP_Error( 'linepay_refund_not_owner', 'current user is not the order customer' );
+		}
+		if ( ! is_string( $nonce ) || ! wp_verify_nonce( $nonce, self::get_customer_refund_nonce_action( $order->get_id() ) ) ) {
+			return new WP_Error( 'linepay_refund_bad_nonce', 'invalid nonce' );
+		}
+		if ( ! Woomp_Payment_Callback_Guard::is_payment_method( $order, 'linepay' ) ) {
+			return new WP_Error( 'linepay_refund_not_linepay', 'payment method is not linepay' );
+		}
+		if ( WC_Gateway_LINEPay_Const::PAYMENT_STATUS_CONFIRMED !== $order->get_meta( '_linepay_payment_status' ) ) {
+			return new WP_Error( 'linepay_refund_not_confirmed', 'payment is not confirmed' );
+		}
+		if ( ! self::is_customer_refund_available( $order ) ) {
+			return new WP_Error( 'linepay_refund_not_available', 'customer refund is not available for this order' );
+		}
+		// 顧客只能全額退款一次：已有任何退款就不再開放.
+		if ( (float) $order->get_total_refunded() > 0 || (float) $order->get_remaining_refund_amount() <= 0 ) {
+			return new WP_Error( 'linepay_refund_already_refunded', 'order already refunded' );
+		}
+		return true;
+	}
+
+	/**
+	 * 回應顧客自助退款結果
+	 *
+	 * 「我的帳號」的取消按鈕以 jQuery AJAX 請求並讀 JSON（success / data.info）；直接開網址則導回訂單列表。
+	 *
+	 * @param bool   $success 是否成功
+	 * @param string $message 訊息
+	 */
+	private function respond_customer_refund( $success, $message ) {
+		$is_xhr = isset( $_SERVER['HTTP_X_REQUESTED_WITH'] ) && 'xmlhttprequest' === strtolower( sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_REQUESTED_WITH'] ) ) );
+		if ( $is_xhr ) {
+			if ( $success ) {
+				wp_send_json_success();
+			}
+			wp_send_json_error( [ 'info' => $message ] );
+		}
+
+		if ( function_exists( 'WC' ) && WC()->session ) {
+			wc_add_notice( $message, $success ? 'success' : 'error' );
+		}
+		self::redirect_and_exit( wc_get_account_endpoint_url( 'orders' ) );
+	}
+
+	/**
+	 * 導向並結束請求
+	 *
+	 * wc-api 的 handler 回來後 WC 會 status_header(200) + wp_die('-1')，不 exit 的話 302 會被蓋成 200，瀏覽器不會跳轉。
+	 * 測試可用 woomp_linepay_callback_exit filter 關掉 exit。
+	 *
+	 * @param string $url 導向網址
+	 */
+	private static function redirect_and_exit( $url ) {
+		wp_safe_redirect( $url );
+		if ( apply_filters( 'woomp_linepay_callback_exit', true ) ) {
+			exit;
 		}
 	}
 
@@ -153,17 +306,36 @@ class WC_Gateway_LINEPay_Handler {
 	 * If the user requests a refund, WC_AJAX::refund_line_items() is executed when the administrator requests.
 	 * Since it cannot be called first, define a new method to handle it.
 	 *
-	 * Create a refund order to return the quantity, total amount, tax, and request a refund.
+	 * 先驗證身分與 nonce，退款金額一律由伺服器決定（訂單剩餘可退金額，顧客只能全額退）；
+	 * 先呼叫 LINE Pay 退款 API，成功後才建立 WC 退款紀錄（不再呼叫閘道）。
 	 *
 	 * @see WC_AJAX::refund_line_items()
 	 * @param WC_Gateway_LINEPay $linepay_gateway
 	 * @param int                $order_id
-	 * @throws Exception
 	 */
 	public function process_refund_by_customer( $linepay_gateway, $order_id ) {
-		$order         = wc_get_order( $order_id );
-		$refund_amount = wc_format_decimal( sanitize_text_field( wp_unslash( $_GET['cancel_amount'] ) ) );
+		$order = wc_get_order( $order_id );
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- nonce 於 validate_customer_refund_request() 驗證.
+		$nonce         = isset( $_GET['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ) : '';
 		$refund_reason = ( isset( $_GET['reason'] ) ) ? sanitize_text_field( wp_unslash( $_GET['reason'] ) ) : '';
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		$valid = self::validate_customer_refund_request( $order, $nonce );
+		if ( is_wp_error( $valid ) ) {
+			Woomp_Payment_Callback_Guard::reject(
+				'linepay',
+				'customer refund rejected: ' . $valid->get_error_code(),
+				[
+					'order_id' => absint( $order_id ),
+					'user_id'  => get_current_user_id(),
+				]
+			);
+			$this->respond_customer_refund( false, __( 'Unable to process refund. Please try again.', 'woocommerce_gateway_linepay' ) );
+			return;
+		}
+
+		// 不信任請求帶的 cancel_amount：退款金額 = 訂單剩餘可退金額（validate 已確認尚未退過款，即訂單總額）.
+		$refund_amount = wc_format_decimal( $order->get_remaining_refund_amount() );
 
 		$line_items       = [];
 		$items            = $order->get_items();
@@ -189,25 +361,31 @@ class WC_Gateway_LINEPay_Handler {
 			$line_items[ $shipping_id ] = $line_item;
 		}
 
+		// 先向 LINE Pay 退款：原本先 wc_create_refund() 會讓訂單變成 refunded，
+		// 之後 process_refund_request() 的狀態檢查必定失敗，LINE Pay 從未真的退款，但畫面顯示退款完成.
+		$result = $linepay_gateway->process_refund_request( WC_Gateway_LINEPay_Const::USER_STATUS_CUSTOMER, $order_id, $refund_amount, $refund_reason );
+
+		if ( true !== $result ) {
+			self::log_error( 'process_refund_request_by_customer', $result );
+			$this->respond_customer_refund( false, __( 'Unable to process refund. Please try again.', 'woocommerce_gateway_linepay' ) );
+			return;
+		}
+
 		try {
+			// LINE Pay 已退款，只建立 WC 退款紀錄，不再呼叫閘道；庫存已由取消訂單回補.
 			$refund = wc_create_refund(
 				[
-					'amount'     => $refund_amount,
-					'reason'     => $refund_reason,
-					'order_id'   => $order_id,
-					'line_items' => $line_items,
+					'amount'         => $refund_amount,
+					'reason'         => $refund_reason,
+					'order_id'       => $order_id,
+					'line_items'     => $line_items,
+					'refund_payment' => false,
+					'restock_items'  => false,
 				]
 			);
 
 			if ( is_wp_error( $refund ) ) {
 				throw new Exception( $refund->get_error_message() );
-			}
-
-			// Refund processing
-			$result = $linepay_gateway->process_refund_request( WC_Gateway_LINEPay_Const::USER_STATUS_CUSTOMER, $order_id, $refund_amount, $refund_reason );
-
-			if ( is_wp_error( $result ) || ! $result ) {
-				static::$logger->error( 'process_refund_request_by_customer', $result );
 			}
 
 			// Item quantity return.
@@ -227,20 +405,16 @@ class WC_Gateway_LINEPay_Handler {
 			// }
 
 			wc_delete_shop_order_transients( $order_id );
-
-			wc_add_notice( __( 'Refund complete.', 'woocommerce_gateway_linepay' ) );
-			wp_safe_redirect( wc_get_account_endpoint_url( 'dashboard' ) );
-
 		} catch ( Exception $e ) {
-
-			if ( $refund && is_a( $refund, 'WC_Order_Refund' ) ) {
-				$refund->delete( true );
+			// 錢已退，只是 WC 紀錄沒建成：留訂單備註讓商家手動補，不回報失敗（避免顧客重複申請）.
+			self::log_error( 'process_refund_by_customer', $e->getMessage() );
+			$order = wc_get_order( $order_id );
+			if ( $order ) {
+				$order->add_order_note( sprintf( 'LINE Pay 已完成顧客退款 %s，但建立 WooCommerce 退款紀錄失敗：%s，請手動補登。', $refund_amount, $e->getMessage() ) );
 			}
-
-			wc_add_wp_error_notices( new WP_Error( 'process_refund_by_customer', __( 'Unable to process refund. Please try again.', 'woocommerce_gateway_linepay' ) ) );
-			// wp_send_json_error( array( 'info' => $e->getMessage() ) );
-			wp_safe_redirect( wc_get_account_endpoint_url( 'dashboard' ) );
 		}
+
+		$this->respond_customer_refund( true, __( 'Refund complete.', 'woocommerce_gateway_linepay' ) );
 	}
 
 	/**
@@ -303,24 +477,21 @@ class WC_Gateway_LINEPay_Handler {
 				break;
 		}
 
-		$refund_expired = strtotime( $order->get_date_created()->date( 'Y-m-d H:i:s' ) . ' -8 hour' ) + ( 60 * 86400 );
-
-		if ( get_option( 'linepay_customer_refund' ) && time() < $refund_expired && $payment_method === 'linepay' ) {
-			if ( in_array( 'wc-' . $order_status, get_option( 'linepay_customer_refund' ) ) ) {
-				$actions['cancel'] = [
-					'url'  => esc_url_raw(
-						add_query_arg(
-							[
-								'request_type'  => WC_Gateway_LINEPay_Const::REQUEST_TYPE_REFUND,
-								'order_id'      => $order->get_id(),
-								'cancel_amount' => $order->get_total(),
-							],
-							home_url( WC_Gateway_LINEPay_Const::URI_CALLBACK_HANDLER )
-						)
-					),
-					'name' => __( 'Cancel', 'woocommerce-gateway-linepay' ),
-				];
-			}
+		if ( self::is_customer_refund_available( $order ) ) {
+			// 退款金額由伺服器決定，網址不再帶 cancel_amount；nonce 綁定這張訂單與目前登入的使用者.
+			$actions['cancel'] = [
+				'url'  => esc_url_raw(
+					add_query_arg(
+						[
+							'request_type' => WC_Gateway_LINEPay_Const::REQUEST_TYPE_REFUND,
+							'order_id'     => $order->get_id(),
+							'_wpnonce'     => wp_create_nonce( self::get_customer_refund_nonce_action( $order->get_id() ) ),
+						],
+						home_url( WC_Gateway_LINEPay_Const::URI_CALLBACK_HANDLER )
+					)
+				),
+				'name' => __( 'Cancel', 'woocommerce-gateway-linepay' ),
+			];
 		}
 
 		return $actions;
