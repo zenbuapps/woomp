@@ -125,32 +125,67 @@ final class RY_SmilePay_Gateway {
 		}
 	}
 
-	public static function get_code() {
-		$order_id = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
-		$order    = wc_get_order( $order_id );
-		$url      = false;
-		if ( $order ) {
-			$url = RY_SmilePay_Gateway_Api::get_code( $order );
+	/**
+	 * 取得 AJAX 取號請求的訂單（必須帶正確的 order key）
+	 *
+	 * 這兩個 AJAX 對匿名使用者開放（訂單付款頁本來就允許訪客），所以用 order key 證明是訂單擁有者；
+	 * 不驗的話任何人都能用訂單 ID 拿到含 key 的訂單完成頁網址（個資），或讓訂單重新取號。
+	 *
+	 * @param bool $shipping 是否為選門市流程（付款方式可為 cod）
+	 * @return WC_Order|null
+	 */
+	public static function get_ajax_order( $shipping = false ) {
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- 以 order key 驗證擁有者
+		$order_id = isset( $_GET['id'] ) ? absint( $_GET['id'] ) : 0;
+		$key      = isset( $_GET['key'] ) && is_string( $_GET['key'] ) ? sanitize_text_field( wp_unslash( $_GET['key'] ) ) : '';
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		$order = $order_id ? wc_get_order( $order_id ) : false;
+		if ( ! $order instanceof WC_Order || '' === $key || ! hash_equals( (string) $order->get_order_key(), $key ) ) {
+			return null;
+		}
+
+		$prefixes = $shipping ? [ 'ry_smilepay_', 'cod' ] : [ 'ry_smilepay_' ];
+		if ( ! Woomp_Payment_Callback_Guard::is_payment_method( $order, $prefixes ) ) {
+			return null;
+		}
+		return $order;
+	}
+
+	/**
+	 * 結束 AJAX 取號請求
+	 *
+	 * @param WC_Order|null $order 訂單
+	 * @param string|false  $url   取號後的網址
+	 */
+	protected static function finish_ajax_get_code( $order, $url ) {
+		if ( ! $order ) {
+			wp_die( '-1', '', [ 'response' => 403 ] );
 		}
 		if ( ! $url ) {
 			$url = $order->get_checkout_order_received_url();
 		}
-		echo( $url );
+		echo esc_url_raw( $url );
 		wp_die();
 	}
 
+	public static function get_code() {
+		$order = self::get_ajax_order();
+		$url   = false;
+		// 只有尚未取號的訂單才取號；其他狀態（已取號 on-hold、已付款）直接回訂單完成頁，不可重新取號降級。
+		if ( $order && $order->has_status( 'pending' ) ) {
+			$url = RY_SmilePay_Gateway_Api::get_code( $order );
+		}
+		self::finish_ajax_get_code( $order, $url );
+	}
+
 	public static function shipping_get_code() {
-		$order_id = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
-		$order    = wc_get_order( $order_id );
-		$url      = false;
-		if ( $order ) {
+		$order = self::get_ajax_order( true );
+		$url   = false;
+		if ( $order && $order->has_status( 'pending' ) ) {
 			$url = RY_SmilePay_Shipping_Api::get_csv_info( $order );
 		}
-		if ( ! $url ) {
-			$url = $order->get_checkout_order_received_url();
-		}
-		echo( $url );
-		wp_die();
+		self::finish_ajax_get_code( $order, $url );
 	}
 
 	public static function payment_info( $order_id ) {
