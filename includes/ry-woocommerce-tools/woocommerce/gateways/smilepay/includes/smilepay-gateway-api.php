@@ -16,6 +16,12 @@ class RY_SmilePay_Gateway_Api extends RY_SmilePay {
 			return false;
 		}
 
+		// 已付款的訂單不可重新取號：取號成功會把訂單改成 on-hold，等於把已付款訂單降級。
+		if ( $order->is_paid() ) {
+			RY_SmilePay_Gateway::log( 'Skip get code for paid order #' . $order->get_id(), 'warning' );
+			return false;
+		}
+
 		$gateways         = WC_Payment_Gateways::instance();
 		$payment_gateways = $gateways->payment_gateways();
 		$payment_method   = $order->get_payment_method();
@@ -46,6 +52,7 @@ class RY_SmilePay_Gateway_Api extends RY_SmilePay {
 		RY_SmilePay_Gateway::log( 'Get code POST: ' . var_export( $args, true ) );
 
 		$order->update_meta_data( '_smilepay_Data_id', $args['Data_id'] );
+		self::remember_data_id( $order, '_smilepay_Data_id_list', $args['Data_id'] );
 		$order->save_meta_data();
 
 		if ( ! $gateway->get_code_mode ) {
