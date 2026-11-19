@@ -84,9 +84,43 @@ Flow:
       → Condition: 訂單狀態為 failed 且付款方式為 payuni-credit-subscription 且回應非 SUCCESS
         Yes → 將訂單狀態改為 pending（允許重試）
 
+  【V3 換卡流程（issue #147）】
+
+  14. 客戶進入「我的帳號 → 訂閱 → 更改付款」（order-pay?change_payment_method=）
+      → SubscriptionBootstrap::conditional_payment_gateways() 在換卡頁保留 V3、移除 V1
+        （woomp_payuni_allow_v1_change_payment filter 為逃生口，預設 false）
+      → Bootstrap::enqueue_checkout_scripts() 強制 UseTokenType=3、PAGE_CONTEXT='order-pay'
+      → 前端 DOM ready 初始化 UNi Embed，送出時 getTradeResult() 後寫入 form#order_review 的 sdk_token_tmp，原生送出
+
+  15. WCS change_payment_method_via_pay_shortcode() 處理 POST
+      → filter woocommerce_subscriptions_update_payment_via_pay_shortcode 對 V3 回 false（延後更新付款方式）
+      → CreditSubscriptionV3::process_payment() 收到訂閱物件 → PaymentMethodChange::start()
+      → Condition: 客戶非訂閱本人或沒有 sdk_token_tmp
+        Yes → failure + notice，不發請求
+
+  16. start() 燒新 MerTradeNo（{訂閱ID}-C{n}），寫入 _payuni_change_attempts／_payuni_change_pending
+      → SubscriptionHandler::request_binding_trade() 發 5 元綁卡（UseTokenType=3）
+      → Condition: 同步回傳 TradeNo
+        Yes → complete()：存 V3 token、設為預設、update_payment_method()、排程取消 5 元
+        No → Condition: 回傳 3D URL（payuni.com.tw）
+          Yes → 導向 3D（allowed_redirect_hosts 本次請求放行），付款方式維持原狀，等 webhook
+          No → fail()：訂閱備註、付款方式不變
+
+  17. 3D 完成後 PayUni POST /wc-api/payuni_notify
+      → Bootstrap::handle_notify() 解密後 PaymentMethodChange::route_notify()（MerTradeNo 為 {ID}-C{n} 才進入）
+      → Condition: MerTradeNo 不在 attempts、MerID 不符、TradeAmt≠5
+        Yes → 拒絕並寫 error log
+      → Condition: Status=SUCCESS 且為最新一次嘗試 → complete()
+        舊嘗試 SUCCESS → 只排程取消 5 元；重複通知 → 略過
+        非 SUCCESS → fail()
+
+  18. 續扣時 SubscriptionHandler::get_card_hash() 依新優先序取 token
+      （訂閱綁定 → 續訂單 → V3 預設 → V3 → payuni-credit-v3 → V1 warning）
+
 Side Effects:
   - 訂閱首次付款必定儲存 WC_Payment_Token_CC
   - 若首次金額為 0，會扣 5 元取 Token，再排程 2 分鐘後取消授權退刷
+  - V3 換卡只授權 5 元並排程取消；付款方式延後到綁卡成功才更新；訂閱物件絕不 payment_complete
   - 定期扣款使用已儲存的 CreditHash，不需重新輸入卡號
   - 支援 WooCommerce Subscriptions 的完整生命週期管理
   - PAYUNI\Gateways\Subscription 僅在 WC_Subscriptions 類別存在時才初始化
