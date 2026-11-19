@@ -213,8 +213,6 @@ final class HttpClient {
         'QUERY03001' => '查無符合訂單資料',
         'QUERY04001' => '未有API處理結果',
         'QUERY04002' => '回傳加密失敗',
-	// 交易取消授權 trade/cancel（sandbox 實測：已請款的交易取消授權會回此碼）
-	'CANCEL03001'      => '取消授權失敗，已存在請款成功紀錄',
     ];
 
     private const TIMEOUT = 60;
@@ -320,7 +318,8 @@ final class HttpClient {
     private static function ensure_response_success( array $result ): void {
 		// 外層錯誤碼（例如 CANCEL03001）仍附 EncryptInfo，驗章解密內層才看得到真正原因（以前只寫「未知錯誤」）。
 		if ( 'SUCCESS' !== ( $result['Status'] ?? '' ) ) {
-			throw ResponseDecoder::failure( $result, self::$error_mapper );
+			$exception = ResponseDecoder::failure( $result, self::$error_mapper );
+			throw $exception;
 		}
     }
 
