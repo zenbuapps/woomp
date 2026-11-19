@@ -64,6 +64,7 @@ final class SubscriptionV3TokenBindingTest extends WP_UnitTestCase {
 	 */
 	public function tearDown(): void {
 		remove_all_filters( 'pre_http_request' );
+		$this->leave_checkout_context();
 
 		foreach ( \WC_Payment_Tokens::get_customer_tokens( $this->customer_id ) as $token ) {
 			\WC_Payment_Tokens::delete( $token->get_id() );
@@ -482,6 +483,177 @@ final class SubscriptionV3TokenBindingTest extends WP_UnitTestCase {
 		return $encrypt_info
 			? \J7\Payuni\Shared\Utils\EncryptUtils::decrypt( $encrypt_info )
 			: [];
+	}
+
+	// ──────────────────────────────────────────────
+	// 換卡頁前端參數（issue #147 第三階段）
+	// ──────────────────────────────────────────────
+
+	/**
+	 * T-W1：換卡情境下 localize 給前端的 USE_TOKEN_TYPE 必須是 3、PAGE_CONTEXT 必須是 order-pay
+	 *
+	 * 換卡頁購物車是空的，現行實作依購物車判斷會得到 2（記憶卡號），PayUni 不回 CreditHash，
+	 * 換卡綁卡看似成功卻無法續扣（同 #130）。前端靠 PAGE_CONTEXT 切換 order-pay 流程。
+	 *
+	 * @testdox T-W1 換卡情境應 localize USE_TOKEN_TYPE=3 與 PAGE_CONTEXT=order-pay
+	 */
+	public function test_T_W1_換卡情境前端參數(): void {
+		$this->enter_checkout_context( true );
+
+		$params = $this->enqueue_and_read_checkout_params();
+
+		$this->assertSame(
+			\J7\Payuni\Shared\Enums\EUseTokenType::FORCE_BIND->value,
+			(int) ( $params['USE_TOKEN_TYPE'] ?? 0 ),
+			'換卡必須用強制約定信用卡（3），SDK token 與前端 getTradeResult 一致'
+		);
+		$this->assertSame( 'order-pay', $params['PAGE_CONTEXT'] ?? null, '換卡情境前端必須拿到 PAGE_CONTEXT=order-pay' );
+	}
+
+	/**
+	 * T-W1 對照：一般結帳（空購物車、非 order-pay）維持現行行為
+	 *
+	 * 現行：USE_TOKEN_TYPE=2（記憶卡號）、沒有 PAGE_CONTEXT 欄位。
+	 * 契約：PAGE_CONTEXT 在一般結帳可以不存在或為 'checkout'，但不可是 'order-pay'。
+	 *
+	 * @testdox T-W1 對照 一般結帳 USE_TOKEN_TYPE 仍為 2 且 PAGE_CONTEXT 不是 order-pay
+	 * @group edge
+	 */
+	public function test_T_W1_一般結帳前端參數不變(): void {
+		$this->enter_checkout_context( null );
+
+		$params = $this->enqueue_and_read_checkout_params();
+
+		$this->assertSame(
+			\J7\Payuni\Shared\Enums\EUseTokenType::REMEMBER_CARD->value,
+			(int) ( $params['USE_TOKEN_TYPE'] ?? 0 ),
+			'一般結帳（無訂閱商品）維持記憶卡號（2）'
+		);
+		$this->assertContains( $params['PAGE_CONTEXT'] ?? 'checkout', [ 'checkout' ], '一般結帳 PAGE_CONTEXT 只能是不存在或 checkout' );
+	}
+
+	/**
+	 * T-W1 對照：order-pay 但不是換卡，不可套用換卡參數
+	 *
+	 * @testdox T-W1 對照 order-pay 非換卡時 USE_TOKEN_TYPE 仍為 2 且 PAGE_CONTEXT 不是 order-pay
+	 * @group edge
+	 */
+	public function test_T_W1_order_pay_非換卡不套用換卡參數(): void {
+		$this->enter_checkout_context( false );
+
+		$params = $this->enqueue_and_read_checkout_params();
+
+		$this->assertSame(
+			\J7\Payuni\Shared\Enums\EUseTokenType::REMEMBER_CARD->value,
+			(int) ( $params['USE_TOKEN_TYPE'] ?? 0 ),
+			'order-pay 非換卡不可強制綁卡'
+		);
+		$this->assertNotSame( 'order-pay', $params['PAGE_CONTEXT'] ?? null, '非換卡的 order-pay 不可套用換卡前端流程' );
+	}
+
+	/**
+	 * 是否進入過結帳情境
+	 *
+	 * @var bool
+	 */
+	private bool $in_checkout_context = false;
+
+	/**
+	 * 進入情境前的狀態
+	 *
+	 * @var array{get: array, order_pay: mixed, flag: bool}
+	 */
+	private array $saved_context = [];
+
+	/**
+	 * 進入結帳情境
+	 *
+	 * @param bool|null $order_pay null=一般結帳；false=order-pay 非換卡；true=order-pay 換卡
+	 *
+	 * @return void
+	 */
+	private function enter_checkout_context( ?bool $order_pay ): void {
+		$has_wcs               = class_exists( 'WC_Subscriptions_Change_Payment_Gateway' );
+		$this->in_checkout_context = true;
+		$this->saved_context   = [
+			'get'       => $_GET,
+			'order_pay' => $GLOBALS['wp']->query_vars['order-pay'] ?? null,
+			'flag'      => $has_wcs ? (bool) \WC_Subscriptions_Change_Payment_Gateway::$is_request_to_change_payment : false,
+		];
+
+		add_filter( 'woocommerce_is_checkout', '__return_true' );
+		unset( $_GET['change_payment_method'] );
+		unset( $GLOBALS['wp']->query_vars['order-pay'] );
+		if ( $has_wcs ) {
+			\WC_Subscriptions_Change_Payment_Gateway::$is_request_to_change_payment = false;
+		}
+
+		if ( null !== $order_pay ) {
+			$GLOBALS['wp']->query_vars['order-pay'] = '123';
+		}
+		if ( true === $order_pay ) {
+			$_GET['change_payment_method'] = '123';
+			if ( $has_wcs ) {
+				\WC_Subscriptions_Change_Payment_Gateway::$is_request_to_change_payment = true;
+			}
+		}
+	}
+
+	/**
+	 * 還原結帳情境與 script 註冊
+	 *
+	 * @return void
+	 */
+	private function leave_checkout_context(): void {
+		if ( ! $this->in_checkout_context ) {
+			return;
+		}
+
+		remove_filter( 'woocommerce_is_checkout', '__return_true' );
+		if ( null === $this->saved_context['order_pay'] ) {
+			unset( $GLOBALS['wp']->query_vars['order-pay'] );
+		} else {
+			$GLOBALS['wp']->query_vars['order-pay'] = $this->saved_context['order_pay'];
+		}
+		$_GET = $this->saved_context['get'];
+		if ( class_exists( 'WC_Subscriptions_Change_Payment_Gateway' ) ) {
+			\WC_Subscriptions_Change_Payment_Gateway::$is_request_to_change_payment = $this->saved_context['flag'];
+		}
+		foreach ( [ 'uni-payment-checkout', 'uni-payment' ] as $handle ) {
+			wp_dequeue_script( $handle );
+			wp_deregister_script( $handle );
+		}
+		wp_dequeue_style( 'payuni-checkout-v3' );
+		wp_deregister_style( 'payuni-checkout-v3' );
+
+		$this->in_checkout_context = false;
+	}
+
+	/**
+	 * 呼叫 enqueue_checkout_scripts() 並解析 localize 給前端的參數
+	 *
+	 * PayUni 的 token_get 請求被擋下（回 WP_Error），USE_TOKEN_TYPE 仍在請求之前決定。
+	 * wp_localize_script 會把純量轉成字串，所以數值要自行轉 int 比較。
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function enqueue_and_read_checkout_params(): array {
+		foreach ( [ 'uni-payment-checkout', 'uni-payment' ] as $handle ) {
+			wp_dequeue_script( $handle );
+			wp_deregister_script( $handle );
+		}
+		add_filter( 'pre_http_request', static fn() => new \WP_Error( 'blocked', '測試不打外部 API' ) );
+
+		\J7\Payuni\Bootstrap::enqueue_checkout_scripts();
+
+		$data = (string) wp_scripts()->get_data( 'uni-payment-checkout', 'data' );
+		$this->assertNotSame( '', $data, '前提：結帳頁應 localize payuni_payment_v3_checkout_params' );
+		$this->assertSame( 1, preg_match( '/payuni_payment_v3_checkout_params\s*=\s*(\{.*\});/s', $data, $m ), '前提：localize 資料格式可解析' );
+
+		$params = json_decode( $m[1], true );
+		$this->assertIsArray( $params );
+
+		return $params;
 	}
 
 	/**

@@ -38,6 +38,15 @@ if ( ! $_tests_dir || ! file_exists( $_tests_dir . '/includes/functions.php' ) )
 	exit( 1 );
 }
 
+// 關閉 WooCommerce 的 SQL 交易：WP_UnitTestCase 每個測試都包在一個交易裡、結束時 ROLLBACK。
+// wc_transaction_query('start') 送出的 START TRANSACTION 會隱含 COMMIT 這個外層交易
+// （例如 wcs_create_renewal_order() 經 WCS_SQL_Transaction），測試建立的付款 token、HPOS 訂單因此永久留在 DB。
+// _delete_all_data() 只清 WP 核心資料表，token 會一路殘留；下一輪 wp_users 重建後 user ID 重新編號，
+// 撞號的新客戶就會「多出」別的測試的 token（T-N5「只有一張 token」偶發失敗的根因）。
+if ( ! defined( 'WC_USE_TRANSACTIONS' ) ) {
+	define( 'WC_USE_TRANSACTIONS', false );
+}
+
 // 載入 WordPress 測試套件的 functions.php，以便在載入 WordPress 前註冊外掛。
 require_once $_tests_dir . '/includes/functions.php';
 
@@ -100,4 +109,12 @@ require $_tests_dir . '/includes/bootstrap.php';
 // 確保 WooCommerce 已安裝測試用資料表等。
 if ( class_exists( 'WC_Install' ) ) {
 	WC_Install::install();
+}
+
+// 清掉前幾輪殘留的付款 token：WP 測試安裝每輪重建 wp_users（user ID 從頭編號），
+// 但不會清 WC 資料表；舊 token 的 user_id 會撞到本輪新建的測試客戶。
+global $wpdb;
+if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->prefix . 'woocommerce_payment_tokens' ) ) ) {
+	$wpdb->query( "DELETE FROM {$wpdb->prefix}woocommerce_payment_tokenmeta" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+	$wpdb->query( "DELETE FROM {$wpdb->prefix}woocommerce_payment_tokens" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 }
