@@ -130,7 +130,7 @@ final class SubscriptionHandler {
 	 * @param \WC_Order $target       綁卡對象（訂單或訂閱），取帳單 email 與客戶 ID
 	 * @param string    $mer_trade_no 本次 MerTradeNo（每次嘗試都必須不同）
 	 * @param string    $sdk_token    前端 SDK Token
-	 * @param string    $return_url   3D 驗證後導回的網址（僅 3D 開啟時送出）
+	 * @param string    $return_url   3D 驗證後導回的網址（一律送出：PayUni 商店可能強制 3D，沒帶就停在 PayUni 結果頁）
 	 *
 	 * @return array 解密後的交易結果
 	 * @throws \Exception When the HTTP request, response verification or decryption fails.
@@ -155,9 +155,13 @@ final class SubscriptionHandler {
 			'CreditToken'  => CreditTokenUtils::sanitize( $buyer_email, (int) $target->get_customer_id() ),
 		];
 
-		if ( $setting->enable_3d_auth ) {
-			$trade_params['API3D']     = 1;
+		// ReturnURL 一律送出：3D 設定只決定要不要「強制」3D（API3D），但 PayUni 商店端可能本來就強制 3D
+		// （sandbox 設定為 no 仍回「建立幕後3D成功」）。沒帶 ReturnURL 時顧客驗證完會停在 PayUni 結果頁回不來。
+		if ( '' !== $return_url ) {
 			$trade_params['ReturnURL'] = $return_url;
+		}
+		if ( $setting->enable_3d_auth ) {
+			$trade_params['API3D'] = 1;
 		}
 
 		$encrypt_info = EncryptUtils::encrypt( $trade_params );

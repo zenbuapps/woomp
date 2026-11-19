@@ -747,6 +747,46 @@ final class SubscriptionV3PaymentTest extends WP_UnitTestCase {
 		);
 	}
 
+	/**
+	 * T-Z2：零元首購 3D 設定關閉時仍送 ReturnURL（PayUni 商店可能強制 3D），不送 API3D；
+	 * 同步授權成功後排程釋放 5 元，並記下訂單（結果寫進訂單備註）
+	 *
+	 * @group error
+	 */
+	public function test_T_Z2_零元首購3d關閉仍送ReturnURL且排程釋放記下訂單(): void {
+		update_option( 'payuni_3d_auth', 'no' );
+		$ref  = new \ReflectionClass( \J7\Payuni\Contracts\DTOs\SettingDTO::class );
+		$prop = $ref->getProperty( 'instance' );
+		$prop->setAccessible( true );
+		$prop->setValue( null, null );
+
+		$order = $this->create_test_order( $this->customer_id, 0 );
+		$order->update_meta_data( 'sdk_token_tmp', 'test_sdk_token' );
+		$order->save();
+		$this->mock_merchant_trade_success( 'Z2_HASH' );
+
+		$previous = error_reporting( E_ALL & ~E_DEPRECATED );
+		( new \J7\Payuni\Domains\Subscription\SubscriptionHandler() )->process_zero_amount_token( \wc_get_order( $order->get_id() ) );
+		error_reporting( $previous );
+
+		$params = [];
+		foreach ( $this->http_requests as $request ) {
+			if ( false !== \strpos( $request['url'], 'merchant_trade' ) ) {
+				$params = \J7\Payuni\Shared\Utils\EncryptUtils::decrypt( $request['args']['body']['EncryptInfo'] ?? '' );
+			}
+		}
+
+		$this->assertArrayNotHasKey( 'API3D', $params );
+		$this->assertSame( \wc_get_order( $order->get_id() )->get_checkout_order_received_url(), $params['ReturnURL'] ?? '', '一律要送 ReturnURL' );
+
+		$state = \json_decode( (string) \get_option( 'woomp_payuni_auth_release_TRADE_Z1_0001', '' ), true );
+		$this->assertSame( $order->get_id(), (int) ( $state['object_id'] ?? 0 ), '排程釋放要記下訂單，結果才寫得進訂單備註' );
+
+		if ( \function_exists( 'as_unschedule_all_actions' ) ) {
+			\as_unschedule_all_actions( 'payuni_cancel_zero_authorization' );
+		}
+	}
+
 	// ──────────────────────────────────────────────
 	// Helper 方法
 	// ──────────────────────────────────────────────

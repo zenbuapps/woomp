@@ -13,6 +13,9 @@
  * - 背景通知：Bootstrap::handle_notify() 遇到 `{ID}-C{n}` 交給 route_notify()，不走訂單流程。
  *   訂閱物件絕不呼叫 payment_complete()、也不送進 woomp_copy_order()。
  * - 依 TradeNo 冪等：同一筆 TradeNo 只排一次取消、只綁定一次。
+ * - 3D 導回：ReturnURL 一律指向 wc-api 端點 handle_return()（不需登入），303 導向訂閱檢視頁；
+ *   POST 內容須通過與背景通知相同的驗章才處理。3D 等待中擋下 WCS 的「付款方式已變更」，
+ *   改由檢視頁依 attempt 狀態提示（add_status_notice）。
  *
  * 備註與 log 不寫卡號、CreditHash 與 SDK token。
  *
@@ -132,6 +135,27 @@ final class PaymentMethodChange {
 	private static array $redirect_hosts = [];
 
 	/**
+	 * 3D 路徑回 success 後，WCS 會加一則「付款方式已變更」；設為 true 時擋下那一則（只擋一次）
+	 *
+	 * @var bool
+	 */
+	private static bool $suppress_wcs_notice = false;
+
+	/**
+	 * 3D 導回端點（wc-api）
+	 *
+	 * @var string
+	 */
+	public const RETURN_ENDPOINT = 'payuni_change_payment_return';
+
+	/**
+	 * 導回後檢視頁顯示換卡結果的旗標
+	 *
+	 * @var string
+	 */
+	public const RETURN_FLAG = 'payuni_change';
+
+	/**
 	 * 註冊 Hooks
 	 *
 	 * @return void
@@ -148,6 +172,8 @@ final class PaymentMethodChange {
 		\add_filter( 'allowed_redirect_hosts', [ __CLASS__, 'allow_redirect_hosts' ] );
 		\add_filter( 'wc_subscriptions_renewal_order_data', [ __CLASS__, 'strip_renewal_order_data' ] );
 		\add_action( 'template_redirect', [ __CLASS__, 'maybe_show_pending_notice' ] );
+		\add_action( 'woocommerce_api_' . self::RETURN_ENDPOINT, [ __CLASS__, 'handle_return' ] );
+		\add_filter( 'woocommerce_add_success', [ __CLASS__, 'filter_wcs_success_notice' ] );
 	}
 
 	/**
@@ -264,6 +290,8 @@ final class PaymentMethodChange {
 			return [ 'result' => 'failure' ];
 		}
 
+		self::$suppress_wcs_notice = false;
+
 		// 上一次沒完成的嘗試可能留下「全部訂閱」旗標；本次若有勾選，WCS 會在 process_payment 回傳後重設。
 		$subscription->delete_meta_data( self::META_DELAYED_ALL );
 
@@ -283,7 +311,7 @@ final class PaymentMethodChange {
 				$subscription,
 				$mer_trade_no,
 				$sdk_token,
-				$subscription->get_view_order_url()
+				self::get_return_url( $subscription )
 			);
 		} catch ( \Throwable $e ) {
 			self::fail( $subscription, $mer_trade_no, '綁卡請求失敗：' . $e->getMessage(), 'sync' );
@@ -311,6 +339,10 @@ final class PaymentMethodChange {
 
 		if ( '' !== $url_3d && self::allow_redirect_url( $url_3d ) ) {
 			$subscription->add_order_note( '更換付款方式：已建立 PayUni 3D 驗證，等待持卡人完成驗證（' . \esc_html( $mer_trade_no ) . '）' );
+
+			// WCS 收到 success 會加「付款方式已變更」，但 3D 還沒完成、付款方式也還沒改；
+			// 結果改由導回後的檢視頁依 attempt 狀態提示（add_status_notice）。
+			self::$suppress_wcs_notice = true;
 
 			return [
 				'result'   => 'success',
@@ -626,7 +658,36 @@ final class PaymentMethodChange {
 	}
 
 	/**
-	 * 訂閱檢視頁：換卡還在等 3D／背景通知時提示客戶
+	 * 3D 路徑時擋下 WCS 接著加的「付款方式已變更」（只擋一則）
+	 *
+	 * @param mixed $message 成功訊息
+	 *
+	 * @return mixed 空字串表示不加入（wc_add_notice 會略過空訊息）
+	 */
+	public static function filter_wcs_success_notice( $message ) {
+		if ( ! self::$suppress_wcs_notice || ! \is_string( $message ) ) {
+			return $message;
+		}
+
+		// 只認 WCS change_payment_method_via_pay_shortcode() 的三種訊息，其他成功訊息不受影響
+		// phpcs:disable WordPress.WP.I18n.TextDomainMismatch -- 要比對 WCS 自己翻譯後的字串。
+		$wcs_messages = [
+			\__( 'Payment method updated.', 'woocommerce-subscriptions' ),
+			\__( 'Payment method added.', 'woocommerce-subscriptions' ),
+			\__( 'Payment method updated for all your current subscriptions.', 'woocommerce-subscriptions' ),
+		];
+		// phpcs:enable WordPress.WP.I18n.TextDomainMismatch
+		if ( ! \in_array( $message, $wcs_messages, true ) ) {
+			return $message;
+		}
+
+		self::$suppress_wcs_notice = false;
+
+		return '';
+	}
+
+	/**
+	 * 訂閱檢視頁：依換卡嘗試狀態提示客戶
 	 *
 	 * @return void
 	 */
@@ -644,15 +705,143 @@ final class PaymentMethodChange {
 
 		// 只提示訂閱本人
 		$subscription = \wcs_get_subscription( $subscription_id );
-		if ( ! $subscription instanceof \WC_Subscription
-			|| (int) $subscription->get_customer_id() !== $user_id
-			|| '' === self::get_pending_mer_trade_no( $subscription ) ) {
+		if ( ! $subscription instanceof \WC_Subscription || (int) $subscription->get_customer_id() !== $user_id ) {
 			return;
 		}
 
-		$message = '信用卡綁定處理中：完成 3D 驗證後，付款方式會在收到金流通知後自動更新，請稍後重新整理此頁。';
-		if ( ! \wc_has_notice( $message, 'notice' ) ) {
-			\wc_add_notice( $message, 'notice' );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- 只決定要不要顯示提示，不改資料。
+		self::add_status_notice( $subscription, isset( $_GET[ self::RETURN_FLAG ] ) );
+	}
+
+	/**
+	 * 依最新一次換卡嘗試加提示
+	 *
+	 * - 等待 3D／背景通知中：一律提示處理中。
+	 * - 剛從 PayUni 導回（$after_return）：完成 → 成功；失敗 → 失敗且說明付款方式未變更。
+	 *   一般瀏覽不重複提示完成／失敗。
+	 *
+	 * @param \WC_Subscription $subscription 訂閱
+	 * @param bool             $after_return 是否剛從 3D 導回
+	 *
+	 * @return void
+	 */
+	public static function add_status_notice( \WC_Subscription $subscription, bool $after_return ): void {
+		if ( '' !== self::get_pending_mer_trade_no( $subscription ) ) {
+			self::add_notice_once( '信用卡綁定處理中：完成 3D 驗證後，付款方式會在收到金流通知後自動更新，請稍後重新整理此頁。', 'notice' );
+			return;
+		}
+
+		if ( ! $after_return ) {
+			return;
+		}
+
+		$seq     = (int) $subscription->get_meta( self::META_SEQ );
+		$attempt = $seq > 0 ? ( self::get_attempts( $subscription )[ $subscription->get_id() . '-C' . $seq ] ?? [] ) : [];
+		$status  = (string) ( $attempt['status'] ?? '' );
+
+		if ( 'completed' === $status ) {
+			self::add_notice_once( '付款方式已變更：之後的續扣將使用新的信用卡。', 'success' );
+		} elseif ( 'failed' === $status ) {
+			self::add_notice_once( '信用卡驗證未完成，付款方式未變更。請重新操作或改用其他信用卡。', 'error' );
+		}
+	}
+
+	/**
+	 * 3D 導回端點（ReturnURL）：PayUni 以跨站 POST 導回，再 303 導向訂閱檢視頁
+	 *
+	 * 為什麼不直接用檢視頁當 ReturnURL：跨站 POST 不會帶 SameSite=Lax 的登入 cookie，顧客會看到登入表單；
+	 * 303 之後瀏覽器改用 GET 頂層導覽，Lax cookie 會帶上。
+	 *
+	 * 安全：
+	 * - 導向目標只由伺服器依網址上的訂閱決定，不讀任何導向參數（防 open redirect）。
+	 * - 不信任 POST 內容：只有通過與背景通知相同的 HashInfo 驗章與解密、MerTradeNo 屬於該訂閱的換卡嘗試，
+	 *   才交給 handle_notify()（同樣驗 MerID、5 元、attempts，且依 TradeNo 冪等）。其餘一律忽略。
+	 *   這也讓背景通知漏收時，顧客導回就能完成綁卡並排程釋放 5 元。
+	 *
+	 * @return void
+	 */
+	public static function handle_return(): void {
+		// phpcs:disable WordPress.Security.NonceVerification -- 金流商跨站導回沒有 nonce，資料以 HashInfo 簽章驗證。
+		$subscription_id = isset( $_GET['subscription_id'] ) ? \absint( \wp_unslash( $_GET['subscription_id'] ) ) : 0;
+		$post            = \wp_unslash( $_POST );
+		// phpcs:enable WordPress.Security.NonceVerification
+
+		$subscription = ( $subscription_id > 0 && \function_exists( 'wcs_get_subscription' ) ) ? \wcs_get_subscription( $subscription_id ) : null;
+		if ( ! $subscription instanceof \WC_Subscription ) {
+			self::redirect_and_exit( \wc_get_page_permalink( 'myaccount' ) );
+			return;
+		}
+
+		if ( \is_array( $post ) && ! empty( $post['EncryptInfo'] ) ) {
+			self::process_return_post( $subscription, $post );
+		}
+
+		self::redirect_and_exit( \add_query_arg( self::RETURN_FLAG, '1', $subscription->get_view_order_url() ) );
+	}
+
+	/**
+	 * 3D 導回網址（不需登入的 wc-api 端點，帶訂閱 ID）
+	 *
+	 * @param \WC_Subscription $subscription 訂閱
+	 *
+	 * @return string
+	 */
+	public static function get_return_url( \WC_Subscription $subscription ): string {
+		return \add_query_arg( 'subscription_id', $subscription->get_id(), \WC()->api_request_url( self::RETURN_ENDPOINT ) );
+	}
+
+	/**
+	 * 處理導回帶的交易結果（驗章通過且屬於此訂閱才處理）
+	 *
+	 * @param \WC_Subscription $subscription 網址上的訂閱
+	 * @param array            $post         POST 內容
+	 *
+	 * @return void
+	 */
+	private static function process_return_post( \WC_Subscription $subscription, array $post ): void {
+		try {
+			$trade_result = ( new TradeHandler() )->process_notify( $post );
+		} catch ( \Throwable $e ) {
+			self::reject( $subscription, '', '導回內容驗證失敗：' . $e->getMessage(), '' );
+			return;
+		}
+
+		$mer_trade_no = (string) ( $trade_result['MerTradeNo'] ?? '' );
+		$matched      = self::is_change_mer_trade_no( $mer_trade_no ) ? self::match_notify( $mer_trade_no ) : null;
+		if ( ! $matched || $matched->get_id() !== $subscription->get_id() ) {
+			self::reject( $subscription, $mer_trade_no, '導回內容不屬於此訂閱的換卡嘗試', (string) ( $trade_result['TradeNo'] ?? '' ) );
+			return;
+		}
+
+		$outer_mer_id = \is_string( $post['MerID'] ?? null ) ? (string) $post['MerID'] : '';
+		self::handle_notify( $matched, $trade_result, $outer_mer_id );
+	}
+
+	/**
+	 * 303 導向並結束請求（wc-api 不 exit 會被 status_header(200) 蓋掉）
+	 *
+	 * @param string $url 站內網址
+	 *
+	 * @return void
+	 */
+	private static function redirect_and_exit( string $url ): void {
+		\wp_safe_redirect( $url, 303 );
+		if ( \apply_filters( 'woomp_payuni_change_return_exit', true ) ) {
+			exit;
+		}
+	}
+
+	/**
+	 * 同一則提示只加一次
+	 *
+	 * @param string $message 訊息
+	 * @param string $type    notice／success／error
+	 *
+	 * @return void
+	 */
+	private static function add_notice_once( string $message, string $type ): void {
+		if ( ! \wc_has_notice( $message, $type ) ) {
+			\wc_add_notice( $message, $type );
 		}
 	}
 
