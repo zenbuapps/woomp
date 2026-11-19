@@ -80,6 +80,20 @@ export const TOKEN_TYPE = Object.freeze({
 });
 
 /**
+ * 頁面情境（後端 localize 的 PAGE_CONTEXT）
+ *
+ * 只有 ORDER_PAY 會改變前端流程；其餘一律走一般結帳。
+ * @readonly
+ * @enum {string}
+ */
+export const PAGE_CONTEXT = Object.freeze({
+    /** 一般結帳頁（form.checkout，經 wc-ajax checkout 建立訂單） */
+    CHECKOUT: 'checkout',
+    /** 訂閱換卡頁（order-pay?change_payment_method=，以原生方式送出 form#order_review） */
+    ORDER_PAY: 'order-pay'
+});
+
+/**
  * WooCommerce 結帳表單選擇器
  * @readonly
  * @type {Object}
@@ -87,6 +101,8 @@ export const TOKEN_TYPE = Object.freeze({
 export const WC_SELECTORS = Object.freeze({
     /** 結帳表單 */
     CHECKOUT_FORM: 'form.checkout',
+    /** order-pay 表單（WCS 換卡頁 form-change-payment-method.php） */
+    ORDER_PAY_FORM: 'form#order_review',
     /** 下單按鈕 */
     PLACE_ORDER_BTN: '#place_order',
     /** PayUni 信用卡 V3 付款方式 */

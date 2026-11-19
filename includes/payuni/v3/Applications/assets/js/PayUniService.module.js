@@ -8,7 +8,7 @@
 
 import {$, params} from './env.module.js';
 import {isPayuni} from './utils.module.js';
-import {DEFAULT_IFRAME_STYLE, IFRAME_ELEMENTS, SDK_EVENTS, TOKEN_TYPE, WC_SELECTORS} from './constants.module.js';
+import {DEFAULT_IFRAME_STYLE, IFRAME_ELEMENTS, PAGE_CONTEXT, SDK_EVENTS, TOKEN_TYPE, WC_SELECTORS} from './constants.module.js';
 import FormState from './FormState.module.js';
 import UIHelper from './UIHelper.module.js';
 import ApiService from './ApiService.module.js';
@@ -103,6 +103,9 @@ class PayUniService {
     /** @type {boolean} SDK 是否處於 token 卡號模式（CardNo/CardExp 已由 useTokenType 設為有效，不應被 SDK 後續事件覆寫） */
     #sdkTokenCardActive = false;
 
+    /** @type {boolean} 換卡頁（order-pay）送出鎖：原生送出後頁面會離開，鎖不解開以防連點重複綁卡 */
+    #isOrderPaySubmitting = false;
+
     /**
      * 建構函式
      *
@@ -116,6 +119,34 @@ class PayUniService {
         this.#initSDK();
         this.#bindCheckoutEvents();
         this.#bindSavedCardEvents();
+
+        if (this.#isOrderPayContext()) {
+            this.#bindOrderPayEvents();
+        }
+    }
+
+    /**
+     * 是否為訂閱換卡頁（order-pay）
+     *
+     * @returns {boolean}
+     * @private
+     */
+    #isOrderPayContext() {
+        return params.PAGE_CONTEXT === PAGE_CONTEXT.ORDER_PAY;
+    }
+
+    /**
+     * 綁定換卡頁專用事件
+     *
+     * @private
+     * @description 從 bfcache 返回（按上一頁）時頁面不會重載，送出鎖與停用的按鈕要還原，否則無法再送出。
+     */
+    #bindOrderPayEvents() {
+        window.addEventListener('pageshow', (event) => {
+            if (event.persisted) {
+                this.#setOrderPaySubmitting(false);
+            }
+        });
     }
 
     /**
@@ -419,6 +450,12 @@ class PayUniService {
      * @description 完整的結帳流程：驗證 → 取得交易結果 → 送出訂單 → 執行交易
      */
     async #processCheckout() {
+        // 訂閱換卡頁：不建立新訂單，改走原生送出 form#order_review（WCS 換卡流程）
+        if (this.#isOrderPayContext()) {
+            await this.#processOrderPay();
+            return;
+        }
+
         // 避免重複提交
         if (this.#uiHelper.isProcessing()) {
             return;
@@ -523,6 +560,128 @@ class PayUniService {
             this.#uiHelper.showError(this.#getErrorMessage(error.message));
         } finally {
             this.#uiHelper.setLoading(false);
+        }
+    }
+
+    /**
+     * 處理訂閱換卡頁（order-pay）送出
+     *
+     * @private
+     * @async
+     * @description 驗證 → getTradeResult（強制約定信用卡）→ 寫入 hidden sdk_token_tmp → 原生送出 form#order_review。
+     *              WCS 換卡表單的 _wcsnonce、_wp_http_referer、woocommerce_change_payment、payment_method、
+     *              update_all_subscriptions_payment_method 都是表單內的欄位，原生送出會一併帶上；
+     *              表單沒有 action，會 POST 回目前網址，WCS 需要的 ?change_payment_method=&key= 也保留。
+     *              不可呼叫 ApiService.submitCheckout()（wc-ajax checkout 會用購物車建立新訂單）。
+     */
+    async #processOrderPay() {
+        if (this.#isOrderPaySubmitting) {
+            return;
+        }
+
+        if (this.#initFailed) {
+            this.#uiHelper.showError(this.#getInitErrorMessage());
+            return;
+        }
+
+        this.#uiHelper.clearErrors();
+
+        if (!this.#formState.isReady()) {
+            this.#uiHelper.showError('信用卡輸入框尚未準備完成，請稍候');
+            return;
+        }
+
+        if (!this.#formState.isAllValid()) {
+            const fieldNames = {
+                CardNo: '信用卡號',
+                CardExp: '有效期限',
+                CardCvc: '安全碼'
+            };
+            const errorMsg = this.#formState.getInvalidFields()
+                .map(f => fieldNames[f] || f)
+                .join('、') + ' 填寫有誤，請重新確認';
+            this.#uiHelper.showError(errorMsg);
+            return;
+        }
+
+        /** @type {HTMLFormElement|null} */
+        const form = document.querySelector(WC_SELECTORS.ORDER_PAY_FORM);
+        if (!form) {
+            this.#uiHelper.showError('找不到付款表單，請重新整理頁面');
+            return;
+        }
+
+        this.#setOrderPaySubmitting(true);
+
+        try {
+            // 換卡一律強制約定信用卡：必須與後端 token_get 的 UseTokenType 一致，PayUni 才會回 CreditHash
+            const config = {
+                ...this.#prepareTradeConfig(),
+                useTokenType: params.USE_TOKEN_TYPE || TOKEN_TYPE.FORCE_AGREED_CARD
+            };
+            const tradeResult = await this.#payuniSDK.getTradeResult(config);
+            console.log('[PayUni] 換卡 - 取得 SDK 交易結果:', tradeResult);
+
+            this.#upsertHiddenInput(form, 'sdk_token_tmp', params.SDK_TOKEN);
+            this.#preserveSubmitButtonValue(form);
+
+            // 用原型方法送出：表單內若有 name="submit" 的元素，form.submit 會被它遮蔽；
+            // 原生 submit 也不觸發 submit 事件，WC checkout.js 的 order-pay submit handler 不會介入。
+            HTMLFormElement.prototype.submit.call(form);
+            // 頁面即將離開，不解鎖
+        } catch (error) {
+            console.error('[PayUni] 換卡流程錯誤:', error);
+            this.#setOrderPaySubmitting(false);
+            this.#uiHelper.showError(this.#getErrorMessage(error?.message) || '信用卡資訊處理失敗');
+        }
+    }
+
+    /**
+     * 設定換卡頁送出鎖（停用按鈕、表單加上 processing 樣式）
+     *
+     * @param {boolean} submitting - 是否送出中
+     * @private
+     */
+    #setOrderPaySubmitting(submitting) {
+        this.#isOrderPaySubmitting = submitting;
+        $(WC_SELECTORS.PLACE_ORDER_BTN).prop('disabled', submitting);
+        $(WC_SELECTORS.ORDER_PAY_FORM).toggleClass('processing', submitting);
+    }
+
+    /**
+     * 在表單中建立或更新 hidden input
+     *
+     * @param {HTMLFormElement} form - 表單
+     * @param {string} name - 欄位名稱
+     * @param {string} value - 欄位值
+     * @private
+     */
+    #upsertHiddenInput(form, name, value) {
+        let input = Array.from(form.querySelectorAll('input[type="hidden"]'))
+            .find((el) => el.name === name);
+
+        if (!input) {
+            input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = name;
+            form.appendChild(input);
+        }
+
+        input.value = value ?? '';
+    }
+
+    /**
+     * 保留送出按鈕的 name/value
+     *
+     * @param {HTMLFormElement} form - 表單
+     * @private
+     * @description 原生 submit() 不會帶被點擊按鈕的 name/value。WCS 預設按鈕沒有 name（後端只看 hidden 欄位），
+     *              但佈景或外掛可能透過 woocommerce_change_payment_button_html 加上 name，這裡補成 hidden 以免遺失。
+     */
+    #preserveSubmitButtonValue(form) {
+        const button = form.querySelector(WC_SELECTORS.PLACE_ORDER_BTN);
+        if (button && button.name) {
+            this.#upsertHiddenInput(form, button.name, button.value);
         }
     }
 

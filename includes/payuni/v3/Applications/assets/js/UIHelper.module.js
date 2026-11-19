@@ -5,8 +5,8 @@
  * @description 處理 WooCommerce 結帳頁面的 UI 操作，包含載入狀態、錯誤訊息顯示等
  */
 
-import {$} from './env.module.js';
-import {WC_SELECTORS} from './constants.module.js';
+import {$, params} from './env.module.js';
+import {PAGE_CONTEXT, WC_SELECTORS} from './constants.module.js';
 
 /**
  * UI 輔助工具類別
@@ -22,7 +22,11 @@ class UIHelper {
      * 建構函式
      */
     constructor() {
-        this.#$checkoutForm = $(WC_SELECTORS.CHECKOUT_FORM);
+        // 換卡頁沒有 form.checkout，錯誤訊息與 processing 樣式改掛在 form#order_review
+        const formSelector = params.PAGE_CONTEXT === PAGE_CONTEXT.ORDER_PAY
+            ? WC_SELECTORS.ORDER_PAY_FORM
+            : WC_SELECTORS.CHECKOUT_FORM;
+        this.#$checkoutForm = $(formSelector);
     }
 
     /**

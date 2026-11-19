@@ -125,11 +125,13 @@ final class Bootstrap
 
 		$sdk_token        = '';
 		$sdk_error_detail = '';
-		$use_token_type   = EUseTokenType::REMEMBER_CARD;
+		// 訂閱換卡頁（order-pay?change_payment_method=）：購物車是空的，不能依購物車判斷，
+		// 一律強制約定信用卡，前端改走 order-pay 原生送出流程（PAGE_CONTEXT）。
+		$is_change_payment = PaymentMethodChange::is_change_payment_page();
+		// 購物車含訂閱商品或換卡時，Token 必須是「強制約定信用卡」(3) 才會壓 CreditHash 供後續幕後續扣；
+		// 一般結帳沿用「記憶卡號」(2)。此值必須在 token_get 之前決定，且與前端 getTradeResult({ useTokenType }) 一致。
+		$use_token_type = ( $is_change_payment || self::cart_contains_subscription() ) ? EUseTokenType::FORCE_BIND : EUseTokenType::REMEMBER_CARD;
 		try {
-			// 購物車含訂閱商品時，Token 必須是「強制約定信用卡」(3) 才會壓 CreditHash 供後續幕後續扣；
-			// 一般結帳沿用「記憶卡號」(2)。此值必須與前端 getTradeResult({ useTokenType }) 一致。
-			$use_token_type = self::cart_contains_subscription() ? EUseTokenType::FORCE_BIND : EUseTokenType::REMEMBER_CARD;
 			$token = (new HttpClient())->get_sdk_token($use_token_type);
 			$sdk = SdkDTO::from($token);
 			$sdk_token = $sdk->Token;
@@ -153,6 +155,8 @@ final class Bootstrap
 				// 前端 getTradeResult({ useTokenType }) 必須送出與 token_get 相同的值，
 				// 否則 PayUni 不執行綁定、授權成功卻不回 CreditHash，後續無法幕後續扣。
 				'USE_TOKEN_TYPE'      => $use_token_type->value,
+				// 'order-pay'：換卡頁，前端以原生方式送出 form#order_review；'checkout'：一般結帳
+				'PAGE_CONTEXT'        => $is_change_payment ? 'order-pay' : 'checkout',
 				'ERROR_MAPPER'        => HttpClient::$error_mapper
 			]
 		);

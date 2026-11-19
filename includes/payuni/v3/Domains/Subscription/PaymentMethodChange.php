@@ -229,6 +229,18 @@ final class PaymentMethodChange {
 	}
 
 	/**
+	 * 目前頁面是否為訂閱換卡頁
+	 *
+	 * 換卡頁 = 結帳頁 + order-pay endpoint + WCS 換卡請求。
+	 * 閘道過濾與前端參數（UseTokenType、PAGE_CONTEXT）共用這個判斷，避免兩邊認定不一致。
+	 *
+	 * @return bool
+	 */
+	public static function is_change_payment_page(): bool {
+		return \is_checkout() && \is_wc_endpoint_url( 'order-pay' ) && self::is_change_request();
+	}
+
+	/**
 	 * 啟動換卡：送出 5 元綁卡授權
 	 *
 	 * 同步授權成功 → complete()；需要 3D → 回傳 PayUni 驗證頁、留下 pending 等背景通知；
