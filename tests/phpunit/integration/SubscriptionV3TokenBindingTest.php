@@ -15,6 +15,8 @@
  * @package Woomp\Tests\Integration
  */
 
+require_once dirname( __DIR__ ) . '/support/WcsFixture.php';
+
 /**
  * V3 定期定額 Token 綁定與續扣測試類別
  *
@@ -251,8 +253,162 @@ final class SubscriptionV3TokenBindingTest extends WP_UnitTestCase {
 	}
 
 	// ──────────────────────────────────────────────
+	// 4. issue #147 第一階段：token ID 回傳與訂閱綁定
+	//
+	// 執行指令：
+	// docker exec <woomp-tests-cli> sh -c 'cd /var/www/html/wp-content/plugins/woomp && WP_TESTS_DIR=/wordpress-phpunit php vendor/bin/phpunit --configuration tests/phpunit/phpunit.xml.dist --no-coverage --testdox --filter "T_B" tests/phpunit/integration/SubscriptionV3TokenBindingTest.php'
+	// ──────────────────────────────────────────────
+
+	/**
+	 * T-B1：新存一張卡時 save_payment_token 回傳 int token ID
+	 *
+	 * @group happy
+	 */
+	public function test_T_B1_新存卡片回傳token_id(): void {
+		$id = ( new \J7\Payuni\Infrastructure\Http\TradeHandler() )->save_payment_token(
+			$this->customer_id,
+			'B1_NEW_HASH',
+			'428430',
+			'5217',
+			'1230',
+			'payuni-credit-subscription-v3'
+		);
+
+		$this->assertIsInt( $id, '新存卡片應回傳 int 型別的 token ID' );
+
+		$tokens = \WC_Payment_Tokens::get_customer_tokens( $this->customer_id, 'payuni-credit-subscription-v3' );
+		$this->assertCount( 1, $tokens );
+		$this->assertSame( \array_values( $tokens )[0]->get_id(), $id, '回傳的 ID 必須是剛建立的 token' );
+	}
+
+	/**
+	 * T-B1：卡片已存在時回傳既有 token ID，不重複建立
+	 *
+	 * @group edge
+	 */
+	public function test_T_B1_卡片已存在回傳既有token_id(): void {
+		$handler = new \J7\Payuni\Infrastructure\Http\TradeHandler();
+		$args    = [ $this->customer_id, 'B1_DUP_HASH', '428430', '5217', '1230', 'payuni-credit-subscription-v3' ];
+
+		$first  = $handler->save_payment_token( ...$args );
+		$second = $handler->save_payment_token( ...$args );
+
+		$this->assertIsInt( $first, '第一次儲存應回傳 token ID' );
+		$this->assertSame( $first, $second, '卡片已存在時應回傳既有 token ID' );
+		$this->assertCount( 1, \WC_Payment_Tokens::get_customer_tokens( $this->customer_id, 'payuni-credit-subscription-v3' ) );
+	}
+
+	/**
+	 * T-B1：拒存（正式環境沒有 CreditHash）回傳 null
+	 *
+	 * 注意：此案例在實作前就會通過（目前回傳 void 即 null），
+	 * 用途是鎖住「拒存回傳 null」的契約，避免實作時誤回傳 0 或 false。
+	 *
+	 * @group edge
+	 */
+	public function test_T_B1_拒存時回傳null(): void {
+		update_option( 'payuni_payment_testmode', 'no' );
+		update_option( 'payuni_payment_merchant_no', 'PROD_MERCHANT' );
+		update_option( 'payuni_payment_hash_key', 'PROD_HASH_KEY_1234567890123456' );
+		update_option( 'payuni_payment_hash_iv', 'PROD_HASH_IV_1234567' );
+		$this->reset_setting_dto();
+
+		$id = ( new \J7\Payuni\Infrastructure\Http\TradeHandler() )->save_payment_token(
+			$this->customer_id,
+			'',
+			'428430',
+			'5217',
+			'1230',
+			'payuni-credit-subscription-v3'
+		);
+
+		$this->assertNull( $id, '拒存時必須回傳 null' );
+		$this->assertCount( 0, \WC_Payment_Tokens::get_customer_tokens( $this->customer_id ) );
+	}
+
+	/**
+	 * T-B2：V3 訂閱閘道首購成功後，token 要綁到母單的訂閱
+	 *
+	 * @group happy
+	 */
+	public function test_T_B2_首購成功後token綁到訂閱(): void {
+		\Woomp_Test_Wcs_Fixture::install();
+
+		$order = $this->create_test_order( 9450 );
+		$order->set_status( 'pending' );
+		$order->save();
+
+		$subscription = \Woomp_Test_Wcs_Fixture::create_subscription( $order, $this->customer_id );
+
+		( new \J7\Payuni\Infrastructure\Http\TradeHandler() )->update_order_status( $order, $this->success_trade_result( 'B2_HASH' ) );
+
+		$tokens = \WC_Payment_Tokens::get_customer_tokens( $this->customer_id, 'payuni-credit-subscription-v3' );
+		$this->assertCount( 1, $tokens, '首購成功應儲存一張 V3 訂閱 token' );
+
+		$subscription = \wc_get_order( $subscription->get_id() );
+		$this->assertSame(
+			(string) \array_values( $tokens )[0]->get_id(),
+			(string) $subscription->get_meta( '_payuni_token_id', true ),
+			'首購成功後，母單的訂閱應被寫入 _payuni_token_id'
+		);
+	}
+
+	/**
+	 * T-B2：對訂閱物件呼叫 update_order_status 不可 payment_complete，訂閱與其 pending 續訂單不變
+	 *
+	 * 防線：換卡 webhook 的 5 元授權若被當成訂單處理，會把續訂單用 5 元標成已付款。
+	 *
+	 * @group security
+	 */
+	public function test_T_B2_對訂閱物件不會payment_complete(): void {
+		\Woomp_Test_Wcs_Fixture::install();
+
+		$parent       = $this->create_test_order( 9450 );
+		$subscription = \Woomp_Test_Wcs_Fixture::create_subscription( $parent, $this->customer_id );
+		$renewal      = \Woomp_Test_Wcs_Fixture::create_renewal_order( $subscription, $this->customer_id, 'pending' );
+
+		// 真 WCS 的訂閱是 active，會先被 can_mark_paid() 擋掉，驗不到縱深防禦；
+		// 改成 on-hold（可被標成已付款的狀態），確保擋下來的是「訂閱物件」這一層。
+		$subscription->update_status( 'on-hold' );
+		$this->assertTrue( \Woomp_Payment_Callback_Guard::can_mark_paid( $subscription ), '前置：訂閱狀態必須是狀態防護會放行的狀態' );
+
+		$status_before = $subscription->get_status();
+
+		( new \J7\Payuni\Infrastructure\Http\TradeHandler() )->update_order_status( $subscription, $this->success_trade_result( 'B2_SUB_HASH' ) );
+
+		$subscription = \wc_get_order( $subscription->get_id() );
+		$renewal      = \wc_get_order( $renewal->get_id() );
+
+		$this->assertSame( $status_before, $subscription->get_status(), '訂閱狀態不可被 payment_complete 改動' );
+		$this->assertFalse( $subscription->is_paid(), '訂閱不可被標成已付款' );
+		$this->assertSame( 'pending', $renewal->get_status(), '訂閱的 pending 續訂單必須維持 pending' );
+	}
+
+	// ──────────────────────────────────────────────
 	// Helper 方法
 	// ──────────────────────────────────────────────
+
+	/**
+	 * 授權成功的解密交易結果
+	 *
+	 * @param string $credit_hash CreditHash
+	 *
+	 * @return array
+	 */
+	private function success_trade_result( string $credit_hash ): array {
+		return [
+			'Status'     => 'SUCCESS',
+			'Message'    => '授權成功',
+			'MerID'      => 'TEST_MERCHANT',
+			'MerTradeNo' => 'TB2',
+			'TradeNo'    => 'TRADE_TB2_0001',
+			'TradeAmt'   => '9450',
+			'Card6No'    => '428430',
+			'Card4No'    => '5217',
+			'CreditHash' => $credit_hash,
+			'CreditLife' => '1230',
+		];
+	}
 
 	/**
 	 * 重置 SettingDTO 單例

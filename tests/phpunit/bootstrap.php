@@ -82,6 +82,13 @@ function _manually_load_plugins() {
 		}
 	}
 
+	// 載入 WooCommerce Subscriptions（若存在）：PayUni V3 定期定額測試需要真正的 WC_Subscription。
+	// 必須在 WooCommerce 之後（WCS 依 WC_VERSION 檢查相依）、woomp 之前（woomp 依 WCS 是否存在註冊 hook）。
+	$wcs_file = WP_PLUGIN_DIR . '/woocommerce-subscriptions/woocommerce-subscriptions.php';
+	if ( file_exists( $wcs_file ) ) {
+		require $wcs_file;
+	}
+
 	// 載入 Woomp 主外掛檔案。
 	require WOOMP_PLUGIN_DIR_TEST . 'woomp.php';
 }
