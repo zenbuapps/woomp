@@ -7,6 +7,7 @@ namespace J7\Payuni\Infrastructure\Http;
 use J7\Payuni\Contracts\DTOs\SettingDTO;
 use J7\Payuni\Shared\Enums\EMode;
 use J7\Payuni\Shared\Utils\EncryptUtils;
+use J7\Payuni\Shared\Utils\LogMaskUtils;
 use J7\Payuni\Shared\Utils\OrderUtils;
 
 /**
@@ -166,7 +167,8 @@ final class TradeHandler
 			throw new \Exception('EncryptInfo 解密失敗');
 		}
 
-		\do_action('woomp_payuni_log', 'info', '交易回調通知解密結果', $decrypted);
+		// 共用 log（一般結帳、零元首購、換卡、背景通知都會經過）：CreditHash、Card6No 等不可明文寫入
+		\do_action('woomp_payuni_log', 'info', '交易回調通知解密結果', LogMaskUtils::mask($decrypted));
 
 		return $decrypted;
 	}
@@ -276,7 +278,8 @@ final class TradeHandler
 					$order->add_order_note( $this->build_order_note_html( '統一金流 PAYUNi 交易紀錄（Webhook）', $trade_result ) );
 				}
 				$user_id = $order->get_customer_id();
-				\do_action('woomp_payuni_log', 'info', "[DEBUG] #{$order->get_id()} 路徑B token 儲存條件檢查", [
+
+				$debug_context = [
 					'order_id'        => $order->get_id(),
 					'user_id'         => $user_id,
 					'should_save_card' => $should_save_card,
@@ -284,7 +287,8 @@ final class TradeHandler
 					'card_6no'        => $card_6no,
 					'card_4no'        => $card_4no,
 					'raw_meta'        => $order->get_meta('payuni_save_card', true),
-				]);
+				];
+				\do_action('woomp_payuni_log', 'info', "[DEBUG] #{$order->get_id()} 路徑B token 儲存條件檢查", LogMaskUtils::mask($debug_context));
 				if ($user_id && $should_save_card && ($card_hash || $card_4no)) {
 					$credit_life = $trade_result['CreditLife'] ?? '';
 					$token_id    = $this->save_payment_token( $user_id, $card_hash, $card_6no, $card_4no, $credit_life, $token_gateway_id );

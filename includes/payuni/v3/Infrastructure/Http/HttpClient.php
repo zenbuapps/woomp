@@ -316,9 +316,11 @@ final class HttpClient {
 
     /** 確保回應 OK */
     private static function ensure_response_success( array $result ): void {
-        if( 'SUCCESS' !== $result['Status'] ) {
-            throw new \Exception( self::get_error_msg( $result['Status'] ) );
-        }
+		// 外層錯誤碼（例如 CANCEL03001）仍附 EncryptInfo，驗章解密內層才看得到真正原因（以前只寫「未知錯誤」）。
+		if ( 'SUCCESS' !== ( $result['Status'] ?? '' ) ) {
+			$exception = ResponseDecoder::failure( $result, self::$error_mapper );
+			throw $exception;
+		}
     }
 
     /** 取得錯誤訊息 */
@@ -432,7 +434,8 @@ final class HttpClient {
         // base_api_url() 已含 /api 結尾，endpoint 不可再帶 /api 前綴（否則 /api/api/... 404）。
         $response = $this->post( '/trade/cancel', $request_body );
 
-        return EncryptUtils::decrypt( $response['EncryptInfo'] ?? '' );
+		// 外層 SUCCESS 只代表收到請求，取消是否成立看內層（失敗丟 PayuniApiException）
+		return ResponseDecoder::require_inner_success( $response, self::$error_mapper );
     }
 
     /**
@@ -462,7 +465,8 @@ final class HttpClient {
         // base_api_url() 已含 /api 結尾，endpoint 不可再帶 /api 前綴（否則 /api/api/... 404）。
         $response = $this->post( '/trade/close', $request_body );
 
-        return EncryptUtils::decrypt( $response['EncryptInfo'] ?? '' );
+		// 外層 SUCCESS 只代表收到請求，退款是否成立看內層（失敗丟 PayuniApiException）
+		return ResponseDecoder::require_inner_success( $response, self::$error_mapper );
     }
 
     #endregion 內部方法

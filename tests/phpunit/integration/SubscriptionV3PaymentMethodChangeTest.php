@@ -417,7 +417,7 @@ final class SubscriptionV3PaymentMethodChangeTest extends WP_UnitTestCase {
 
 		$params = $this->trade_requests()[0]['params'];
 		$this->assertSame( 1, (int) ( $params['API3D'] ?? 0 ), '3D 開啟時要帶 API3D=1' );
-		$this->assertSame( $subscription->get_view_order_url(), $params['ReturnURL'] ?? '', 'ReturnURL 回訂閱檢視頁' );
+		$this->assertSame( $this->return_url_for( $subscription ), $params['ReturnURL'] ?? '', 'ReturnURL 指向換卡導回端點（不需登入），由端點再導向訂閱檢視頁' );
 
 		$fresh = wcs_get_subscription( $subscription->get_id() );
 		$this->assertSame( self::V1_GATEWAY_ID, $fresh->get_payment_method(), '3D 完成前付款方式不可改' );
@@ -796,6 +796,235 @@ final class SubscriptionV3PaymentMethodChangeTest extends WP_UnitTestCase {
 		}
 		$this->assertSame( [], array_values( array_unique( $leaked ) ), '續訂單不可帶到換卡暫存 meta' );
 		$this->assertSame( (string) $token->get_id(), (string) $renewal->get_meta( '_payuni_token_id' ), '_payuni_token_id 要保留（續扣取卡用）' );
+	}
+
+	// ──────────────────────────────────────────────
+	// 後續修正：3D 導回（ReturnURL）T-R*
+	// ──────────────────────────────────────────────
+
+	/**
+	 * T-R1：3D 設定關閉時仍要送 ReturnURL（PayUni 商店可能強制 3D，沒帶就停在 PayUni 結果頁），且不送 API3D
+	 *
+	 * @group error
+	 */
+	public function test_T_R1_3d設定關閉時仍送ReturnURL且不送API3D(): void {
+		$subscription = $this->create_v1_subscription();
+
+		$this->submit_change( $subscription );
+
+		$params = $this->trade_requests()[0]['params'];
+		$this->assertArrayNotHasKey( 'API3D', $params, '3D 設定關閉時不可強制 3D' );
+		$this->assertSame( $this->return_url_for( $subscription ), $params['ReturnURL'] ?? '', '一律要送 ReturnURL' );
+	}
+
+	/**
+	 * T-R2：ReturnURL 指向不需登入、可收 POST 的 wc-api 端點（不是 my-account），且端點已註冊
+	 *
+	 * @group security
+	 */
+	public function test_T_R2_ReturnURL指向不需登入的wc_api端點(): void {
+		update_option( 'payuni_3d_auth', 'yes' );
+		$this->reset_setting_dto();
+		$subscription = $this->create_v1_subscription();
+
+		$this->submit_change( $subscription );
+
+		$url = (string) ( $this->trade_requests()[0]['params']['ReturnURL'] ?? '' );
+		$this->assertStringContainsString( 'payuni_change_payment_return', $url );
+		$this->assertStringNotContainsString( 'view-subscription', $url, '跨站 POST 不帶 Lax cookie，不可直接回 my-account' );
+		parse_str( (string) wp_parse_url( $url, PHP_URL_QUERY ), $query );
+		$this->assertSame( (string) $subscription->get_id(), (string) ( $query['subscription_id'] ?? '' ) );
+		$this->assertNotFalse( has_action( 'woocommerce_api_payuni_change_payment_return' ), '導回端點要註冊' );
+	}
+
+	/**
+	 * T-R3：導回端點沒有 POST 內容 → 303 導向訂閱檢視頁，不改任何資料
+	 *
+	 * @group happy
+	 */
+	public function test_T_R3_導回端點303導向訂閱檢視頁且不改資料(): void {
+		$subscription = $this->create_v1_subscription();
+		$this->start_3d_attempt( $subscription );
+		$before = wcs_get_subscription( $subscription->get_id() );
+
+		[ $location, $status ] = $this->call_return( (string) $subscription->get_id(), [] );
+
+		$this->assertSame( 303, $status, 'POST 導回要用 303，瀏覽器改用 GET 頂層導覽才會帶 Lax cookie' );
+		$this->assertStringStartsWith( $subscription->get_view_order_url(), $location );
+		$this->assertStringContainsString( 'payuni_change=', $location, '帶旗標讓檢視頁顯示換卡結果' );
+		$fresh = wcs_get_subscription( $subscription->get_id() );
+		$this->assertSame( self::V1_GATEWAY_ID, $fresh->get_payment_method() );
+		$this->assertEquals( $before->get_meta( '_payuni_change_pending' ), $fresh->get_meta( '_payuni_change_pending' ) );
+		$this->assertEquals( $before->get_meta( '_payuni_change_attempts' ), $fresh->get_meta( '_payuni_change_attempts' ) );
+	}
+
+	/**
+	 * T-R4：導回端點收到簽章錯誤的 POST → 不改任何資料，仍導回
+	 *
+	 * @group security
+	 */
+	public function test_T_R4_導回端點偽造POST不改資料(): void {
+		$subscription = $this->create_v1_subscription();
+		$mer          = $this->start_3d_attempt( $subscription );
+		$before       = wcs_get_subscription( $subscription->get_id() );
+		$post         = $this->signed_post( $mer, [ 'CreditHash' => 'FORGED_HASH' ] );
+		$post['HashInfo'] = str_repeat( 'A', 64 );
+
+		[ $location ] = $this->call_return( (string) $subscription->get_id(), $post );
+
+		$this->assertStringStartsWith( $subscription->get_view_order_url(), $location );
+		$fresh = wcs_get_subscription( $subscription->get_id() );
+		$this->assertSame( self::V1_GATEWAY_ID, $fresh->get_payment_method(), '未驗證的 POST 不可改付款方式' );
+		$this->assertNull( $this->find_token_by_hash( 'FORGED_HASH', self::GATEWAY_ID ) );
+		$this->assertEquals( $before->get_meta( '_payuni_change_attempts' ), $fresh->get_meta( '_payuni_change_attempts' ) );
+	}
+
+	/**
+	 * T-R5：導回端點收到合法簽章的成功結果 → 與背景通知相同的驗證後完成綁定（webhook 漏收也能完成）
+	 *
+	 * @group happy
+	 */
+	public function test_T_R5_導回端點合法結果完成綁定(): void {
+		$subscription = $this->create_v1_subscription();
+		$mer          = $this->start_3d_attempt( $subscription );
+
+		$this->call_return( (string) $subscription->get_id(), $this->signed_post( $mer, [ 'CreditHash' => 'RETURN_HASH' ] ) );
+
+		$fresh = wcs_get_subscription( $subscription->get_id() );
+		$token = $this->find_token_by_hash( 'RETURN_HASH', self::GATEWAY_ID );
+		$this->assertNotNull( $token );
+		$this->assertSame( self::GATEWAY_ID, $fresh->get_payment_method() );
+		$this->assertSame( 1, $this->count_cancel_actions( 'TN_' . $mer ), '要排程釋放 5 元' );
+
+		// 之後背景通知到達 → 冪等
+		$response = $this->deliver_notify( $mer, [ 'CreditHash' => 'RETURN_HASH' ] );
+		$this->assertTrue( (bool) ( $response['success'] ?? false ) );
+		$this->assertCount( 1, \WC_Payment_Tokens::get_customer_tokens( $this->customer_id, self::GATEWAY_ID ) );
+		$this->assertSame( 1, $this->count_cancel_actions( 'TN_' . $mer ) );
+	}
+
+	/**
+	 * T-R5：導回內容的金額不是 5（與背景通知同一套驗證）→ 不綁定
+	 *
+	 * @group security
+	 */
+	public function test_T_R5_導回端點金額不符不綁定(): void {
+		$subscription = $this->create_v1_subscription();
+		$mer          = $this->start_3d_attempt( $subscription );
+
+		$this->call_return( (string) $subscription->get_id(), $this->signed_post( $mer, [ 'TradeAmt' => '9450', 'CreditHash' => 'AMT_HASH' ] ) );
+
+		$this->assertSame( self::V1_GATEWAY_ID, wcs_get_subscription( $subscription->get_id() )->get_payment_method() );
+		$this->assertNull( $this->find_token_by_hash( 'AMT_HASH', self::GATEWAY_ID ) );
+	}
+
+	/**
+	 * T-R6：POST 的 MerTradeNo 屬於別的訂閱 → 不處理
+	 *
+	 * @group security
+	 */
+	public function test_T_R6_導回內容屬於別的訂閱時不處理(): void {
+		$subscription_a = $this->create_v1_subscription();
+		$subscription_b = $this->create_v1_subscription();
+		$mer_b          = $this->start_3d_attempt( $subscription_b );
+
+		[ $location ] = $this->call_return( (string) $subscription_a->get_id(), $this->signed_post( $mer_b, [ 'CreditHash' => 'B_HASH' ] ) );
+
+		$this->assertStringStartsWith( $subscription_a->get_view_order_url(), $location, '導向目標由網址上的訂閱決定' );
+		$this->assertSame( self::V1_GATEWAY_ID, wcs_get_subscription( $subscription_b->get_id() )->get_payment_method(), '不屬於此訂閱的結果不處理' );
+		$this->assertNull( $this->find_token_by_hash( 'B_HASH', self::GATEWAY_ID ) );
+	}
+
+	/**
+	 * T-R7：訂閱不存在、或夾帶外部網址 → 導到「我的帳號」，不接受任意 URL（open redirect）
+	 *
+	 * @group security
+	 */
+	public function test_T_R7_導回目標不接受任意網址(): void {
+		$_GET['redirect_to'] = 'https://evil.example.com/';
+		$_GET['return']      = 'https://evil.example.com/';
+
+		[ $location ] = $this->call_return( '999999999', [] );
+
+		$this->assertSame( wc_get_page_permalink( 'myaccount' ), $location );
+	}
+
+	// ──────────────────────────────────────────────
+	// 後續修正：3D 結果提示 T-S*
+	// ──────────────────────────────────────────────
+
+	/**
+	 * T-S1：3D 等待中，WCS 接著加的「付款方式已變更」要被擋下（只擋這一則）
+	 *
+	 * @group error
+	 */
+	public function test_T_S1_3d等待中不顯示付款方式已變更(): void {
+		update_option( 'payuni_3d_auth', 'yes' );
+		$this->reset_setting_dto();
+		$subscription = $this->create_v1_subscription();
+		$this->start_3d_attempt( $subscription );
+
+		// WCS change_payment_method_via_pay_shortcode() 在 process_payment 回 success 後的行為
+		wc_add_notice( __( 'Payment method updated.', 'woocommerce-subscriptions' ) );
+
+		$this->assertSame( 0, wc_notice_count( 'success' ), '3D 尚未完成不可說已變更' );
+
+		wc_add_notice( '之後的其他成功訊息' );
+		$this->assertSame( 1, wc_notice_count( 'success' ), '只擋 WCS 那一則，不可影響之後的訊息' );
+	}
+
+	/**
+	 * T-S2：同步授權成功時 WCS 的「付款方式已變更」照常顯示
+	 *
+	 * @group happy
+	 */
+	public function test_T_S2_同步成功仍顯示付款方式已變更(): void {
+		$subscription         = $this->create_v1_subscription();
+		$this->payuni_handler = fn( array $p ) => $this->success_payload( $p );
+		$this->submit_change( $subscription );
+
+		wc_add_notice( __( 'Payment method updated.', 'woocommerce-subscriptions' ) );
+
+		$this->assertSame( 1, wc_notice_count( 'success' ) );
+	}
+
+	/**
+	 * T-S3：導回後依結果提示：處理中 → notice；失敗 → error；完成 → success
+	 *
+	 * @group happy
+	 */
+	public function test_T_S3_導回後依結果提示(): void {
+		$this->require_status_notice_api();
+
+		// 處理中
+		$subscription = $this->create_v1_subscription();
+		$mer          = $this->start_3d_attempt( $subscription );
+		wc_clear_notices();
+		\J7\Payuni\Domains\Subscription\PaymentMethodChange::add_status_notice( wcs_get_subscription( $subscription->get_id() ), true );
+		$this->assertSame( 1, wc_notice_count( 'notice' ), '處理中要提示' );
+		$this->assertSame( 0, wc_notice_count( 'success' ) );
+
+		// 失敗
+		$this->deliver_notify( $mer, [ 'Status' => 'CREDIT04001', 'Message' => '3D 驗證失敗', 'CreditHash' => '' ] );
+		wc_clear_notices();
+		\J7\Payuni\Domains\Subscription\PaymentMethodChange::add_status_notice( wcs_get_subscription( $subscription->get_id() ), true );
+		$this->assertSame( 1, wc_notice_count( 'error' ), '失敗要提示' );
+		$this->assertSame( 0, wc_notice_count( 'success' ), '失敗不可說已變更' );
+		$errors = wc_get_notices( 'error' );
+		$this->assertStringContainsString( '未變更', (string) ( $errors[0]['notice'] ?? '' ) );
+
+		// 完成
+		$other = $this->create_v1_subscription();
+		$mer2  = $this->start_3d_attempt( $other );
+		$this->deliver_notify( $mer2, [ 'CreditHash' => 'S3_HASH' ] );
+		wc_clear_notices();
+		\J7\Payuni\Domains\Subscription\PaymentMethodChange::add_status_notice( wcs_get_subscription( $other->get_id() ), true );
+		$this->assertSame( 1, wc_notice_count( 'success' ), '完成要提示' );
+
+		// 不是剛導回（一般瀏覽）→ 不重複提示完成／失敗
+		wc_clear_notices();
+		\J7\Payuni\Domains\Subscription\PaymentMethodChange::add_status_notice( wcs_get_subscription( $other->get_id() ), false );
+		$this->assertSame( 0, wc_notice_count( 'success' ) + wc_notice_count( 'error' ) );
 	}
 
 	// ──────────────────────────────────────────────
@@ -1216,6 +1445,105 @@ final class SubscriptionV3PaymentMethodChangeTest extends WP_UnitTestCase {
 		$decoded = json_decode( $output, true );
 
 		return is_array( $decoded ) ? $decoded : [ 'raw' => $output ];
+	}
+
+	/**
+	 * 預期的換卡導回網址（wc-api 端點 + subscription_id）
+	 *
+	 * @param \WC_Subscription $subscription 訂閱
+	 *
+	 * @return string
+	 */
+	private function return_url_for( \WC_Subscription $subscription ): string {
+		return add_query_arg( 'subscription_id', $subscription->get_id(), WC()->api_request_url( 'payuni_change_payment_return' ) );
+	}
+
+	/**
+	 * 組 PayUni 前景導回的 POST（真正的 AES-256-GCM + HashInfo）
+	 *
+	 * @param string $mer_trade_no MerTradeNo
+	 * @param array  $inner        覆蓋內層欄位
+	 *
+	 * @return array
+	 */
+	private function signed_post( string $mer_trade_no, array $inner = [] ): array {
+		$payload      = array_merge(
+			[
+				'Status'      => 'SUCCESS',
+				'Message'     => '授權成功',
+				'MerID'       => $this->merchant_id(),
+				'MerTradeNo'  => $mer_trade_no,
+				'TradeNo'     => 'TN_' . $mer_trade_no,
+				'TradeAmt'    => '5',
+				'TradeStatus' => '1',
+				'Card6No'     => '411111',
+				'Card4No'     => '4242',
+				'CreditHash'  => 'RETURN_HASH',
+				'CreditLife'  => '1230',
+			],
+			$inner
+		);
+		$encrypt_info = \J7\Payuni\Shared\Utils\EncryptUtils::encrypt( $payload );
+
+		return [
+			'Status'      => 'SUCCESS',
+			'MerID'       => $this->merchant_id(),
+			'Version'     => '1.0',
+			'EncryptInfo' => $encrypt_info,
+			'HashInfo'    => \J7\Payuni\Shared\Utils\EncryptUtils::hash_info( $encrypt_info ),
+		];
+	}
+
+	/**
+	 * 模擬 PayUni 跨站 POST 到換卡導回端點（未登入），回傳 [ Location, HTTP 狀態碼 ]
+	 *
+	 * @param string $subscription_id 網址上的 subscription_id
+	 * @param array  $post            POST 內容
+	 *
+	 * @return array{0: string, 1: int}
+	 */
+	private function call_return( string $subscription_id, array $post ): array {
+		wp_set_current_user( 0 );
+		$_GET['subscription_id'] = $subscription_id;
+		$_POST                   = $post;
+		$_REQUEST                = array_merge( $_GET, $_POST );
+
+		$location = '';
+		$status   = 0;
+		add_filter( 'woomp_payuni_change_return_exit', '__return_false' );
+		add_filter(
+			'wp_redirect',
+			static function ( $url, $code ) use ( &$location, &$status ) {
+				$location = (string) $url;
+				$status   = (int) $code;
+				return false; // 不送 header.
+			},
+			PHP_INT_MAX,
+			2
+		);
+
+		do_action( 'woocommerce_api_payuni_change_payment_return' );
+
+		remove_all_filters( 'wp_redirect' );
+		remove_all_filters( 'woomp_payuni_change_return_exit' );
+		$_GET     = [];
+		$_POST    = [];
+		$_REQUEST = [];
+
+		$this->assertNotSame( '', $location, '導回端點必須導向（不可停在 wc-api 回 200/-1）' );
+
+		return [ $location, $status ];
+	}
+
+	/**
+	 * 提示 API 尚未實作就 fail
+	 *
+	 * @return void
+	 */
+	private function require_status_notice_api(): void {
+		if ( ! method_exists( self::CHANGE_CLASS, 'add_status_notice' ) ) {
+			$this->fail( '尚未實作: ' . self::CHANGE_CLASS . '::add_status_notice()' );
+		}
 	}
 
 	/**

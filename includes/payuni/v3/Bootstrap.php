@@ -13,6 +13,7 @@ use J7\Payuni\Infrastructure\Http\HttpClient;
 use J7\Payuni\Infrastructure\Http\TradeHandler;
 use J7\Payuni\Shared\Enums\EMode;
 use J7\Payuni\Shared\Enums\EUseTokenType;
+use J7\Payuni\Shared\Utils\LogMaskUtils;
 use J7\Payuni\Shared\Utils\OrderUtils;
 use PAYUNI\Gateways\CreditV3;
 
@@ -77,7 +78,8 @@ final class Bootstrap
 		];
 
 		if ($args) {
-			$context['args'] = $args;
+			// 寫檔前最後一道遮罩（縱深防禦）：任何呼叫端漏遮的 CreditHash／Card6No 都不會落地
+			$context['args'] = LogMaskUtils::mask($args);
 		}
 
 		$logger->log($level, $message, $context);
@@ -321,7 +323,7 @@ final class Bootstrap
 			if ('pending' === $order->get_meta('_payuni_zero_token_authcancel', true)
 				&& 'SUCCESS' === ($trade_result['Status'] ?? '')
 				&& $incoming_trade_no) {
-				(new \J7\Payuni\Domains\Subscription\SubscriptionHandler())->schedule_cancel_authorization($incoming_trade_no);
+				(new \J7\Payuni\Domains\Subscription\SubscriptionHandler())->schedule_cancel_authorization($incoming_trade_no, $order->get_id());
 				$order->update_meta_data('_payuni_zero_token_authcancel', 'scheduled');
 				$order->save();
 				\do_action('woomp_payuni_log', 'info', "#{$order->get_id()} 零元取 Token（3D）已補排程取消 5 元授權", [
