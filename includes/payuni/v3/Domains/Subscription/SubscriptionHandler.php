@@ -12,7 +12,6 @@ declare(strict_types=1);
 namespace J7\Payuni\Domains\Subscription;
 
 use J7\Payuni\Contracts\DTOs\SettingDTO;
-use J7\Payuni\Infrastructure\Http\HttpClient;
 use J7\Payuni\Infrastructure\Http\TradeHandler;
 use J7\Payuni\Shared\Enums\EUseTokenType;
 use J7\Payuni\Shared\Utils\CreditTokenUtils;
@@ -79,8 +78,8 @@ final class SubscriptionHandler {
 				$order->update_meta_data( 'payuni_save_card', 'yes' );
 				$handler->update_order_status( $order, $trade_result );
 
-				// 排程 2 分鐘後取消授權
-				$this->schedule_cancel_authorization( $trade_no );
+				// 排程 2 分鐘後釋放 5 元（取消授權或退款），結果寫進訂單備註
+				$this->schedule_cancel_authorization( (string) $trade_no, (int) $order->get_id() );
 
 				return [
 					'result'   => 'success',
@@ -176,48 +175,29 @@ final class SubscriptionHandler {
 	}
 
 	/**
-	 * 排程取消零元授權
+	 * 排程釋放 5 元綁卡授權（2 分鐘後；取消授權或退款由 AuthorizationRelease 依請款狀態決定）
 	 *
-	 * @param string $trade_no PayUni 交易編號
+	 * @param string $trade_no  PayUni 交易編號
+	 * @param int    $object_id 結果要寫備註的訂單或訂閱 ID（0 表示不寫）
 	 *
 	 * @return void
 	 */
-	public function schedule_cancel_authorization( string $trade_no ): void {
-		// 優先使用 Action Scheduler（WooCommerce 內建，具自有 queue runner 與重試機制）。
-		// wp_schedule_single_event 在高流量 + 頁面快取站點常因 cron option 寫入競態而遺失，
-		// 或因主機停用/攔截 wp-cron 而永不執行（實測 icba 即發生事件遺失）。
-		if ( \function_exists( 'as_schedule_single_action' ) ) {
-			\as_schedule_single_action(
-				\time() + 120,
-				'payuni_cancel_zero_authorization',
-				[ $trade_no ]
-			);
-			return;
-		}
-
-		\wp_schedule_single_event(
-			\time() + 120,
-			'payuni_cancel_zero_authorization',
-			[ $trade_no ]
-		);
+	public function schedule_cancel_authorization( string $trade_no, int $object_id = 0 ): void {
+		AuthorizationRelease::schedule( $trade_no, $object_id );
 	}
 
 	/**
-	 * 取消零元授權
+	 * 釋放 5 元綁卡授權（排程 callback）
+	 *
+	 * 以前只呼叫 trade/cancel：商店自動請款時必定 CANCEL03001，5 元留在客戶帳上。
+	 * 改由 AuthorizationRelease 先查請款狀態，未請款取消、已請款退款，並保證同一 TradeNo 只退一次。
 	 *
 	 * @param string $trade_no PayUni 交易編號
 	 *
 	 * @return void
 	 */
-	public static function cancel_zero_authorization( string $trade_no ): void {
-		try {
-			$http_client = new HttpClient();
-			$http_client->cancel_trade( $trade_no );
-
-			\do_action( 'woomp_payuni_log', 'info', "零元授權取消成功: {$trade_no}", [] );
-		} catch ( \Throwable $e ) {
-			\do_action( 'woomp_payuni_log', 'error', "零元授權取消失敗: {$trade_no} - {$e->getMessage()}", [] );
-		}
+	public static function cancel_zero_authorization( $trade_no ): void {
+		AuthorizationRelease::run( (string) $trade_no );
 	}
 
 	/**

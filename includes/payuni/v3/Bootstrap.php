@@ -321,7 +321,7 @@ final class Bootstrap
 			if ('pending' === $order->get_meta('_payuni_zero_token_authcancel', true)
 				&& 'SUCCESS' === ($trade_result['Status'] ?? '')
 				&& $incoming_trade_no) {
-				(new \J7\Payuni\Domains\Subscription\SubscriptionHandler())->schedule_cancel_authorization($incoming_trade_no);
+				(new \J7\Payuni\Domains\Subscription\SubscriptionHandler())->schedule_cancel_authorization($incoming_trade_no, $order->get_id());
 				$order->update_meta_data('_payuni_zero_token_authcancel', 'scheduled');
 				$order->save();
 				\do_action('woomp_payuni_log', 'info', "#{$order->get_id()} 零元取 Token（3D）已補排程取消 5 元授權", [

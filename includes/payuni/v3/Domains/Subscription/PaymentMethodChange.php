@@ -738,7 +738,7 @@ final class PaymentMethodChange {
 			return;
 		}
 
-		( new SubscriptionHandler() )->schedule_cancel_authorization( $trade_no );
+		( new SubscriptionHandler() )->schedule_cancel_authorization( $trade_no, (int) $subscription->get_id() );
 
 		$trade_nos[]               = $trade_no;
 		$attempt['trade_nos']      = $trade_nos;
