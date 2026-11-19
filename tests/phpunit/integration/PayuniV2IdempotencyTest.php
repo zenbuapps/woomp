@@ -397,9 +397,11 @@ final class PayuniV2IdempotencyTest extends WP_UnitTestCase {
 
 		$parent = $this->create_pending_credit_order();
 
+		// WCS 不允許訪客訂閱（customer_id 必須 > 0）
 		$subscription = wcs_create_subscription(
 			[
 				'order_id'         => $parent->get_id(),
+				'customer_id'      => $this->factory()->user->create( [ 'role' => 'customer' ] ),
 				'status'           => 'pending',
 				'billing_period'   => 'month',
 				'billing_interval' => 1,

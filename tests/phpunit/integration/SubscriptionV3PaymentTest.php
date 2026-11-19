@@ -8,6 +8,8 @@
  * @package Woomp\Tests\Integration
  */
 
+require_once dirname( __DIR__ ) . '/support/WcsFixture.php';
+
 /**
  * V3 定期定額付款流程測試類別
  *
@@ -31,6 +33,13 @@ final class SubscriptionV3PaymentTest extends WP_UnitTestCase {
 	 * @var int
 	 */
 	private int $customer_id;
+
+	/**
+	 * 攔截到的 HTTP 請求
+	 *
+	 * @var array<int, array{url: string, args: array}>
+	 */
+	private array $http_requests = [];
 
 	/**
 	 * 設定測試環境
@@ -549,8 +558,268 @@ final class SubscriptionV3PaymentTest extends WP_UnitTestCase {
 	}
 
 	// ──────────────────────────────────────────────
+	// 9. issue #147 第一階段：Token 優先序（V1 預設 token 不可搶先）
+	//
+	// 執行指令：
+	// docker exec <woomp-tests-cli> sh -c 'cd /var/www/html/wp-content/plugins/woomp && WP_TESTS_DIR=/wordpress-phpunit php vendor/bin/phpunit --configuration tests/phpunit/phpunit.xml.dist --no-coverage --testdox --filter "T_H|T_Z1" tests/phpunit/integration/SubscriptionV3PaymentTest.php'
+	// ──────────────────────────────────────────────
+
+	/**
+	 * T-H1：舊 V1 預設 token 不會搶先
+	 *
+	 * @group edge
+	 */
+	public function test_T_H1_v1預設token不搶先_回傳非預設的v3_hash(): void {
+		$this->create_payment_token( $this->customer_id, 'v1_default_hash', 'payuni-credit-subscription', true );
+		$this->create_payment_token( $this->customer_id, 'v3_non_default_hash', 'payuni-credit-subscription-v3' );
+
+		$order = $this->create_test_order( $this->customer_id );
+
+		$this->assertSame(
+			'v3_non_default_hash',
+			\J7\Payuni\Domains\Subscription\SubscriptionHandler::get_card_hash( $order ),
+			'V1 是客戶預設 token、另有一張 V3 token 時，續扣應使用 V3，不可被舊 V1 預設 token 搶先'
+		);
+	}
+
+	/**
+	 * T-H2：續訂單所屬訂閱的 _payuni_token_id 優先於客戶預設 token
+	 *
+	 * @group happy
+	 */
+	public function test_T_H2_訂閱綁定的token優先於客戶預設token(): void {
+		\Woomp_Test_Wcs_Fixture::install();
+
+		$default_token = $this->create_payment_token( $this->customer_id, 'default_v3_hash', 'payuni-credit-subscription-v3', true );
+		$bound_token   = $this->create_payment_token( $this->customer_id, 'bound_v3_hash', 'payuni-credit-subscription-v3' );
+		$this->assertNotSame( $default_token->get_id(), $bound_token->get_id() );
+
+		$renewal = $this->create_subscription_renewal( (string) $bound_token->get_id() );
+
+		$this->assertSame(
+			'bound_v3_hash',
+			\J7\Payuni\Domains\Subscription\SubscriptionHandler::get_card_hash( $renewal ),
+			'續訂單所屬訂閱綁定的 V3 token 應優先於客戶預設 token'
+		);
+	}
+
+	/**
+	 * T-H3：訂閱綁定的 token 不合法（V1／別人的／已刪除）時跳過，往下一層找
+	 *
+	 * @dataProvider invalid_bound_token_provider
+	 * @group edge
+	 * @group security
+	 *
+	 * @param string $scenario 情境
+	 */
+	public function test_T_H3_訂閱綁定的token不合法時跳過( string $scenario ): void {
+		\Woomp_Test_Wcs_Fixture::install();
+
+		// 客戶預設是 V1、另有一張 V3：不合法時應落到「最新的 V3 訂閱 token」，而不是 V1 預設
+		$this->create_payment_token( $this->customer_id, 'v1_default_hash', 'payuni-credit-subscription', true );
+		$this->create_payment_token( $this->customer_id, 'v3_fallback_hash', 'payuni-credit-subscription-v3' );
+
+		switch ( $scenario ) {
+			case 'v1_token':
+				$bound_id = (string) $this->create_payment_token( $this->customer_id, 'v1_bound_hash', 'payuni-credit-subscription' )->get_id();
+				break;
+			case 'other_customers_token':
+				$other    = $this->factory()->user->create( [ 'role' => 'customer' ] );
+				$bound_id = (string) $this->create_payment_token( $other, 'other_customer_hash', 'payuni-credit-subscription-v3' )->get_id();
+				break;
+			default: // deleted_token
+				$token    = $this->create_payment_token( $this->customer_id, 'deleted_hash', 'payuni-credit-subscription-v3' );
+				$bound_id = (string) $token->get_id();
+				\WC_Payment_Tokens::delete( $token->get_id() );
+		}
+
+		$renewal = $this->create_subscription_renewal( $bound_id );
+
+		$hash = \J7\Payuni\Domains\Subscription\SubscriptionHandler::get_card_hash( $renewal );
+
+		$this->assertNotSame( 'other_customer_hash', $hash, '絕不可使用別人的 token' );
+		$this->assertNotSame( 'v1_bound_hash', $hash, '訂閱綁定的 V1 token 不合法，應跳過' );
+		$this->assertSame( 'v3_fallback_hash', $hash, "[{$scenario}] 應跳過不合法的綁定，往下找最新的 V3 訂閱 token（而非 V1 預設）" );
+	}
+
+	/**
+	 * T-H3 情境
+	 *
+	 * @return array<string, array{0: string}>
+	 */
+	public function invalid_bound_token_provider(): array {
+		return [
+			'綁定的是 V1 token'   => [ 'v1_token' ],
+			'綁定的是別人的 token' => [ 'other_customers_token' ],
+			'綁定的 token 已刪除' => [ 'deleted_token' ],
+		];
+	}
+
+	/**
+	 * T-H4：只有 V1 token 時仍回傳 V1 hash，並寫一則 warning
+	 *
+	 * @group edge
+	 */
+	public function test_T_H4_只有v1_token_回傳v1_hash且寫warning(): void {
+		$this->create_payment_token( $this->customer_id, 'v1_only_hash', 'payuni-credit-subscription', true );
+
+		$logs = [];
+		\add_action(
+			'woomp_payuni_log',
+			static function ( $level, $message ) use ( &$logs ) {
+				$logs[] = [ (string) $level, (string) $message ];
+			},
+			10,
+			2
+		);
+
+		$order = $this->create_test_order( $this->customer_id );
+		$hash  = \J7\Payuni\Domains\Subscription\SubscriptionHandler::get_card_hash( $order );
+
+		$this->assertSame( 'v1_only_hash', $hash, '只有 V1 token 時仍應回傳 V1 hash（最後手段）' );
+
+		$warnings = \array_filter(
+			$logs,
+			static fn( array $log ): bool => 'warning' === $log[0]
+		);
+		$this->assertNotEmpty( $warnings, '使用舊 V1 token 時應寫一則 warning，提醒商家可能需重新綁卡' );
+	}
+
+	/**
+	 * T-Z1：0 元首購、客戶只有 V1 token → 不可直接拿 V1 token 完成，要打 PayUni 綁 5 元
+	 *
+	 * @group edge
+	 */
+	public function test_T_Z1_零元首購只有v1_token_應打payuni綁卡而非直接完成(): void {
+		$this->create_payment_token( $this->customer_id, 'v1_default_hash', 'payuni-credit-subscription', true );
+
+		$order = $this->create_test_order( $this->customer_id, 0 );
+		$order->update_meta_data( 'sdk_token_tmp', 'test_sdk_token' );
+		$order->save();
+
+		$this->mock_merchant_trade_success( 'NEW_V3_HASH' );
+
+		$previous = error_reporting( E_ALL & ~E_DEPRECATED );
+		$this->gateway->process_payment( $order->get_id() );
+		error_reporting( $previous );
+
+		$trade_request = null;
+		foreach ( $this->http_requests as $request ) {
+			if ( false !== \strpos( $request['url'], 'merchant_trade' ) ) {
+				$trade_request = $request;
+				break;
+			}
+		}
+
+		$this->assertNotNull( $trade_request, '客戶只有 V1 token 的 0 元首購應打 PayUni 取新 V3 token，不可直接用 V1 token 完成' );
+
+		$params = \J7\Payuni\Shared\Utils\EncryptUtils::decrypt( $trade_request['args']['body']['EncryptInfo'] ?? '' );
+		$this->assertSame( 5, (int) ( $params['TradeAmt'] ?? 0 ), '應授權 5 元取得 CreditHash' );
+	}
+
+	/**
+	 * T-Z1：0 元首購走路徑 2（有 V3 token）成功後，token 要綁到該訂單的訂閱
+	 *
+	 * @group happy
+	 */
+	public function test_T_Z1_零元首購路徑2成功後_token綁到訂閱(): void {
+		\Woomp_Test_Wcs_Fixture::install();
+
+		$token = $this->create_payment_token( $this->customer_id, 'v3_saved_hash', 'payuni-credit-subscription-v3', true );
+
+		$order = $this->create_test_order( $this->customer_id, 0 );
+		$order->set_payment_method( 'payuni-credit-subscription-v3' );
+		$order->save();
+
+		$subscription = \Woomp_Test_Wcs_Fixture::create_subscription( $order, $this->customer_id );
+
+		$previous = error_reporting( E_ALL & ~E_DEPRECATED );
+		$result   = $this->gateway->process_payment( $order->get_id() );
+		error_reporting( $previous );
+
+		$this->assertSame( 'success', $result['result'] );
+
+		$subscription = \wc_get_order( $subscription->get_id() );
+		$this->assertSame(
+			(string) $token->get_id(),
+			(string) $subscription->get_meta( '_payuni_token_id', true ),
+			'路徑 2 完成付款後，應把 token ID 寫入該訂單所屬訂閱的 _payuni_token_id'
+		);
+	}
+
+	// ──────────────────────────────────────────────
 	// Helper 方法
 	// ──────────────────────────────────────────────
+
+	/**
+	 * 建立「訂閱 → 續訂單」，訂閱綁定指定的 _payuni_token_id
+	 *
+	 * @param string $bound_token_id 要寫進訂閱的 _payuni_token_id
+	 *
+	 * @return \WC_Order 續訂單
+	 */
+	private function create_subscription_renewal( string $bound_token_id ): \WC_Order {
+		$parent       = $this->create_test_order( $this->customer_id );
+		$subscription = \Woomp_Test_Wcs_Fixture::create_subscription( $parent, $this->customer_id );
+		$subscription->update_meta_data( '_payuni_token_id', $bound_token_id );
+		$subscription->save();
+
+		return \Woomp_Test_Wcs_Fixture::create_renewal_order( $subscription, $this->customer_id );
+	}
+
+	/**
+	 * 攔截 merchant_trade 並回傳加密過的授權成功結果
+	 *
+	 * @param string $credit_hash 回傳的 CreditHash
+	 *
+	 * @return void 攔截到的請求累積在 $this->http_requests
+	 */
+	private function mock_merchant_trade_success( string $credit_hash ): void {
+		\add_filter(
+			'pre_http_request',
+			function ( $preempt, $args, $url ) use ( $credit_hash ) {
+				$this->http_requests[] = [
+					'url'  => $url,
+					'args' => $args,
+				];
+
+				$payload      = [
+					'Status'     => 'SUCCESS',
+					'Message'    => '授權成功',
+					'MerID'      => 'TEST_MERCHANT',
+					'MerTradeNo' => 'T-Z1',
+					'TradeNo'    => 'TRADE_Z1_0001',
+					'TradeAmt'   => '5',
+					'Card6No'    => '411111',
+					'Card4No'    => '4242',
+					'CreditHash' => $credit_hash,
+					'CreditLife' => '1230',
+				];
+				$encrypt_info = \J7\Payuni\Shared\Utils\EncryptUtils::encrypt( $payload );
+
+				return [
+					'headers'  => [],
+					'body'     => \wp_json_encode(
+						[
+							'Status'      => 'SUCCESS',
+							'MerID'       => 'TEST_MERCHANT',
+							'Version'     => '1.0',
+							'EncryptInfo' => $encrypt_info,
+							'HashInfo'    => \J7\Payuni\Shared\Utils\EncryptUtils::hash_info( $encrypt_info ),
+						]
+					),
+					'response' => [
+						'code'    => 200,
+						'message' => 'OK',
+					],
+					'cookies'  => [],
+					'filename' => null,
+				];
+			},
+			10,
+			3
+		);
+	}
 
 	/**
 	 * 建立測試用 Payment Token

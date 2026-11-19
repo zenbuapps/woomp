@@ -43,6 +43,13 @@ final class SubscriptionHandler {
 	private const V3_GATEWAY_ID = 'payuni-credit-subscription-v3';
 
 	/**
+	 * V3 一般信用卡閘道 ID
+	 *
+	 * @var string
+	 */
+	private const CREDIT_V3_GATEWAY_ID = 'payuni-credit-v3';
+
+	/**
 	 * 處理零元取 Token 交易
 	 *
 	 * 扣 5 元取得 CreditHash，排程 2 分鐘後取消授權。
@@ -52,49 +59,17 @@ final class SubscriptionHandler {
 	 * @return array{result: string, redirect?: string} 交易結果
 	 */
 	public function process_zero_amount_token( \WC_Order $order ): array {
-		$setting = SettingDTO::instance();
-
 		$order_suffix = $order->get_meta( '_payuni_order_suffix' ) ? '-' . $order->get_meta( '_payuni_order_suffix' ) : '';
 
-		$sdk_token = $order->get_meta( 'sdk_token_tmp', true );
-		$buyer_email = $order->get_billing_email();
+		$sdk_token    = (string) $order->get_meta( 'sdk_token_tmp', true );
+		$mer_trade_no = $order->get_order_number() . $order_suffix;
 
 		// 送出前落地本次 MerTradeNo（含流水號），3D 背景通知回來時以它核對訂單。
-		TradeHandler::remember_mer_trade_no( $order, $order->get_order_number() . $order_suffix );
-
-		$trade_params = [
-			'MerID'        => $setting->merchant_id,
-			'MerTradeNo'   => $order->get_order_number() . $order_suffix,
-			'Token'        => $sdk_token,
-			'TradeAmt'     => 5,
-			'Timestamp'    => \time(),
-			'NotifyURL'    => \home_url( '/wc-api/payuni_notify' ),
-			'UsrMail'      => $buyer_email,
-			'ProdDesc'     => '訂閱取得信用卡 Token',
-			// 續扣需要可幕後扣款的 CreditHash，只有「約定信用卡」類型才會由 PayUni 壓碼。
-			// UseTokenType=2（記憶卡號）僅供下次結帳帶出卡號，授權雖成功但不回 CreditHash。
-			// 此值必須與 token_get 及前端 getTradeResult 送出的 useTokenType 完全一致。
-			'UseTokenType' => EUseTokenType::FORCE_BIND->value,
-			'CreditToken'  => CreditTokenUtils::sanitize( $buyer_email, $order->get_customer_id() ),
-		];
-
-		if ( $setting->enable_3d_auth ) {
-			$trade_params['API3D'] = 1;
-			$trade_params['ReturnURL'] = $order->get_checkout_order_received_url();
-		}
-
-		$encrypt_info = EncryptUtils::encrypt( $trade_params );
-		$request_body = [
-			'MerID'       => $setting->merchant_id,
-			'Version'     => '1.0',
-			'EncryptInfo' => $encrypt_info,
-			'HashInfo'    => EncryptUtils::hash_info( $encrypt_info ),
-		];
+		TradeHandler::remember_mer_trade_no( $order, $mer_trade_no );
 
 		try {
 			$handler = new TradeHandler();
-			$raw_response = $handler->execute_trade( $request_body );
-			$trade_result = $handler->process_notify( $raw_response );
+			$trade_result = $this->request_binding_trade( $order, $mer_trade_no, $sdk_token, $order->get_checkout_order_received_url() );
 
 			$trade_no = $trade_result['TradeNo'] ?? '';
 			$url_3d   = $trade_result['URL'] ?? '';
@@ -148,6 +123,59 @@ final class SubscriptionHandler {
 	}
 
 	/**
+	 * 送出 5 元綁卡交易（強制約定信用卡），回傳解密後的結果
+	 *
+	 * 只負責組參數、送出與解密，不碰訂單／訂閱狀態；成功、3D、失敗由呼叫端判斷。
+	 * 零元首購（process_zero_amount_token）與定期定額換卡（PaymentMethodChange）共用。
+	 *
+	 * @param \WC_Order $target       綁卡對象（訂單或訂閱），取帳單 email 與客戶 ID
+	 * @param string    $mer_trade_no 本次 MerTradeNo（每次嘗試都必須不同）
+	 * @param string    $sdk_token    前端 SDK Token
+	 * @param string    $return_url   3D 驗證後導回的網址（僅 3D 開啟時送出）
+	 *
+	 * @return array 解密後的交易結果
+	 * @throws \Exception When the HTTP request, response verification or decryption fails.
+	 */
+	public function request_binding_trade( \WC_Order $target, string $mer_trade_no, string $sdk_token, string $return_url ): array {
+		$setting     = SettingDTO::instance();
+		$buyer_email = $target->get_billing_email();
+
+		$trade_params = [
+			'MerID'        => $setting->merchant_id,
+			'MerTradeNo'   => $mer_trade_no,
+			'Token'        => $sdk_token,
+			'TradeAmt'     => 5,
+			'Timestamp'    => \time(),
+			'NotifyURL'    => \home_url( '/wc-api/payuni_notify' ),
+			'UsrMail'      => $buyer_email,
+			'ProdDesc'     => '訂閱取得信用卡 Token',
+			// 續扣需要可幕後扣款的 CreditHash，只有「約定信用卡」類型才會由 PayUni 壓碼。
+			// UseTokenType=2（記憶卡號）僅供下次結帳帶出卡號，授權雖成功但不回 CreditHash。
+			// 此值必須與 token_get 及前端 getTradeResult 送出的 useTokenType 完全一致。
+			'UseTokenType' => EUseTokenType::FORCE_BIND->value,
+			'CreditToken'  => CreditTokenUtils::sanitize( $buyer_email, (int) $target->get_customer_id() ),
+		];
+
+		if ( $setting->enable_3d_auth ) {
+			$trade_params['API3D']     = 1;
+			$trade_params['ReturnURL'] = $return_url;
+		}
+
+		$encrypt_info = EncryptUtils::encrypt( $trade_params );
+		$request_body = [
+			'MerID'       => $setting->merchant_id,
+			'Version'     => '1.0',
+			'EncryptInfo' => $encrypt_info,
+			'HashInfo'    => EncryptUtils::hash_info( $encrypt_info ),
+		];
+
+		$handler      = new TradeHandler();
+		$raw_response = $handler->execute_trade( $request_body );
+
+		return $handler->process_notify( $raw_response );
+	}
+
+	/**
 	 * 排程取消零元授權
 	 *
 	 * @param string $trade_no PayUni 交易編號
@@ -193,64 +221,143 @@ final class SubscriptionHandler {
 	}
 
 	/**
-	 * 取得訂單的 CreditHash（支援 V3 和 V1 雙 gateway_id 搜尋）
+	 * 取得訂單的 CreditHash
 	 *
-	 * 先搜尋 V3 gateway 的 Token，若找不到則 fallback 到 V1。
+	 * 優先序（issue #147：客戶預設的舊 V1 token 不可搶先）：
+	 * 1. 續訂單所屬訂閱綁定的 `_payuni_token_id`
+	 * 2. 訂單自己的 `_payuni_token_id`
+	 * 3. 客戶預設 token，且為 V3 訂閱閘道
+	 * 4. 最新一筆 V3 訂閱閘道 token
+	 * 5. 最新一筆 payuni-credit-v3 token
+	 * 6. 最新一筆 V1 token（最後手段，寫 warning）
+	 *
+	 * 每一層都會驗證 token 存在、屬於訂單客戶、閘道符合該層、值非空。
 	 *
 	 * @param \WC_Order $order 訂單物件
 	 *
 	 * @return string CreditHash，找不到時回傳空字串
 	 */
 	public static function get_card_hash( \WC_Order $order ): string {
-		$customer_id = $order->get_customer_id();
+		$customer_id = (int) $order->get_customer_id();
 
 		if ( ! $customer_id ) {
 			return '';
 		}
 
-		// 優先：使用者預設 Token 如果是 V3 或 V1 訂閱閘道
-		$default_token = \WC_Payment_Tokens::get_customer_default_token( $customer_id );
-		if ( $default_token ) {
-			$gateway_id = $default_token->get_gateway_id();
-			if ( self::V3_GATEWAY_ID === $gateway_id || self::V1_GATEWAY_ID === $gateway_id ) {
-				$token_value = $default_token->get_token();
-				if ( $token_value ) {
-					return $token_value;
+		$bound_gateways = [ self::V3_GATEWAY_ID, self::CREDIT_V3_GATEWAY_ID ];
+
+		// 1. 續訂單所屬訂閱綁定的 token
+		if ( \function_exists( 'wcs_get_subscriptions_for_renewal_order' ) ) {
+			foreach ( (array) \wcs_get_subscriptions_for_renewal_order( $order ) as $subscription ) {
+				if ( ! $subscription instanceof \WC_Order ) {
+					continue;
+				}
+				$token = self::resolve_valid_token( (int) $subscription->get_meta( '_payuni_token_id' ), $customer_id, $bound_gateways );
+				if ( $token ) {
+					return $token->get_token();
 				}
 			}
 		}
 
-		// 搜尋 V3 閘道 Token
-		$v3_tokens = \WC_Payment_Tokens::get_customer_tokens( $customer_id, self::V3_GATEWAY_ID );
-		if ( ! empty( $v3_tokens ) ) {
-			$token = end( $v3_tokens );
-			$token_value = $token->get_token();
-			if ( $token_value ) {
-				return $token_value;
+		// 2. 訂單自己的 token
+		$token = self::resolve_valid_token( (int) $order->get_meta( '_payuni_token_id' ), $customer_id, $bound_gateways );
+		if ( $token ) {
+			return $token->get_token();
+		}
+
+		// 3. 客戶預設 token（只收 V3 訂閱閘道）
+		$default_token = \WC_Payment_Tokens::get_customer_default_token( $customer_id );
+		if ( $default_token ) {
+			$token = self::resolve_valid_token( (int) $default_token->get_id(), $customer_id, [ self::V3_GATEWAY_ID ] );
+			if ( $token ) {
+				return $token->get_token();
 			}
 		}
 
-		// Fallback：搜尋 V1 閘道 Token
-		$v1_tokens = \WC_Payment_Tokens::get_customer_tokens( $customer_id, self::V1_GATEWAY_ID );
-		if ( ! empty( $v1_tokens ) ) {
-			$token = end( $v1_tokens );
-			$token_value = $token->get_token();
-			if ( $token_value ) {
-				return $token_value;
+		// 4、5. 最新一筆 V3 訂閱 token → payuni-credit-v3 token
+		foreach ( [ self::V3_GATEWAY_ID, self::CREDIT_V3_GATEWAY_ID ] as $gateway_id ) {
+			$token = self::find_latest_token( $customer_id, $gateway_id );
+			if ( $token ) {
+				return $token->get_token();
 			}
 		}
 
-		// 再 fallback：搜尋 V3 CreditV3 閘道 Token
-		$credit_v3_tokens = \WC_Payment_Tokens::get_customer_tokens( $customer_id, 'payuni-credit-v3' );
-		if ( ! empty( $credit_v3_tokens ) ) {
-			$token = end( $credit_v3_tokens );
-			$token_value = $token->get_token();
-			if ( $token_value ) {
-				return $token_value;
-			}
+		// 6. 舊 V1 token（最後手段）
+		$token = self::find_latest_token( $customer_id, self::V1_GATEWAY_ID );
+		if ( $token ) {
+			\do_action(
+				'woomp_payuni_log',
+				'warning',
+				"#{$order->get_id()} 續扣使用舊 V1 Token，可能需重新綁卡",
+				[
+					'order_id'    => $order->get_id(),
+					'customer_id' => $customer_id,
+					'token_id'    => $token->get_id(),
+				]
+			);
+			return $token->get_token();
 		}
 
 		return '';
+	}
+
+	/**
+	 * 取得客戶在指定閘道最新一筆合法 token
+	 *
+	 * @param int    $customer_id 客戶 ID
+	 * @param string $gateway_id  閘道 ID
+	 *
+	 * @return \WC_Payment_Token|null
+	 */
+	private static function find_latest_token( int $customer_id, string $gateway_id ): ?\WC_Payment_Token {
+		$tokens = \WC_Payment_Tokens::get_customer_tokens( $customer_id, $gateway_id );
+		if ( empty( $tokens ) ) {
+			return null;
+		}
+
+		$latest = end( $tokens );
+
+		return self::resolve_valid_token( (int) $latest->get_id(), $customer_id, [ $gateway_id ] );
+	}
+
+	/**
+	 * 驗證 token 可用於此客戶的續扣
+	 *
+	 * @param int      $token_id    Payment Token ID（0 表示未設定）
+	 * @param int      $customer_id 訂單客戶 ID
+	 * @param string[] $gateway_ids 允許的閘道 ID
+	 *
+	 * @return \WC_Payment_Token|null 不存在、不屬於客戶、閘道不符或值為空時回傳 null
+	 */
+	private static function resolve_valid_token( int $token_id, int $customer_id, array $gateway_ids ): ?\WC_Payment_Token {
+		if ( $token_id <= 0 || $customer_id <= 0 ) {
+			return null;
+		}
+
+		$token = \WC_Payment_Tokens::get( $token_id );
+		if ( ! $token instanceof \WC_Payment_Token ) {
+			\do_action( 'woomp_payuni_log', 'warning', "綁定的 Token #{$token_id} 不存在，改找下一層", [ 'customer_id' => $customer_id ] );
+			return null;
+		}
+
+		if ( (int) $token->get_user_id() !== $customer_id ) {
+			\do_action(
+				'woomp_payuni_log',
+				'error',
+				"Token #{$token_id} 不屬於訂單客戶，已略過",
+				[
+					'customer_id'   => $customer_id,
+					'token_user_id' => $token->get_user_id(),
+				]
+			);
+			return null;
+		}
+
+		if ( ! \in_array( $token->get_gateway_id(), $gateway_ids, true ) || '' === (string) $token->get_token() ) {
+			return null;
+		}
+
+		return $token;
 	}
 
 	/**

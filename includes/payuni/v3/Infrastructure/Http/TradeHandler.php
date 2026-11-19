@@ -215,6 +215,21 @@ final class TradeHandler
 		$card_6no = $trade_result['Card6No'] ?? '';
 		$card_hash = $trade_result['CreditHash'] ?? '';
 
+		// 縱深防禦：訂閱物件絕不可走訂單付款流程（payment_complete 會把它的待付款續訂單標成已付款）
+		if ( \function_exists( 'wcs_is_subscription' ) && \wcs_is_subscription( $order ) ) {
+			\do_action(
+				'woomp_payuni_log',
+				'error',
+				"#{$order->get_id()} update_order_status 收到訂閱物件，已拒絕處理",
+				[
+					'order_id' => $order->get_id(),
+					'status'   => $status,
+					'trade_no' => $trade_no,
+				]
+			);
+			return;
+		}
+
 		if ('SUCCESS' === $status && !$order->is_paid() && !self::is_payment_processable($order)) {
 			// 已取消／已退款，或已處理過這筆交易（戳記）：不可再被改回已付款
 			$order->add_order_note(
@@ -272,7 +287,10 @@ final class TradeHandler
 				]);
 				if ($user_id && $should_save_card && ($card_hash || $card_4no)) {
 					$credit_life = $trade_result['CreditLife'] ?? '';
-					$this->save_payment_token($user_id, $card_hash, $card_6no, $card_4no, $credit_life, $token_gateway_id);
+					$token_id    = $this->save_payment_token( $user_id, $card_hash, $card_6no, $card_4no, $credit_life, $token_gateway_id );
+					if ( $is_subscription && $token_id ) {
+						self::bind_token_to_subscriptions( $order, $token_id );
+					}
 				}
 				$this->warn_if_subscription_token_missing($order, $is_subscription, $card_hash);
 			}
@@ -294,7 +312,10 @@ final class TradeHandler
 			$user_id = $order->get_customer_id();
 			if ($user_id && $should_save_card && ($card_hash || $card_4no)) {
 				$credit_life = $trade_result['CreditLife'] ?? '';
-				$this->save_payment_token($user_id, $card_hash, $card_6no, $card_4no, $credit_life, $token_gateway_id);
+				$token_id    = $this->save_payment_token( $user_id, $card_hash, $card_6no, $card_4no, $credit_life, $token_gateway_id );
+				if ( $is_subscription && $token_id ) {
+					self::bind_token_to_subscriptions( $order, $token_id );
+				}
 			}
 			$this->warn_if_subscription_token_missing($order, $is_subscription, $card_hash);
 		} else {
@@ -305,6 +326,32 @@ final class TradeHandler
 
 		$order->save();
 		OrderUtils::delete_tmp_data($order);
+	}
+
+	/**
+	 * 把 token ID 綁到訂單（母單／續訂單）所屬的訂閱
+	 *
+	 * 續扣優先使用訂閱綁定的 `_payuni_token_id`（見 SubscriptionHandler::get_card_hash()），
+	 * 避免客戶預設的舊 V1 token 搶先。
+	 *
+	 * @param \WC_Order $order    母單或續訂單
+	 * @param int       $token_id Payment Token ID
+	 *
+	 * @return void
+	 */
+	public static function bind_token_to_subscriptions( \WC_Order $order, int $token_id ): void {
+		if ( $token_id <= 0 || ! \function_exists( 'wcs_get_subscriptions_for_order' ) ) {
+			return;
+		}
+
+		$subscriptions = \wcs_get_subscriptions_for_order( $order, [ 'order_type' => [ 'parent', 'renewal' ] ] );
+		foreach ( (array) $subscriptions as $subscription ) {
+			if ( ! $subscription instanceof \WC_Order ) {
+				continue;
+			}
+			$subscription->update_meta_data( '_payuni_token_id', (string) $token_id );
+			$subscription->save();
+		}
 	}
 
 	/**
@@ -572,7 +619,7 @@ final class TradeHandler
 	 * @param string $card_exp    有效期限 (MMYY)
 	 * @param string $gateway_id  閘道 ID（預設為 CreditV3::ID）
 	 *
-	 * @return void
+	 * @return int|null 新建或既有 token 的 ID；拒存（缺 CreditHash 等）回傳 null
 	 */
 	public function save_payment_token(
 		int $customer_id,
@@ -581,7 +628,7 @@ final class TradeHandler
 		string $card_4no,
 		string $card_exp,
 		string $gateway_id = ''
-	): void {
+	): ?int {
 		if (empty($gateway_id)) {
 			$gateway_id = \PAYUNI\Gateways\CreditV3::ID;
 		}
@@ -600,14 +647,14 @@ final class TradeHandler
 					'card_4no'    => $card_4no,
 					'hint'        => 'PayUni 未建立信用卡 Token，請確認 token_get 與 getTradeResult 的 UseTokenType 一致，且商店已開通信用卡 Token 功能',
 				]);
-				return;
+				return null;
 			}
 
 			$token_key = sprintf('%s****%s', $card_6no, $card_4no);
 		}
 
 		if (! $token_key) {
-			return;
+			return null;
 		}
 
 		// 檢查是否已存在相同的 Token（搜尋目標 gateway_id）
@@ -621,7 +668,7 @@ final class TradeHandler
 					'card_4no'    => $card_4no,
 					'gateway_id'  => $gateway_id,
 				]);
-				return;
+				return (int) $existing_token->get_id();
 			}
 		}
 
@@ -665,5 +712,7 @@ final class TradeHandler
 			'gateway_id'  => $gateway_id,
 			'token_id'    => $token->get_id()
 		]);
+
+		return $token->get_id() > 0 ? (int) $token->get_id() : null;
 	}
 }

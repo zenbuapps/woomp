@@ -98,3 +98,113 @@ Feature: PayUni v1 信用卡訂閱（定期定額）付款
         | subscription_payment_method_change_admin          |
         | multiple_subscriptions                            |
         | tokenization                                      |
+
+  Rule: PayUni V3 換卡（payuni-credit-subscription-v3，issue #147）
+
+    Background:
+      Given 信用卡定期定額 V3 閘道已啟用（payuni-credit-subscription-v3）
+      And 訂閱客戶已登入，並進入「我的帳號 → 訂閱 → 更改付款」換卡頁
+
+    Scenario: 換卡頁只顯示 V3 閘道
+      Given 訂閱目前使用 V1（payuni-credit-subscription）
+      Then 換卡頁保留 payuni-credit-subscription-v3
+      And 換卡頁不顯示 payuni-credit-subscription
+      And woomp_payuni_allow_v1_change_payment filter 回傳 true 時才保留 V1
+
+    Scenario: 一般結帳空購物車仍過濾訂閱閘道
+      Given 購物車為空且不是換卡請求
+      When 消費者進入結帳頁面
+      Then V1 與 V3 訂閱閘道都不出現
+
+    Scenario: 換卡只授權 5 元，不扣每期金額
+      Given 訂閱每期金額為 9450 元，WCS 已把訂閱 total 歸零
+      When 客戶送出換卡表單
+      Then 系統收到訂閱物件，一律走換卡流程
+      And PayUni 交易 TradeAmt 為 5、UseTokenType 為 3
+      And MerTradeNo 符合 {訂閱ID}-C{n} 格式
+      And 系統不呼叫 payment_complete()，也不呼叫 woomp_copy_order()
+
+    Scenario: 客戶原本有 V1 預設 token，仍須重新綁卡
+      Given 客戶有 V1 預設 token
+      When 客戶送出換卡表單
+      Then 系統仍向 PayUni 發出 5 元綁卡請求
+      And 不直接沿用 V1 token 完成
+
+    Scenario: 不需 3D，同步綁卡成功
+      When PayUni 同步回傳 SUCCESS 且含 CreditHash
+      Then 系統建立 V3 token 並設為客戶預設 token
+      And 訂閱付款方式改為 payuni-credit-subscription-v3，_payuni_token_id 指向新 token
+      And 系統排程 2 分鐘後取消 5 元授權
+      And 訂閱與其待付款續訂單的狀態不變
+      And 導回訂閱檢視頁
+
+    Scenario: 授權成功但沒有 CreditHash
+      When PayUni 回傳 SUCCESS 但沒有 CreditHash
+      Then 付款方式不變
+      And 訂閱備註記錄「綁卡未完成」
+      And 客戶看到錯誤提示
+
+    Scenario: 沒有 sdk_token 或訪客
+      When 表單沒有 sdk_token_tmp，或客戶不是訂閱本人
+      Then 回傳 failure 並顯示提示，不發出任何 PayUni 請求
+
+    Scenario: 需 3D 驗證，付款方式延後到 webhook 才更新
+      When PayUni 回傳 3D 驗證網址
+      Then 客戶被導向 PayUni 網域（allowed_redirect_hosts 只在本次請求放行 payuni.com.tw）
+      And 付款方式仍是原本的閘道
+      And 訂閱有 _payuni_change_pending，檢視頁顯示「綁卡處理中」
+
+    Scenario: 3D 完成後 webhook 成功
+      Given MerTradeNo 為該訂閱 attempts 內最新一次嘗試
+      When PayUni POST /wc-api/payuni_notify，Status 為 SUCCESS 且 TradeAmt 為 5
+      Then 系統綁卡並更新付款方式，排程取消 5 元
+      And 客戶先前勾選「同時更新所有訂閱」時，同客戶其他訂閱也切換並帶上 token
+      And 同一 TradeNo 重複通知只處理一次
+
+    Scenario: 3D 失敗或中途離開
+      When webhook 回傳非 SUCCESS，或客戶關閉頁面
+      Then 付款方式維持原狀
+      And 失敗時訂閱備註記錄原因、清除 pending
+
+    Scenario: 舊嘗試的成功通知
+      Given 客戶已重新發起換卡，舊 MerTradeNo 不是最新一次嘗試
+      When 舊 MerTradeNo 收到 SUCCESS
+      Then 系統只排程取消該筆 5 元授權，不綁定、不覆蓋最新結果
+
+    Scenario Outline: 偽造的換卡通知一律拒絕
+      When 通知的 <異常> 
+      Then 系統拒絕、寫入 error log，不做任何變更
+      Examples:
+        | 異常                              |
+        | MerTradeNo 不在該訂閱的 attempts  |
+        | MerTradeNo 的 ID 不是訂閱         |
+        | MerID 與商店設定不符              |
+        | Status 為 SUCCESS 但 TradeAmt 不是 5 |
+
+    Scenario: 換卡暫存資料不複製到續訂單
+      When WCS 建立續訂單
+      Then 續訂單不含 _payuni_change_* 與 _payuni_mer_trade_no
+      And 續訂單保留 _payuni_token_id
+
+  Rule: 續扣 CreditHash 取得優先序（V3 定期定額）
+
+    Scenario: 依序取得續扣 token
+      When 續訂單需要 CreditHash
+      Then 系統依下列順序取第一個有效 token（存在、屬於訂單客戶、閘道符合、token 值非空）
+        | 順序 | 來源                                                  |
+        | 1    | 續訂單所屬訂閱的 _payuni_token_id                     |
+        | 2    | 續訂單自己的 _payuni_token_id                         |
+        | 3    | 客戶預設 token（僅限 payuni-credit-subscription-v3）  |
+        | 4    | 客戶最新的 payuni-credit-subscription-v3 token        |
+        | 5    | 客戶最新的 payuni-credit-v3 token                     |
+        | 6    | 客戶最新的 V1 token（最後手段，寫 warning log）       |
+
+    Scenario: 舊 V1 預設 token 不搶先
+      Given 客戶的預設 token 是 V1，另有一張非預設的 V3 token
+      When 續訂單需要 CreditHash
+      Then 使用 V3 token
+
+    Scenario: 訂閱綁定的 token 無效則往下一層
+      Given 訂閱的 _payuni_token_id 指向已刪除、他人或 V1 的 token
+      When 續訂單需要 CreditHash
+      Then 跳過該 token 並往下一層尋找

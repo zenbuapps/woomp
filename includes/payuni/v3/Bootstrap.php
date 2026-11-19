@@ -7,6 +7,7 @@ namespace J7\Payuni;
 use J7\Payuni\Contracts\DTOs\SdkDTO;
 use J7\Payuni\Contracts\DTOs\SettingDTO;
 use J7\Payuni\Domains\Reconciliation\PendingReconciler;
+use J7\Payuni\Domains\Subscription\PaymentMethodChange;
 use J7\Payuni\Domains\Subscription\SubscriptionBootstrap;
 use J7\Payuni\Infrastructure\Http\HttpClient;
 use J7\Payuni\Infrastructure\Http\TradeHandler;
@@ -124,11 +125,13 @@ final class Bootstrap
 
 		$sdk_token        = '';
 		$sdk_error_detail = '';
-		$use_token_type   = EUseTokenType::REMEMBER_CARD;
+		// 訂閱換卡頁（order-pay?change_payment_method=）：購物車是空的，不能依購物車判斷，
+		// 一律強制約定信用卡，前端改走 order-pay 原生送出流程（PAGE_CONTEXT）。
+		$is_change_payment = PaymentMethodChange::is_change_payment_page();
+		// 購物車含訂閱商品或換卡時，Token 必須是「強制約定信用卡」(3) 才會壓 CreditHash 供後續幕後續扣；
+		// 一般結帳沿用「記憶卡號」(2)。此值必須在 token_get 之前決定，且與前端 getTradeResult({ useTokenType }) 一致。
+		$use_token_type = ( $is_change_payment || self::cart_contains_subscription() ) ? EUseTokenType::FORCE_BIND : EUseTokenType::REMEMBER_CARD;
 		try {
-			// 購物車含訂閱商品時，Token 必須是「強制約定信用卡」(3) 才會壓 CreditHash 供後續幕後續扣；
-			// 一般結帳沿用「記憶卡號」(2)。此值必須與前端 getTradeResult({ useTokenType }) 一致。
-			$use_token_type = self::cart_contains_subscription() ? EUseTokenType::FORCE_BIND : EUseTokenType::REMEMBER_CARD;
 			$token = (new HttpClient())->get_sdk_token($use_token_type);
 			$sdk = SdkDTO::from($token);
 			$sdk_token = $sdk->Token;
@@ -152,6 +155,8 @@ final class Bootstrap
 				// 前端 getTradeResult({ useTokenType }) 必須送出與 token_get 相同的值，
 				// 否則 PayUni 不執行綁定、授權成功卻不回 CreditHash，後續無法幕後續扣。
 				'USE_TOKEN_TYPE'      => $use_token_type->value,
+				// 'order-pay'：換卡頁，前端以原生方式送出 form#order_review；'checkout'：一般結帳
+				'PAGE_CONTEXT'        => $is_change_payment ? 'order-pay' : 'checkout',
 				'ERROR_MAPPER'        => HttpClient::$error_mapper
 			]
 		);
@@ -229,6 +234,7 @@ final class Bootstrap
 	 */
 	public static function handle_notify(): void
 	{
+		$change_accepted = null;
 		try {
 			// phpcs:disable WordPress.Security.NonceVerification.Missing -- 金流商回呼沒有 nonce，以 HashInfo 簽章取代。
 			$post = \wp_unslash($_POST);
@@ -237,8 +243,31 @@ final class Bootstrap
 			$handler = new TradeHandler();
 			$trade_result = $handler->process_notify(\is_array($post) ? $post : []);
 
-			// 取得訂單：以 ID 找並核對送出時落地的 MerTradeNo（見 TradeHandler::find_notify_order()）
 			$mer_trade_no = (string) ($trade_result['MerTradeNo'] ?? '');
+
+			// 定期定額換卡（MerTradeNo `{訂閱ID}-C{n}`）：交給換卡分支，絕不走訂單付款流程。
+			// 回應在 try 外送出，避免 wp_send_json 的中止被下方 catch 吃掉。
+			if ( PaymentMethodChange::is_change_mer_trade_no( $mer_trade_no ) ) {
+				$outer_mer_id    = \is_array( $post ) && \is_string( $post['MerID'] ?? null ) ? (string) $post['MerID'] : '';
+				$change_accepted = PaymentMethodChange::route_notify( $trade_result, $outer_mer_id );
+			}
+		} catch (\Throwable $e) {
+			\do_action('woomp_payuni_log', 'error', '處理回調通知失敗: ' . $e->getMessage(), []);
+			\wp_send_json_error($e->getMessage());
+			return;
+		}
+
+		if ( null !== $change_accepted ) {
+			if ( $change_accepted ) {
+				\wp_send_json_success();
+			} else {
+				\wp_send_json_error( '換卡通知驗證失敗' );
+			}
+			return;
+		}
+
+		try {
+			// 取得訂單：以 ID 找並核對送出時落地的 MerTradeNo（見 TradeHandler::find_notify_order()）
 			$order = TradeHandler::find_notify_order($mer_trade_no);
 
 			if (!$order) {

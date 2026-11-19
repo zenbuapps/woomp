@@ -73,6 +73,9 @@ final class SubscriptionBootstrap {
 			1
 		);
 
+		// 換卡：V3 付款 meta（_payuni_token_id）註冊與驗證
+		PaymentMethodChange::register_hooks();
+
 		// 後台手動扣款 Metabox
 		SubscriptionMetabox::register();
 
@@ -102,6 +105,17 @@ final class SubscriptionBootstrap {
 			return $available_gateways;
 		}
 
+		// 換卡頁（我的帳號 → 訂閱 → 更改付款）：購物車是空的，不能依購物車過濾。
+		// 保留 V3；V1 綁卡走 PayUni 停用中的幕後授權 API，預設移除，
+		// 可用 woomp_payuni_allow_v1_change_payment filter 放行。
+		if ( self::is_change_payment_context() ) {
+			if ( ! \apply_filters( 'woomp_payuni_allow_v1_change_payment', false ) ) {
+				unset( $available_gateways[ self::V1_GATEWAY_ID ] );
+			}
+
+			return $available_gateways;
+		}
+
 		// 收集購物車中的商品類型
 		$product_types = self::get_cart_product_types();
 
@@ -109,6 +123,18 @@ final class SubscriptionBootstrap {
 		$available_gateways = self::filter_gateways_by_cart( $available_gateways, $product_types );
 
 		return $available_gateways;
+	}
+
+	/**
+	 * 是否為訂閱換卡頁
+	 *
+	 * 換卡頁 = 結帳頁 + order-pay endpoint + WCS 換卡請求。
+	 * order-pay 付待付款訂單（非換卡）不算，仍依購物車過濾。
+	 *
+	 * @return bool
+	 */
+	private static function is_change_payment_context(): bool {
+		return PaymentMethodChange::is_change_payment_page();
 	}
 
 	/**

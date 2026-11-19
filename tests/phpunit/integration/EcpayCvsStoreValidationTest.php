@@ -320,6 +320,14 @@ class EcpayCvsStoreValidationTest extends WP_UnitTestCase {
 		// 模擬 ThemeHigh 等外掛在 woocommerce_checkout_init 就讀取欄位（早於 woocommerce_checkout_process）
 		$checkout->get_checkout_fields();
 
+		// 真實結帳在驗證前一定會算過購物車總計，WooCommerce Subscriptions 在那一步
+		// （woocommerce_before_calculate_totals）初始化 recurring_carts；本測試購物車是空的，
+		// calculate_totals() 會提早 return，所以直接給它算總計時會設的初始值，
+		// 否則 WCS 的 validate_recurring_shipping_methods() 會對未初始化的屬性 foreach。
+		if ( class_exists( 'WC_Subscriptions_Cart' ) ) {
+			WC()->cart->recurring_carts = [];
+		}
+
 		$data   = $checkout->get_posted_data();
 		$errors = new WP_Error();
 		$method = new ReflectionMethod( WC_Checkout::class, 'validate_checkout' );

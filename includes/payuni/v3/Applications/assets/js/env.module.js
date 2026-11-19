@@ -17,6 +17,8 @@
  * @property {string} API_URL - PayUni API 端點網址
  * @property {Object<string, string>} ERROR_MAPPER - 錯誤代碼對應訊息
  * @property {number[]} INST_OPTIONS - 可用的分期選項
+ * @property {number} USE_TOKEN_TYPE - 與 token_get 相同的 UseTokenType（2=記憶卡號、3=強制約定信用卡）
+ * @property {string} PAGE_CONTEXT - 頁面情境（'checkout'：一般結帳；'order-pay'：訂閱換卡頁）
  */
 
 /** @type {PayUniParams} */

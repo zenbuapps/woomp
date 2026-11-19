@@ -90,6 +90,30 @@ npx @wordpress/env run tests-cli -- bash -c 'cd /var/www/html/wp-content/plugins
 npx @wordpress/env run tests-cli -- bash -c 'cd /var/www/html/wp-content/plugins/woomp && WP_TESTS_DIR=/wordpress-phpunit vendor/bin/phpunit --configuration tests/phpunit/phpunit.xml.dist --no-coverage --testdox'
 ```
 
+### 訂閱 suite（PayUni V3 定期定額，issue #147）
+
+```bash
+# 容器名稱先用 docker ps -a 確認（多個 wp-env 並存時 npx 會解析錯專案，見 woomp phpunit 容器陷阱）
+MSYS_NO_PATHCONV=1 docker exec <woomp-tests-cli> sh -c 'cd /var/www/html/wp-content/plugins/woomp && WP_TESTS_DIR=/wordpress-phpunit php vendor/bin/phpunit --configuration tests/phpunit/phpunit.xml.dist --no-coverage --testdox --testsuite subscription'
+```
+
+`subscription` suite 的測試檔：
+
+| 檔案 | 內容 |
+| --- | --- |
+| `SubscriptionV3BootstrapTest.php` | 閘道過濾（一般結帳空購物車移除訂閱閘道、換卡頁保留 V3 移除 V1、`woomp_payuni_allow_v1_change_payment`） |
+| `SubscriptionV3PaymentTest.php` | `get_card_hash()` 續扣 token 優先序、`find_saved_token_id()` 不撿 V1 |
+| `SubscriptionV3TokenBindingTest.php`（新） | 首購／續訂單付款成功後 token 綁到訂閱、換卡情境 localize 參數（`USE_TOKEN_TYPE=3`、`PAGE_CONTEXT`） |
+| `SubscriptionV3PaymentMethodChangeTest.php`（新） | 換卡流程：同步／3D／webhook、偽造拒絕、冪等、HPOS 開關、續訂單 meta 剝除 |
+| `SubscriptionV3MetaboxTest.php` | 訂閱後台 metabox |
+
+注意事項：
+
+- **bootstrap 現在會載入 WooCommerce Subscriptions**（`tests/phpunit/bootstrap.php`，在 WooCommerce 之後、woomp 之前）。檔案不存在時退回 `support/WcsFixture.php` + `WcsFunctionStubs.php` 的替身，測試仍可跑。
+- **`WC_USE_TRANSACTIONS` 設為 `false`**：`wcs_create_renewal_order()` 經 `WCS_SQL_Transaction` 送出 `START TRANSACTION`，會隱含 `COMMIT` 掉 `WP_UnitTestCase` 的外層交易，測試建立的付款 token 與 HPOS 訂單因此永久殘留；下一輪 `wp_users` 重新編號，撞號的新客戶就「多出」別人的 token（偶發失敗，例如 T-N5「只有一張 token」）。bootstrap 另會在啟動時清掉 `woocommerce_payment_tokens`／`tokenmeta`。
+- **測試中途切 HPOS**：WCS 的 `wcs_get_cached_users_subscription_ids` 快取在開機時就依 HPOS 狀態選定監聽的資料表，中途切換不會跟著換、會一直回空陣列，所以開啟 HPOS 的測試要用 `add_filter( 'wcs_get_cached_users_subscription_ids', '__return_empty_string' )` 略過快取（見 `set_hpos()`）。已有訂單後改 HPOS 選項會丟「未同步訂單」例外，tearDown 用 `delete_option` 還原。
+- **Git Bash 跑 `docker exec` 要加 `MSYS_NO_PATHCONV=1`**，否則 `/var/www/...` 路徑會被轉成 Windows 路徑。
+
 ---
 
 ## E2E 測試（Playwright）

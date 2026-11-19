@@ -55,6 +55,8 @@
 			<file>integration/SubscriptionV3BootstrapTest.php</file>
 			<file>integration/SubscriptionV3PaymentTest.php</file>
 			<file>integration/SubscriptionV3MetaboxTest.php</file>
+			<file>integration/SubscriptionV3PaymentMethodChangeTest.php</file>
+			<file>integration/SubscriptionV3TokenBindingTest.php</file>
 		</testsuite>
 	</testsuites>
 </phpunit>

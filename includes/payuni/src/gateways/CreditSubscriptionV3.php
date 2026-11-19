@@ -13,6 +13,7 @@ namespace PAYUNI\Gateways;
 
 use J7\Payuni\Contracts\DTOs\SettingDTO;
 use J7\Payuni\Contracts\DTOs\TradeReqHashDTO;
+use J7\Payuni\Domains\Subscription\PaymentMethodChange;
 use J7\Payuni\Domains\Subscription\SubscriptionHandler;
 use J7\Payuni\Infrastructure\Http\TradeHandler;
 use J7\Payuni\Shared\Enums\EUseTokenType;
@@ -63,6 +64,8 @@ class CreditSubscriptionV3 extends AbstractGateway {
 			'subscription_payment_method_change',
 			'subscription_payment_method_change_customer',
 			'subscription_payment_method_change_admin',
+			// 換卡延後到綁卡成功才改付款方式（見 PaymentMethodChange），WCS 才會保留「同時更新所有訂閱」
+			'subscription_payment_method_delayed_change',
 			'multiple_subscriptions',
 			'tokenization',
 		];
@@ -174,6 +177,7 @@ class CreditSubscriptionV3 extends AbstractGateway {
 	 * 1. 金額 > 0：走 UNi Embed iframe 交易（強制約定信用卡 UseTokenType=3、CreditToken=email、不帶 CardInst）
 	 * 2. 金額 = 0 + 有已存 Token：直接 payment_complete
 	 * 3. 金額 = 0 + 無 Token：扣 5 元取 CreditHash
+	 * 另外，收到訂閱物件（WCS 換付款方式）時一律交給 PaymentMethodChange::start()。
 	 *
 	 * @param string $order_id 訂單 ID。
 	 * @return array
@@ -185,6 +189,12 @@ class CreditSubscriptionV3 extends AbstractGateway {
 			return [
 				'result' => 'failure',
 			];
+		}
+
+		// 收到訂閱物件 = WCS 換付款方式：一律只做 5 元綁卡，絕不扣款、絕不 payment_complete。
+		// 不可依金額判斷（WCS 只在 _wcsnonce 有效時才把 total 歸零）。
+		if ( \function_exists( 'wcs_is_subscription' ) && \wcs_is_subscription( $order ) ) {
+			return PaymentMethodChange::start( $order );
 		}
 
 		// 判斷零元不可用 (int)：0.9 元會被截斷成 0 而不收錢直接完成付款。
@@ -219,6 +229,9 @@ class CreditSubscriptionV3 extends AbstractGateway {
 			$order->add_order_note( "持有 token #{$token_id} 且訂單金額為 0，直接轉為處理中" );
 			$order->update_meta_data( '_payuni_token_id', (string) $token_id );
 			$order->save();
+
+			// 續扣優先讀訂閱綁定的 token
+			TradeHandler::bind_token_to_subscriptions( $order, $token_id );
 
 			return [
 				'result'   => 'success',
@@ -418,7 +431,7 @@ class CreditSubscriptionV3 extends AbstractGateway {
 	 * 尋找使用者已儲存的 Token ID
 	 *
 	 * 檢查使用者選擇的 saved_token_id（前端傳入），
-	 * 或搜尋 V3/V1 雙 gateway_id 的 Token。
+	 * 或搜尋 V3 訂閱閘道／payuni-credit-v3 的 Token（不含 V1）。
 	 *
 	 * @param \WC_Order $order 訂單物件
 	 *
@@ -443,10 +456,11 @@ class CreditSubscriptionV3 extends AbstractGateway {
 			return null;
 		}
 
+		// 不收 V1（payuni-credit-subscription）token：V3 續扣需要 V3 綁卡取得的 CreditHash，
+		// 拿 V1 token 直接完成會讓訂閱沒有重新綁卡（issue #147）。
 		$gateway_ids = [
-			'payuni-credit-subscription-v3',
-			'payuni-credit-subscription',
-			'payuni-credit-v3',
+			self::ID,
+			CreditV3::ID,
 		];
 
 		foreach ( $gateway_ids as $gateway_id ) {
