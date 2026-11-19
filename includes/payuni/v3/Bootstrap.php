@@ -7,6 +7,7 @@ namespace J7\Payuni;
 use J7\Payuni\Contracts\DTOs\SdkDTO;
 use J7\Payuni\Contracts\DTOs\SettingDTO;
 use J7\Payuni\Domains\Reconciliation\PendingReconciler;
+use J7\Payuni\Domains\Subscription\PaymentMethodChange;
 use J7\Payuni\Domains\Subscription\SubscriptionBootstrap;
 use J7\Payuni\Infrastructure\Http\HttpClient;
 use J7\Payuni\Infrastructure\Http\TradeHandler;
@@ -229,6 +230,7 @@ final class Bootstrap
 	 */
 	public static function handle_notify(): void
 	{
+		$change_accepted = null;
 		try {
 			// phpcs:disable WordPress.Security.NonceVerification.Missing -- 金流商回呼沒有 nonce，以 HashInfo 簽章取代。
 			$post = \wp_unslash($_POST);
@@ -237,8 +239,31 @@ final class Bootstrap
 			$handler = new TradeHandler();
 			$trade_result = $handler->process_notify(\is_array($post) ? $post : []);
 
-			// 取得訂單：以 ID 找並核對送出時落地的 MerTradeNo（見 TradeHandler::find_notify_order()）
 			$mer_trade_no = (string) ($trade_result['MerTradeNo'] ?? '');
+
+			// 定期定額換卡（MerTradeNo `{訂閱ID}-C{n}`）：交給換卡分支，絕不走訂單付款流程。
+			// 回應在 try 外送出，避免 wp_send_json 的中止被下方 catch 吃掉。
+			if ( PaymentMethodChange::is_change_mer_trade_no( $mer_trade_no ) ) {
+				$outer_mer_id    = \is_array( $post ) && \is_string( $post['MerID'] ?? null ) ? (string) $post['MerID'] : '';
+				$change_accepted = PaymentMethodChange::route_notify( $trade_result, $outer_mer_id );
+			}
+		} catch (\Throwable $e) {
+			\do_action('woomp_payuni_log', 'error', '處理回調通知失敗: ' . $e->getMessage(), []);
+			\wp_send_json_error($e->getMessage());
+			return;
+		}
+
+		if ( null !== $change_accepted ) {
+			if ( $change_accepted ) {
+				\wp_send_json_success();
+			} else {
+				\wp_send_json_error( '換卡通知驗證失敗' );
+			}
+			return;
+		}
+
+		try {
+			// 取得訂單：以 ID 找並核對送出時落地的 MerTradeNo（見 TradeHandler::find_notify_order()）
 			$order = TradeHandler::find_notify_order($mer_trade_no);
 
 			if (!$order) {

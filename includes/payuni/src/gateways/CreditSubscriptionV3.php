@@ -13,6 +13,7 @@ namespace PAYUNI\Gateways;
 
 use J7\Payuni\Contracts\DTOs\SettingDTO;
 use J7\Payuni\Contracts\DTOs\TradeReqHashDTO;
+use J7\Payuni\Domains\Subscription\PaymentMethodChange;
 use J7\Payuni\Domains\Subscription\SubscriptionHandler;
 use J7\Payuni\Infrastructure\Http\TradeHandler;
 use J7\Payuni\Shared\Enums\EUseTokenType;
@@ -63,6 +64,8 @@ class CreditSubscriptionV3 extends AbstractGateway {
 			'subscription_payment_method_change',
 			'subscription_payment_method_change_customer',
 			'subscription_payment_method_change_admin',
+			// 換卡延後到綁卡成功才改付款方式（見 PaymentMethodChange），WCS 才會保留「同時更新所有訂閱」
+			'subscription_payment_method_delayed_change',
 			'multiple_subscriptions',
 			'tokenization',
 		];
@@ -174,6 +177,7 @@ class CreditSubscriptionV3 extends AbstractGateway {
 	 * 1. 金額 > 0：走 UNi Embed iframe 交易（強制約定信用卡 UseTokenType=3、CreditToken=email、不帶 CardInst）
 	 * 2. 金額 = 0 + 有已存 Token：直接 payment_complete
 	 * 3. 金額 = 0 + 無 Token：扣 5 元取 CreditHash
+	 * 另外，收到訂閱物件（WCS 換付款方式）時一律交給 PaymentMethodChange::start()。
 	 *
 	 * @param string $order_id 訂單 ID。
 	 * @return array
@@ -185,6 +189,12 @@ class CreditSubscriptionV3 extends AbstractGateway {
 			return [
 				'result' => 'failure',
 			];
+		}
+
+		// 收到訂閱物件 = WCS 換付款方式：一律只做 5 元綁卡，絕不扣款、絕不 payment_complete。
+		// 不可依金額判斷（WCS 只在 _wcsnonce 有效時才把 total 歸零）。
+		if ( \function_exists( 'wcs_is_subscription' ) && \wcs_is_subscription( $order ) ) {
+			return PaymentMethodChange::start( $order );
 		}
 
 		// 判斷零元不可用 (int)：0.9 元會被截斷成 0 而不收錢直接完成付款。

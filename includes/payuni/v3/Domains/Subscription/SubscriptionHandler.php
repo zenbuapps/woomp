@@ -59,49 +59,17 @@ final class SubscriptionHandler {
 	 * @return array{result: string, redirect?: string} 交易結果
 	 */
 	public function process_zero_amount_token( \WC_Order $order ): array {
-		$setting = SettingDTO::instance();
-
 		$order_suffix = $order->get_meta( '_payuni_order_suffix' ) ? '-' . $order->get_meta( '_payuni_order_suffix' ) : '';
 
-		$sdk_token = $order->get_meta( 'sdk_token_tmp', true );
-		$buyer_email = $order->get_billing_email();
+		$sdk_token    = (string) $order->get_meta( 'sdk_token_tmp', true );
+		$mer_trade_no = $order->get_order_number() . $order_suffix;
 
 		// 送出前落地本次 MerTradeNo（含流水號），3D 背景通知回來時以它核對訂單。
-		TradeHandler::remember_mer_trade_no( $order, $order->get_order_number() . $order_suffix );
-
-		$trade_params = [
-			'MerID'        => $setting->merchant_id,
-			'MerTradeNo'   => $order->get_order_number() . $order_suffix,
-			'Token'        => $sdk_token,
-			'TradeAmt'     => 5,
-			'Timestamp'    => \time(),
-			'NotifyURL'    => \home_url( '/wc-api/payuni_notify' ),
-			'UsrMail'      => $buyer_email,
-			'ProdDesc'     => '訂閱取得信用卡 Token',
-			// 續扣需要可幕後扣款的 CreditHash，只有「約定信用卡」類型才會由 PayUni 壓碼。
-			// UseTokenType=2（記憶卡號）僅供下次結帳帶出卡號，授權雖成功但不回 CreditHash。
-			// 此值必須與 token_get 及前端 getTradeResult 送出的 useTokenType 完全一致。
-			'UseTokenType' => EUseTokenType::FORCE_BIND->value,
-			'CreditToken'  => CreditTokenUtils::sanitize( $buyer_email, $order->get_customer_id() ),
-		];
-
-		if ( $setting->enable_3d_auth ) {
-			$trade_params['API3D'] = 1;
-			$trade_params['ReturnURL'] = $order->get_checkout_order_received_url();
-		}
-
-		$encrypt_info = EncryptUtils::encrypt( $trade_params );
-		$request_body = [
-			'MerID'       => $setting->merchant_id,
-			'Version'     => '1.0',
-			'EncryptInfo' => $encrypt_info,
-			'HashInfo'    => EncryptUtils::hash_info( $encrypt_info ),
-		];
+		TradeHandler::remember_mer_trade_no( $order, $mer_trade_no );
 
 		try {
 			$handler = new TradeHandler();
-			$raw_response = $handler->execute_trade( $request_body );
-			$trade_result = $handler->process_notify( $raw_response );
+			$trade_result = $this->request_binding_trade( $order, $mer_trade_no, $sdk_token, $order->get_checkout_order_received_url() );
 
 			$trade_no = $trade_result['TradeNo'] ?? '';
 			$url_3d   = $trade_result['URL'] ?? '';
@@ -152,6 +120,59 @@ final class SubscriptionHandler {
 				'result' => 'failure',
 			];
 		}
+	}
+
+	/**
+	 * 送出 5 元綁卡交易（強制約定信用卡），回傳解密後的結果
+	 *
+	 * 只負責組參數、送出與解密，不碰訂單／訂閱狀態；成功、3D、失敗由呼叫端判斷。
+	 * 零元首購（process_zero_amount_token）與定期定額換卡（PaymentMethodChange）共用。
+	 *
+	 * @param \WC_Order $target       綁卡對象（訂單或訂閱），取帳單 email 與客戶 ID
+	 * @param string    $mer_trade_no 本次 MerTradeNo（每次嘗試都必須不同）
+	 * @param string    $sdk_token    前端 SDK Token
+	 * @param string    $return_url   3D 驗證後導回的網址（僅 3D 開啟時送出）
+	 *
+	 * @return array 解密後的交易結果
+	 * @throws \Exception When the HTTP request, response verification or decryption fails.
+	 */
+	public function request_binding_trade( \WC_Order $target, string $mer_trade_no, string $sdk_token, string $return_url ): array {
+		$setting     = SettingDTO::instance();
+		$buyer_email = $target->get_billing_email();
+
+		$trade_params = [
+			'MerID'        => $setting->merchant_id,
+			'MerTradeNo'   => $mer_trade_no,
+			'Token'        => $sdk_token,
+			'TradeAmt'     => 5,
+			'Timestamp'    => \time(),
+			'NotifyURL'    => \home_url( '/wc-api/payuni_notify' ),
+			'UsrMail'      => $buyer_email,
+			'ProdDesc'     => '訂閱取得信用卡 Token',
+			// 續扣需要可幕後扣款的 CreditHash，只有「約定信用卡」類型才會由 PayUni 壓碼。
+			// UseTokenType=2（記憶卡號）僅供下次結帳帶出卡號，授權雖成功但不回 CreditHash。
+			// 此值必須與 token_get 及前端 getTradeResult 送出的 useTokenType 完全一致。
+			'UseTokenType' => EUseTokenType::FORCE_BIND->value,
+			'CreditToken'  => CreditTokenUtils::sanitize( $buyer_email, (int) $target->get_customer_id() ),
+		];
+
+		if ( $setting->enable_3d_auth ) {
+			$trade_params['API3D']     = 1;
+			$trade_params['ReturnURL'] = $return_url;
+		}
+
+		$encrypt_info = EncryptUtils::encrypt( $trade_params );
+		$request_body = [
+			'MerID'       => $setting->merchant_id,
+			'Version'     => '1.0',
+			'EncryptInfo' => $encrypt_info,
+			'HashInfo'    => EncryptUtils::hash_info( $encrypt_info ),
+		];
+
+		$handler      = new TradeHandler();
+		$raw_response = $handler->execute_trade( $request_body );
+
+		return $handler->process_notify( $raw_response );
 	}
 
 	/**
