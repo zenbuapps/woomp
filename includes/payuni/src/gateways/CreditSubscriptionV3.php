@@ -220,6 +220,9 @@ class CreditSubscriptionV3 extends AbstractGateway {
 			$order->update_meta_data( '_payuni_token_id', (string) $token_id );
 			$order->save();
 
+			// 續扣優先讀訂閱綁定的 token
+			TradeHandler::bind_token_to_subscriptions( $order, $token_id );
+
 			return [
 				'result'   => 'success',
 				'redirect' => $this->get_return_url( $order ),
@@ -418,7 +421,7 @@ class CreditSubscriptionV3 extends AbstractGateway {
 	 * 尋找使用者已儲存的 Token ID
 	 *
 	 * 檢查使用者選擇的 saved_token_id（前端傳入），
-	 * 或搜尋 V3/V1 雙 gateway_id 的 Token。
+	 * 或搜尋 V3 訂閱閘道／payuni-credit-v3 的 Token（不含 V1）。
 	 *
 	 * @param \WC_Order $order 訂單物件
 	 *
@@ -443,10 +446,11 @@ class CreditSubscriptionV3 extends AbstractGateway {
 			return null;
 		}
 
+		// 不收 V1（payuni-credit-subscription）token：V3 續扣需要 V3 綁卡取得的 CreditHash，
+		// 拿 V1 token 直接完成會讓訂閱沒有重新綁卡（issue #147）。
 		$gateway_ids = [
-			'payuni-credit-subscription-v3',
-			'payuni-credit-subscription',
-			'payuni-credit-v3',
+			self::ID,
+			CreditV3::ID,
 		];
 
 		foreach ( $gateway_ids as $gateway_id ) {

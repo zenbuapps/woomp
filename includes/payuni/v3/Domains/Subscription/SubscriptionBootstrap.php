@@ -73,6 +73,9 @@ final class SubscriptionBootstrap {
 			1
 		);
 
+		// 換卡：V3 付款 meta（_payuni_token_id）註冊與驗證
+		PaymentMethodChange::register_hooks();
+
 		// 後台手動扣款 Metabox
 		SubscriptionMetabox::register();
 
