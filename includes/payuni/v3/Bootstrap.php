@@ -13,6 +13,7 @@ use J7\Payuni\Infrastructure\Http\HttpClient;
 use J7\Payuni\Infrastructure\Http\TradeHandler;
 use J7\Payuni\Shared\Enums\EMode;
 use J7\Payuni\Shared\Enums\EUseTokenType;
+use J7\Payuni\Shared\Utils\LogMaskUtils;
 use J7\Payuni\Shared\Utils\OrderUtils;
 use PAYUNI\Gateways\CreditV3;
 
@@ -77,7 +78,8 @@ final class Bootstrap
 		];
 
 		if ($args) {
-			$context['args'] = $args;
+			// 寫檔前最後一道遮罩（縱深防禦）：任何呼叫端漏遮的 CreditHash／Card6No 都不會落地
+			$context['args'] = LogMaskUtils::mask($args);
 		}
 
 		$logger->log($level, $message, $context);
