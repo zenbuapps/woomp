@@ -122,7 +122,7 @@ PayNow 物流回呼的規格文件在商家後台內，對外查不到，是否�
 
 ### PayUni V3 定期定額換卡（issue #147）
 
-入口是 `PaymentMethodChange`（`includes/payuni/v3/Domains/Subscription/`），客戶在「我的帳號 → 訂閱 → 更改付款」用 V3 UNi Embed 重新綁卡：只授權 5 元（`UseTokenType=3`）取得 CreditHash，2 分鐘後排程取消授權，**絕不扣每期金額**。
+入口是 `PaymentMethodChange`（`includes/payuni/v3/Domains/Subscription/`），客戶在「我的帳號 → 訂閱 → 更改付款」用 V3 UNi Embed 重新綁卡：只授權 5 元（`UseTokenType=3`）取得 CreditHash，2 分鐘後排程釋放這 5 元（見下方「5 元釋放」），**絕不扣每期金額**。
 
 - **WCS 會先改付款方式、再歸零 total**：`change_payment_method_via_pay_shortcode()` 在呼叫 `process_payment()` **之前**就 `update_payment_method()`，3D 失敗或客戶中途離開，訂閱會停在 V3 卻沒有 token。所以 V3 對 `woocommerce_subscriptions_update_payment_via_pay_shortcode` 回 false（延後更新，閘道需 support `subscription_payment_method_delayed_change`），綁卡成功後 `complete()` 才自己呼叫 `update_payment_method()`。WCS 只在 `_wcsnonce` 有效時把訂閱 total 歸零，**不可依金額判斷是不是換卡**：`CreditSubscriptionV3::process_payment()` 收到 `wcs_is_subscription()` 物件就一律走 `PaymentMethodChange::start()`。
 - **訂閱物件絕不 `payment_complete()`、絕不進 `woomp_copy_order()`**：`payment_complete()` 會把該訂閱「待付款的續訂單」用 5 元標成已付款。`TradeHandler::update_order_status()` 收到訂閱物件直接 `error` log 後 return（縱深防禦）。
@@ -130,8 +130,11 @@ PayNow 物流回呼的規格文件在商家後台內，對外查不到，是否�
 - **續扣 token 優先序**（`SubscriptionHandler::get_card_hash()`，每層驗證 token 存在、屬於訂單客戶、閘道符合）：訂閱綁定的 `_payuni_token_id` → 續訂單自己的 → 客戶預設 token（只收 V3 訂閱閘道）→ 最新 V3 訂閱 token → `payuni-credit-v3` token → V1 token（最後手段，寫 `warning`）。以前客戶預設 V1 token 會搶先，換卡完全沒效果。`CreditSubscriptionV3::find_saved_token_id()` 也不再 fallback 到 V1，否則 0 元首購會拿 V1 token 直接完成而沒重新綁卡。首購／續訂單付款成功後 `TradeHandler::bind_token_to_subscriptions()` 把 token 綁到訂閱。換卡暫存 meta（`_payuni_change_*`、`_payuni_mer_trade_no`）由 `wc_subscriptions_renewal_order_data` filter 剝掉，不複製到續訂單。
 - **換卡頁只顯示 V3**：`SubscriptionBootstrap::conditional_payment_gateways()` 在換卡頁（order-pay 且為換卡請求）保留 V3、移除 V1（V1 綁卡走 PayUni 停用中的幕後授權 API）；`woomp_payuni_allow_v1_change_payment` filter（預設 false）為逃生口。一般結帳空購物車仍過濾訂閱閘道；order-pay 付待付款母單**不在本次範圍**，仍走購物車過濾。
 - **前端 order-pay 模式**：換卡頁購物車是空的，`Bootstrap::enqueue_checkout_scripts()` 在換卡情境強制 `USE_TOKEN_TYPE=3` 並 localize `PAGE_CONTEXT='order-pay'`（購物車空會變 2，不回 CreditHash）。前端不會觸發 `updated_checkout`，改在 DOM ready 初始化 iframe；送出時 `getTradeResult()` 後把 `sdk_token_tmp` 寫進 `form#order_review`，以 `HTMLFormElement.prototype.submit.call()` 原生送出（避開 `name="submit"` 衝突與 WC submit handler），**不可**呼叫 `ApiService.submitCheckout()`（會用購物車建新訂單）。送出後鎖住按鈕防連點重複綁卡。3D 網址是外部網域，`wp_safe_redirect()` 會擋，故 `allowed_redirect_hosts` 只在本次請求對 `payuni.com.tw` 放行。
+- **5 元釋放（`AuthorizationRelease`，零元首購共用）**：商店多半自動請款（sandbox 授權約 3 秒即 `CloseStatus=2`），已請款的 `trade/cancel` 必回 CANCEL03001。所以先 `trade/query`：未請款→取消授權；已請款→退款（`trade/close` CloseType=2，5 元）；請款處理中（1/7）→重試；取消回已請款→改退款。查到金額不是 5 元一律不動（排程只帶 TradeNo）。每個 TradeNo 一筆 option `woomp_payuni_auth_release_{TradeNo}`，以 INSERT IGNORE／條件 UPDATE 取得處理權；送退款前先記 `refund_sent`，結果不明時只查詢不重送。排程參數仍只有 TradeNo（相容舊排程），寫備註的對象 ID 存在 option。HttpClient 遇外層錯誤碼會驗章解密內層，例外（`PayuniApiException`）帶出 PayUni 真正訊息；取消／退款內層非 SUCCESS 也算失敗。
+- **3D 導回**：ReturnURL 一律送出（PayUni 商店可能強制 3D，沒帶就停在 PayUni 結果頁），換卡指向 `wc-api/payuni_change_payment_return?subscription_id=`，303 導向訂閱檢視頁（跨站 POST 不帶 Lax 登入 cookie，直接回 my-account 會看到登入頁）。導向目標只由伺服器決定；POST 內容須通過與 notify 相同的驗章且屬於該訂閱的 attempt 才交給 `handle_notify()`。3D 等待中擋下 WCS 的「付款方式已變更」（`woocommerce_add_success`，只擋 WCS 的三種訊息一次），檢視頁帶 `payuni_change` 時由 `add_status_notice()` 依最新 attempt 提示處理中／已變更／未變更。
+- **Log 遮罩**：`LogMaskUtils` 遮罩 CreditHash、Card6No 等；`process_notify()` 的解密結果 log 在來源遮罩，`Bootstrap::log_handler` 寫檔前再遮罩一次。
 
-**已知缺口**：(1) 3D 路徑的 5 元取消要等 webhook 才排程，webhook 漏收時沒有保底取消，客戶帳單會留一筆 5 元，商家需到 PayUni 後台手動取消；(2) `schedule_cancel_once()` 以訂閱 meta 的 `trade_nos` 去重，是「讀－判斷－寫」非原子；同步回應與 webhook 幾乎同時到時，兩邊可能都通過檢查而排兩次取消（第二次取消的結果 [待確認]，需實測競態）。後續（對帳補償、order-pay 付母單）列在 issue #147 第五階段。
+**已知缺口**：(1) 3D 路徑若 webhook 漏收「且」顧客沒回到商店（關掉分頁），仍不會排程釋放 5 元，商家需到 PayUni 後台處理；(2) `schedule_cancel_once()` 的去重仍非原子，同步結果、導回與 webhook 同時到時可能排兩次釋放，但 `AuthorizationRelease` 以 option 狀態冪等，第二次不會再呼叫 PayUni；(3) `build_order_note_html()` 的訂單備註仍含 CreditHash（僅後台可見）。後續（對帳補償、order-pay 付母單）列在 issue #147 第五階段。
 
 ### HPOS 相容性
 
