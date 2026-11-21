@@ -12,16 +12,22 @@ Feature: EZPAY 電子發票作廢
     Scenario: 訂單退款時自動作廢發票
       Given 作廢模式為「自動」（wc_woomp_ezpay_invoice_invalid_mode = auto）
       And 自動作廢觸發狀態為「已退款」（wc_woomp_ezpay_invoice_invalid_at = wc-refunded）
-      And 訂單 #123 已開立發票（_ezpay_invoice_status = 1）
+      And 訂單 #123 已開立發票（_ezpay_invoice_number 不為空）
       When 訂單 #123 狀態變更為「已退款」
       Then 系統先查詢發票資訊（info API）
       And 系統呼叫 ezPay invalid API 作廢發票
       And 訂單 meta _ezpay_invoice_number 清空
       And 訂單 meta _ezpay_invoice_result 清空
+      And 訂單 meta _ezpay_invoice_status 設為 0
       And 訂單備註新增作廢結果
 
+    Scenario: 修正前開立、沒有狀態欄位的發票也會自動作廢（issue #148）
+      Given 訂單 #123 有 _ezpay_invoice_number，但沒有 _ezpay_invoice_status
+      When 訂單 #123 狀態變更為作廢觸發狀態
+      Then 系統呼叫 ezPay invalid API 作廢發票
+
     Scenario: 發票未開立時不觸發作廢
-      Given 訂單 #123 未開立發票（_ezpay_invoice_status != 1）
+      Given 訂單 #123 未開立發票（_ezpay_invoice_number 為空）
       When 訂單狀態變更為觸發狀態
       Then 系統不呼叫 ezPay API
 
@@ -62,6 +68,7 @@ Feature: EZPAY 電子發票作廢
       When 處理回傳結果
       Then 訂單備註寫入錯誤訊息
       And 仍然清空 _ezpay_invoice_number 與 _ezpay_invoice_result
+      And _ezpay_invoice_status 設為 0
 
     Scenario: 作廢失敗（一般錯誤）
       Given ezPay API 回傳其他錯誤

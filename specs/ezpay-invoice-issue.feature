@@ -157,6 +157,7 @@ Feature: EZPAY 電子發票開立
       Then 訂單備註寫入「ezPay電子發票開立結果」含發票號碼與開立時間
       And _ezpay_invoice_number 設為 InvoiceNumber
       And _ezpay_invoice_result 設為完整回傳物件
+      And _ezpay_invoice_status 設為 1
 
     Scenario: 開立失敗
       Given ezPay API 回傳非 SUCCESS

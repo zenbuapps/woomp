@@ -18,8 +18,15 @@ class EzPayInvoiceHandler {
 
 	/**
 	 * Construct
+	 *
+	 * @param object|null $invoice 測試時可注入假的 EzpayInvoice；未傳入時依設定建立真正的 API 物件。
 	 */
-	public function __construct() {
+	public function __construct( $invoice = null ) {
+		if ( null !== $invoice ) {
+			$this->invoice = $invoice;
+			return;
+		}
+
 		if ( ( wc_string_to_bool( get_option( 'wc_woomp_ezpay_invoice_testmode_enabled' ) ) ) ) {
 			$account       = [
 				'merchantID' => get_option( 'wc_woomp_ezpay_invoice_merchant_id_test' ),
@@ -235,6 +242,7 @@ class EzPayInvoiceHandler {
 		if ( $this->invoice->isOK() || $result_data->code === 'SUCCESS' ) {
 			$order->update_meta_data( '_ezpay_invoice_result', $result_data );
 			$order->update_meta_data( '_ezpay_invoice_number', $this->invoice->getResult( 'InvoiceNumber' ) );
+			$order->update_meta_data( '_ezpay_invoice_status', '1' );
 			$order_note = "ezPay電子發票開立結果<br>回傳訊息：{$result_data->message}<br>回應代碼：{$result_data->code}";
 			if ( 'SUCCESS' === $result_data->code ) {
 				$order_note .= "<br>發票號碼：{$result_data->result->InvoiceNumber}";
@@ -284,18 +292,29 @@ class EzPayInvoiceHandler {
 					$order_note .= "<br>作廢時間：{$result_data->result->CreateTime}";
 				}
 				$order->add_order_note( $order_note );
-				$order->update_meta_data( '_ezpay_invoice_number', '' );
-				$order->update_meta_data( '_ezpay_invoice_result', '' );
-				$order->save();
-			} else {
-				$order->add_order_note( 'ezPay電子發票作廢結果<br>回傳訊息：' . $this->invoice->getErrorMessage()['message'] . '<br>回傳代碼：' . $this->invoice->getErrorMessage()['code'] );
-				if ( 'LIB10005' === $this->invoice->getErrorMessage()['code'] ) {
-					$order->update_meta_data( '_ezpay_invoice_number', '' );
-					$order->update_meta_data( '_ezpay_invoice_result', '' );
-					$order->save();
-				}
+				$this->clear_invoice_meta( $order );
+				return '作廢結果：' . esc_html( '發票作廢成功' );
 			}
-			return '作廢結果：' . esc_html( '發票作廢成功' );
+
+			$error = $this->invoice->getErrorMessage();
+			$order->add_order_note( 'ezPay電子發票作廢結果<br>回傳訊息：' . $error['message'] . '<br>回傳代碼：' . $error['code'] );
+			// LIB10005：發票已作廢過，視同作廢完成。
+			if ( 'LIB10005' === $error['code'] ) {
+				$this->clear_invoice_meta( $order );
+			}
+			return '作廢結果：' . esc_html( $error['message'] );
 		}
+	}
+
+	/**
+	 * 作廢完成後清空發票資料，並將狀態設為未開立
+	 *
+	 * @param \WC_Order $order 訂單。
+	 */
+	private function clear_invoice_meta( $order ) {
+		$order->update_meta_data( '_ezpay_invoice_number', '' );
+		$order->update_meta_data( '_ezpay_invoice_result', '' );
+		$order->update_meta_data( '_ezpay_invoice_status', '0' );
+		$order->save();
 	}
 }

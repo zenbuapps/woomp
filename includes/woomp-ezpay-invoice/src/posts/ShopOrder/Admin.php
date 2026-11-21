@@ -133,20 +133,31 @@ class Admin {
 		$order = \wc_get_order( $order_id );
 
 		if ( $order->get_meta( '_ezpay_invoice_status' ) === '0' || $order->get_meta( '_ezpay_invoice_number' ) === '' ) {
-			$invoice = new EzpayInvoiceHandler();
-			$invoice->generate_invoice( $order_id );
+			$this->get_handler()->generate_invoice( $order_id );
 		}
 	}
 
 	/**
 	 * 作廢發票
+	 *
+	 * 以發票號碼判斷是否已開立（issue #148）：`_ezpay_invoice_status` 在修正前從未被寫入，
+	 * 舊訂單只有發票號碼，看狀態欄位會讓自動作廢永遠不觸發。
 	 */
 	public function invalid_invoice( $order_id ) {
 		$order = \wc_get_order( $order_id );
-		if ( $order->get_meta( '_ezpay_invoice_status' ) === '1' ) {
-			$invoice = new EzpayInvoiceHandler();
-			$invoice->invalid_invoice( $order_id );
+		if ( $order && ! empty( $order->get_meta( '_ezpay_invoice_number' ) ) ) {
+			$this->get_handler()->invalid_invoice( $order_id );
 		}
+	}
+
+	/**
+	 * 取得發票處理器，測試可透過 `woomp_ezpay_invoice_handler` filter 替換
+	 *
+	 * @return EzPayInvoiceHandler
+	 */
+	private function get_handler() {
+		$handler = \apply_filters( 'woomp_ezpay_invoice_handler', null );
+		return $handler instanceof EzPayInvoiceHandler ? $handler : new EzPayInvoiceHandler();
 	}
 }
 
