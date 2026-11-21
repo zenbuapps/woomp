@@ -178,7 +178,7 @@ final class HposOrderMetaTest extends WP_UnitTestCase {
 		$invoice_meta = [
 			'_ezpay_invoice_number' => 'CD87654321',
 			'_ezpay_invoice_date'   => '2024-06-15',
-			'_ezpay_invoice_status' => 'issued',
+			'_ezpay_invoice_status' => '1',
 		];
 
 		foreach ( $invoice_meta as $key => $value ) {

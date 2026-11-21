@@ -76,6 +76,7 @@ Flow:
       → Condition: isOK() 或 code === 'SUCCESS'
         Yes → 更新 _ezpay_invoice_result（完整回傳物件）
               更新 _ezpay_invoice_number（發票號碼）
+              更新 _ezpay_invoice_status = '1'
               訂單備註寫入成功訊息（含發票號碼、開立時間）
         No → 更新 _ezpay_invoice_result 為錯誤訊息
              訂單備註寫入失敗訊息
@@ -84,7 +85,7 @@ Flow:
       → 前端 admin.js 顯示 alert 並 reload 頁面
 
 Side Effects:
-  - 訂單 meta 更新：_ezpay_invoice_result, _ezpay_invoice_number
+  - 訂單 meta 更新：_ezpay_invoice_result, _ezpay_invoice_number, _ezpay_invoice_status（成功時）
   - 訂單備註新增開立結果
 
 Related Features:

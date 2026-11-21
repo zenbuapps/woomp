@@ -111,6 +111,10 @@ PayNow 物流回呼的規格文件在商家後台內，對外查不到，是否�
 
 綠界在明細加總和 `SalesAmount` 對不上時會回 `RtnCode 1200031`。`EcpayInvoiceHandler::build_invoice_items()` 的商品、運費、費用都列**含稅**金額，折扣行**不自己重算稅額**，一律用「訂單總額 − 已列出的明細」的差額（issue #137：以前用 `get_total_tax()` 算，那是折扣後的稅，而且含運費稅，只在 WC 沒開稅金時才剛好對）。多數台灣商店沒開 WC 稅金，所以稅相關的 bug 平常看不到，測試要開稅金才測得出來（`EcpayInvoiceItemsTest`）。
 
+### ezPay 電子發票以發票號碼判斷是否已開立
+
+`_ezpay_invoice_status` 在 issue #148 修正前從未被寫入，正式站的舊訂單只有 `_ezpay_invoice_number`。所以 `Admin::invalid_invoice()`（自動作廢）一律看**發票號碼是否為空**，不看狀態欄位。狀態欄位現在仍會寫入（開立成功 `'1'`；作廢成功或 `LIB10005` 為 `'0'`），用來和 `specs/` 對齊，但流程不依賴它。作廢失敗時 `EzPayInvoiceHandler::invalid_invoice()` 回傳 ezPay 的錯誤訊息。測試透過 `woomp_ezpay_invoice_handler` filter 加上 `new EzPayInvoiceHandler( $fake )` 注入假 API（ezPay 套件用 Guzzle，`pre_http_request` 攔不到），見 `EzpayInvoiceAutoVoidTest`。
+
 ### 結帳驗證不可依賴動態 `required`
 
 `WC_Checkout::get_checkout_fields()` 會快取欄位，只要有其他外掛在 `woocommerce_checkout_init`（早於 `woocommerce_checkout_process`）讀過欄位，之後在 filter 裡依 `did_action('woocommerce_checkout_process')` 動態改 `required` 就不會生效；另外，沒勾「運送到不同地址」時，WC 會略過整組 shipping 欄位的驗證（issue #136）。因此：

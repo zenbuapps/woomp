@@ -18,7 +18,8 @@ Flow:
        → 呼叫 Ajax::invalid_invoice()
 
   2. [系統] 檢查發票是否已開立
-     → Condition (自動): _ezpay_invoice_status === '1'
+     → Condition (自動): _ezpay_invoice_number 不為空
+       （issue #148：不看 _ezpay_invoice_status，修正前開立的發票沒有這個欄位）
        Yes → 繼續
        No → 中止
 
@@ -45,9 +46,10 @@ Flow:
   8. [EzPayInvoiceHandler] 處理回傳結果
      → Condition: isOK()
        Yes → 訂單備註寫入「ezPay電子發票作廢結果」（含發票號碼、作廢時間）
-             清空 _ezpay_invoice_number 與 _ezpay_invoice_result
+             清空 _ezpay_invoice_number 與 _ezpay_invoice_result，_ezpay_invoice_status 設為 '0'
        No → 訂單備註寫入錯誤訊息
-            若錯誤碼為 LIB10005 → 仍然清空 _ezpay_invoice_number 與 _ezpay_invoice_result
+            若錯誤碼為 LIB10005 → 仍然清空 _ezpay_invoice_number 與 _ezpay_invoice_result，_ezpay_invoice_status 設為 '0'
+            回傳 ezPay 錯誤訊息（不再一律回傳「發票作廢成功」）
 
   9. [Ajax] 回傳 JSON 結果給前端（手動模式）
      → 前端 admin.js 先彈出確認框「確定要刪除此筆發票」
@@ -56,6 +58,7 @@ Flow:
 
 Side Effects:
   - 訂單 meta 清空：_ezpay_invoice_number, _ezpay_invoice_result
+  - 訂單 meta 更新：_ezpay_invoice_status = '0'
   - 訂單備註新增作廢結果
 
 Related Features:
