@@ -115,6 +115,10 @@ PayNow 物流回呼的規格文件在商家後台內，對外查不到，是否�
 
 `_ezpay_invoice_status` 在 issue #148 修正前從未被寫入，正式站的舊訂單只有 `_ezpay_invoice_number`。所以 `Admin::invalid_invoice()`（自動作廢）一律看**發票號碼是否為空**，不看狀態欄位。狀態欄位現在仍會寫入（開立成功 `'1'`；作廢成功或 `LIB10005` 為 `'0'`），用來和 `specs/` 對齊，但流程不依賴它。作廢失敗時 `EzPayInvoiceHandler::invalid_invoice()` 回傳 ezPay 的錯誤訊息。測試透過 `woomp_ezpay_invoice_handler` filter 加上 `new EzPayInvoiceHandler( $fake )` 注入假 API（ezPay 套件用 Guzzle，`pre_http_request` 攔不到），見 `EzpayInvoiceAutoVoidTest`。
 
+### PayNow 電子發票不送買家地址
+
+外掛不寄紙本發票，`Paynow_Einvoice::get_buyer_addr()` 預設回傳空字串（issue #150；以前送 `BRING` + 帳單地址，只是讓 PayNow 多存一份個資）。需要時用 `paynow_ei_send_buyer_address` filter 回 true 恢復。每列明細送出前經 `paynow_ei_invoice_data` filter（`$data, $order, $order_item`，值不含 `'` 前綴）；PayNow 的 csvStr **依位置解析**，`format_invoice_row()` 固定 17 欄的順序，filter 移除的欄位送空值、多加的忽略，逗號／換行換成空白。測試見 `PaynowEinvoiceBuyerDataTest`（攔 `pre_http_request` 解 csvStr）。
+
 ### 結帳驗證不可依賴動態 `required`
 
 `WC_Checkout::get_checkout_fields()` 會快取欄位，只要有其他外掛在 `woocommerce_checkout_init`（早於 `woocommerce_checkout_process`）讀過欄位，之後在 filter 裡依 `did_action('woocommerce_checkout_process')` 動態改 `required` 就不會生效；另外，沒勾「運送到不同地址」時，WC 會略過整組 shipping 欄位的驗證（issue #136）。因此：

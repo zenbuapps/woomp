@@ -443,31 +443,35 @@ class Paynow_Einvoice {
 			$order_items = $order->get_items( [ 'line_item', 'fee', 'shipping' ] );
 			if ( ! is_wp_error( $order_items ) ) {
 				foreach ( $order_items as $item_id => $order_item ) {
-					$ei_datas[] = [
+					$qty = ( $order_item->get_type() == 'line_item' ) ? $order_item->get_quantity() : '1';
 
-						'orderno'       => "'" . $order->get_order_number(),  // 商店訂單編號
+					$row = [
 
-						'buyer_id'      => "'" . $ubn, // 統編
-						'buyer_name'    => "'" . $buyer_name, // 買受人名稱
-						'buyer_add'     => "'" . $buyer_addr, // 若填入代表要寄送紙本發票，不寄送紙本發票請填空，如最前面為 BRING+ 地址則會保留地址資訊但不寄送發票
-						'buyer_phone'   => "'" . $order->get_billing_phone(),
-						'buyer_email'   => "'" . $order->get_billing_email(),
+						'orderno'       => $order->get_order_number(),  // 商店訂單編號
 
-						'CarrierType'   => "'" . $carrier_type,
-						'CarrierID_1'   => "'" . $carrier_id1,
-						'CarrierID_2'   => "'" . $carrier_id2, // 發票隱碼
-						'LoveCode'      => "'" . substr( $love_code, 0, 8 ),
+						'buyer_id'      => $ubn, // 統編
+						'buyer_name'    => $buyer_name, // 買受人名稱
+						'buyer_add'     => $buyer_addr, // 若填入代表要寄送紙本發票，不寄送紙本發票請填空，如最前面為 BRING+ 地址則會保留地址資訊但不寄送發票
+						'buyer_phone'   => $order->get_billing_phone(),
+						'buyer_email'   => $order->get_billing_email(),
 
-						'Description'   => "'" . str_replace( ',', ' ', $order_item->get_name() ),
-						'Quantity'      => "'" . $qty = ( $order_item->get_type() == 'line_item' ) ? $order_item->get_quantity() : '1',
-						'UnitPrice'     => "'" . round( ( (float) $order_item->get_total() / $qty ), 2 ),
-						'Amount'        => "'" . round( $order_item->get_total() ),
-						'Remark'        => "'" . substr( $comment, 0, 25 ),
+						'CarrierType'   => $carrier_type,
+						'CarrierID_1'   => $carrier_id1,
+						'CarrierID_2'   => $carrier_id2, // 發票隱碼
+						'LoveCode'      => substr( $love_code, 0, 8 ),
 
-						'ItemTaxtype'   => "'" . $tax_type,
-						'IsPassCustoms' => "'", // 1:未經海關出口,2:經海關出口 (零稅率為必填非零稅率發票請留空)
+						'Description'   => $order_item->get_name(),
+						'Quantity'      => $qty,
+						'UnitPrice'     => round( ( (float) $order_item->get_total() / $qty ), 2 ),
+						'Amount'        => round( $order_item->get_total() ),
+						'Remark'        => substr( $comment, 0, 25 ),
+
+						'ItemTaxtype'   => $tax_type,
+						'IsPassCustoms' => '', // 1:未經海關出口,2:經海關出口 (零稅率為必填非零稅率發票請留空)
 
 					];
+
+					$ei_datas[] = $this->format_invoice_row( $row, $order, $order_item );
 				}
 			}
 		} //endforeach
@@ -877,13 +881,57 @@ class Paynow_Einvoice {
 		return $csvStr;
 	}
 
+	/**
+	 * 買受人地址
+	 *
+	 * 外掛不寄送紙本發票，地址對開立電子發票沒有用途，預設不送（issue #150）。
+	 * 以前回傳 BRING + 帳單地址（保留地址但不寄送），只是讓 PayNow 多存一份買家個資。
+	 * 確實需要時可用 `paynow_ei_send_buyer_address` filter 回傳 true 恢復舊行為。
+	 *
+	 * @param \WC_Order|false $order 訂單
+	 * @return string
+	 */
 	private function get_buyer_addr( $order ) {
-		if ( $order ) {
-			// 不寄送發票
-			return 'BRING' . $order->get_billing_state() . $order->get_billing_city() . $order->get_billing_address_1() . $order->get_billing_address_2();
-		} else {
+		if ( ! $order || ! \apply_filters( 'paynow_ei_send_buyer_address', false, $order ) ) {
 			return '';
 		}
+		// BRING 前綴：保留地址資訊但不寄送紙本發票。
+		return 'BRING' . $order->get_billing_state() . $order->get_billing_city() . $order->get_billing_address_1() . $order->get_billing_address_2();
+	}
+
+	/**
+	 * 套用 `paynow_ei_invoice_data` filter 後轉成 PayNow 上傳格式的一列
+	 *
+	 * PayNow 的 csvStr 依欄位「位置」解析，所以欄位順序與數量固定為 $row 的 key；
+	 * filter 移除的欄位會送空值，多加的欄位會被忽略。逗號與換行會破壞 CSV，一律換成空白。
+	 *
+	 * @param array<string,mixed> $row        欄位 => 原始值（不含 PayNow 要求的 ' 前綴）
+	 * @param \WC_Order           $order      訂單
+	 * @param \WC_Order_Item      $order_item 本列對應的訂單項目
+	 * @return array<string,string>
+	 */
+	private function format_invoice_row( array $row, $order, $order_item ): array {
+		/**
+		 * 送出 PayNow 開立發票前，調整單一明細列的欄位值。
+		 *
+		 * 例如不想送電話：`$data['buyer_phone'] = '';`。欄位不可增減，只能改值。
+		 *
+		 * @param array<string,mixed> $data       欄位 => 值
+		 * @param \WC_Order           $order      訂單
+		 * @param \WC_Order_Item      $order_item 訂單項目
+		 */
+		$filtered = \apply_filters( 'paynow_ei_invoice_data', $row, $order, $order_item );
+		if ( ! is_array( $filtered ) ) {
+			$filtered = $row;
+		}
+
+		$formatted = [];
+		foreach ( array_keys( $row ) as $key ) {
+			$value             = $filtered[ $key ] ?? '';
+			$value             = is_scalar( $value ) ? (string) $value : '';
+			$formatted[ $key ] = "'" . str_replace( [ ',', "\r", "\n" ], ' ', $value );
+		}
+		return $formatted;
 	}
 
 	public function paynow_einvoice_add_settings() {
